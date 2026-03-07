@@ -1,0 +1,341 @@
+/* SingPrompt - 저시력 친화 스타일 */
+/* 접근성: 검은 배경, 흰 글씨, 노란 강조 버튼 */
+
+:root {
+  --bg-dark: #0a0a0a;
+  --bg-panel: #111;
+  --text-primary: #fff;
+  --text-muted: #ccc;
+  --accent: #f5c542;
+  --accent-hover: #ffd54f;
+  --border: #333;
+  --font-size-base: 1.125rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+}
+
+@media (max-width: 768px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+}
+
+/* 좌측 패널: 노래 리스트 */
+.panel-list {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.panel-title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.upload-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.btn:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 노란 강조 버튼 (접근성) */
+.btn-upload,
+.btn-play,
+.btn-prompter,
+.btn-scroll {
+  background: var(--accent);
+  color: #1a1a1a;
+}
+
+.btn-upload:hover,
+.btn-play:hover,
+.btn-prompter:hover,
+.btn-scroll:hover {
+  background: var(--accent-hover);
+}
+
+.btn-pause,
+.btn-stop {
+  background: #444;
+  color: var(--text-primary);
+}
+
+.btn-pause:hover,
+.btn-stop:hover {
+  background: #555;
+}
+
+.btn-close-prompter {
+  background: #333;
+  color: var(--text-primary);
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10;
+}
+
+.song-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.song-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.25rem;
+  background: #1a1a1a;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.song-list li:hover {
+  background: #222;
+}
+
+.song-list li.active {
+  border-color: var(--accent);
+  background: #252520;
+}
+
+.song-list .song-name {
+  flex: 1;
+  font-size: 1rem;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.song-list .btn-list-play {
+  flex-shrink: 0;
+  padding: 0.4rem 0.6rem;
+  background: var(--accent);
+  color: #1a1a1a;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.song-list .btn-delete {
+  flex-shrink: 0;
+  padding: 0.3rem 0.5rem;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.song-list .btn-delete:hover {
+  color: #e57373;
+}
+
+/* 중앙: 메인 영역 */
+.panel-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--bg-dark);
+}
+
+.main-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.song-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.lyrics-area {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.lyrics-text,
+.prompter-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  text-align: center;
+  color: var(--text-primary);
+  font-family: inherit;
+  transition: font-size 0.2s, line-height 0.2s;
+}
+
+/* 글자 크기 단계 (1~5) */
+.lyrics-text.size-1 { font-size: 1.25rem; }
+.lyrics-text.size-2 { font-size: 1.75rem; }
+.lyrics-text.size-3 { font-size: 2.25rem; }
+.lyrics-text.size-4 { font-size: 3rem; }
+.lyrics-text.size-5 { font-size: 4rem; }
+
+.lyrics-text.height-1 { line-height: 1.4; }
+.lyrics-text.height-2 { line-height: 1.6; }
+.lyrics-text.height-3 { line-height: 1.9; }
+.lyrics-text.height-4 { line-height: 2.2; }
+.lyrics-text.height-5 { line-height: 2.6; }
+
+.main-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+.options-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.option,
+.volume-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+
+.option input[type="range"],
+.volume-wrap input[type="range"] {
+  width: 100px;
+  accent-color: var(--accent);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.prompter-actions {
+  margin-top: 0.5rem;
+}
+
+/* 전체화면 프롬프터 */
+.prompter-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.prompter-overlay.hidden {
+  display: none;
+}
+
+.prompter-inner {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.prompter-content {
+  flex: 1;
+  overflow: auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+}
+
+.prompter-text {
+  font-size: 3rem;
+  line-height: 2;
+  max-width: 90%;
+  color: #fff;
+  text-align: center;
+}
+
+.prompter-scroll-controls {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 1rem;
+}
+
+.btn-scroll {
+  padding: 1rem 1.5rem;
+  font-size: 1.25rem;
+}
+
+/* 유틸 */
+.hidden {
+  display: none !important;
+}
+
+.empty-state {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 2rem;
+}

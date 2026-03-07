@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SingPrompt - 저시력 친화 가사 프롬프터</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- 좌측 패널: 노래 리스트 -->
+    <aside class="panel-list">
+      <h2 class="panel-title">노래 목록</h2>
+      <div class="upload-area">
+        <label class="btn btn-upload">
+          <span>가사(txt) + MR(mp3) 추가</span>
+          <input type="file" id="uploadLyrics" accept=".txt" hidden>
+        </label>
+        <label class="btn btn-upload">
+          <span>MR(mp3) 추가</span>
+          <input type="file" id="uploadMr" accept="audio/mp3,audio/mpeg,.mp3" hidden>
+        </label>
+      </div>
+      <ul id="songList" class="song-list" role="list"></ul>
+    </aside>
+
+    <!-- 중앙: 가사 표시 영역 -->
+    <main class="panel-main">
+      <header class="main-header">
+        <h1 id="songTitle" class="song-title" aria-live="polite">곡을 선택하세요</h1>
+      </header>
+
+      <section id="lyricsArea" class="lyrics-area" aria-label="가사">
+        <pre id="lyricsText" class="lyrics-text"></pre>
+      </section>
+
+      <!-- 하단: 재생 컨트롤 -->
+      <footer class="main-footer">
+        <div class="options-bar">
+          <label class="option">
+            <span>글자 크기</span>
+            <input type="range" id="fontSize" min="1" max="5" value="3" aria-label="글자 크기">
+          </label>
+          <label class="option">
+            <span>줄 간격</span>
+            <input type="range" id="lineHeight" min="1" max="5" value="3" aria-label="줄 간격">
+          </label>
+          <label class="option">
+            <span>스크롤 속도</span>
+            <input type="range" id="scrollSpeed" min="1" max="5" value="3" aria-label="스크롤 속도">
+          </label>
+        </div>
+        <div class="controls">
+          <button type="button" id="btnPlay" class="btn btn-play" aria-label="재생">▶ 재생</button>
+          <button type="button" id="btnPause" class="btn btn-pause" aria-label="일시정지">⏸ 일시정지</button>
+          <button type="button" id="btnStop" class="btn btn-stop" aria-label="정지">⏹ 정지</button>
+          <label class="volume-wrap">
+            <span>볼륨</span>
+            <input type="range" id="volume" min="0" max="100" value="80" aria-label="볼륨">
+          </label>
+        </div>
+        <div class="prompter-actions">
+          <button type="button" id="btnPrompter" class="btn btn-prompter">전체화면 프롬프터</button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- 전체화면 프롬프터 모달 -->
+  <div id="prompterOverlay" class="prompter-overlay hidden" role="dialog" aria-label="가사 프롬프터" aria-modal="true">
+    <div class="prompter-inner">
+      <button type="button" id="btnClosePrompter" class="btn btn-close-prompter" aria-label="닫기">✕ 닫기</button>
+      <div class="prompter-content">
+        <pre id="prompterText" class="prompter-text"></pre>
+      </div>
+      <div class="prompter-scroll-controls">
+        <button type="button" id="btnScrollUp" class="btn btn-scroll" aria-label="위로">▲</button>
+        <button type="button" id="btnScrollDown" class="btn btn-scroll" aria-label="아래로">▼</button>
+      </div>
+    </div>
+  </div>
+
+  <audio id="audioMr" preload="auto" aria-label="MR 반주"></audio>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
