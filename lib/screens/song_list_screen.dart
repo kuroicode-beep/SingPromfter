@@ -453,11 +453,14 @@ class _SongListScreenState extends State<SongListScreen> {
               setLocal(() => trackPaths[slot] = path);
             }
 
+            final maxWidth = MediaQuery.of(ctx).size.width;
+            final dialogWidth = (maxWidth * 0.86).clamp(620.0, 920.0);
+
             return AlertDialog(
               backgroundColor: AppColors.elevated,
-              title: const Text('곡 추가', style: TextStyle(color: AppColors.textPrimary)),
+              title: const Text('곡 등록 (가사1 + 반주1~3)', style: TextStyle(color: AppColors.textPrimary)),
               content: SizedBox(
-                width: 460,
+                width: dialogWidth,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -465,49 +468,92 @@ class _SongListScreenState extends State<SongListScreen> {
                     children: [
                       TextField(
                         controller: titleController,
-                        style: const TextStyle(color: AppColors.textPrimary),
+                        autofocus: true,
+                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 18),
                         decoration: const InputDecoration(
                           labelText: '곡 제목',
                           labelStyle: TextStyle(color: AppColors.textMuted),
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          border: Border.all(color: AppColors.border),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 98,
+                              child: Text('가사1 (txt)', style: TextStyle(color: AppColors.textPrimary)),
+                            ),
+                            Expanded(
+                              child: Text(
+                                fileName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: AppColors.textPrimary),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: 14),
                       const Text(
-                        '반주 연결 (선택: 1~3개)',
+                        '반주 (선택: 0~3개)',
                         style: TextStyle(color: AppColors.textMuted, fontSize: 13),
                       ),
                       const SizedBox(height: 8),
                       for (final slot in [1, 2, 3])
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 58,
-                                child: Text('반주$slot', style: const TextStyle(color: AppColors.textPrimary)),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  trackPaths[slot] == null
-                                      ? '선택 안 됨'
-                                      : trackPaths[slot]!.split('\\').last,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: trackPaths[slot] == null
-                                        ? AppColors.textMuted
-                                        : AppColors.textPrimary,
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              border: Border.all(color: AppColors.border),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 98,
+                                  child: Text(
+                                    '반주$slot (mp3)',
+                                    style: const TextStyle(color: AppColors.textPrimary),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: 8),
-                              ElevatedButton(onPressed: () => pickTrack(slot), child: const Text('선택')),
-                              const SizedBox(width: 6),
-                              TextButton(
-                                onPressed: () => setLocal(() => trackPaths[slot] = null),
-                                child: const Text('취소'),
-                              ),
-                            ],
+                                Expanded(
+                                  child: Text(
+                                    trackPaths[slot] == null
+                                        ? '선택 안 됨'
+                                        : trackPaths[slot]!.split('\\').last,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: trackPaths[slot] == null
+                                          ? AppColors.textMuted
+                                          : AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                ElevatedButton(
+                                  onPressed: () => pickTrack(slot),
+                                  style: ElevatedButton.styleFrom(minimumSize: const Size(88, 42)),
+                                  child: const Text('선택'),
+                                ),
+                                const SizedBox(width: 6),
+                                TextButton(
+                                  onPressed: () => setLocal(() => trackPaths[slot] = null),
+                                  child: const Text('취소'),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                     ],
@@ -538,7 +584,6 @@ class _SongListScreenState extends State<SongListScreen> {
       },
     );
   }
-
   Future<void> _deleteSong(Song song) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -647,7 +692,7 @@ class _SongListScreenState extends State<SongListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('SingPromfter v0.2')),
+      appBar: AppBar(title: const Text('SingPromfter v0.3.2')),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
           : LayoutBuilder(
@@ -1313,6 +1358,7 @@ class _SongDraft {
 
   const _SongDraft({required this.title, required this.trackPaths});
 }
+
 
 
 
