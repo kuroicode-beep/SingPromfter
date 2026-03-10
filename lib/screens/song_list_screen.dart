@@ -1132,10 +1132,14 @@ class _SongListScreenState extends State<SongListScreen> {
       );
   }
 
+  double get _queuePanelHeight {
+    final rowCount = (_queue.length / 3).ceil().clamp(1, 99);
+    return (rowCount * 92) + ((rowCount - 1) * 8);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('SingPromfter v0.5 beta')),
       body: _loading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.accent),
@@ -1162,12 +1166,15 @@ class _SongListScreenState extends State<SongListScreen> {
                 );
               },
             ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addSong,
-        icon: const Icon(Icons.library_add, size: 18),
-        label: const Text('곡 등록'),
-        extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(top: 8, right: 4),
+        child: FloatingActionButton.extended(
+          onPressed: _addSong,
+          icon: const Icon(Icons.library_add, size: 18),
+          label: const Text('곡 등록'),
+          extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
       ),
     );
   }
@@ -1263,22 +1270,10 @@ class _SongListScreenState extends State<SongListScreen> {
       color: AppColors.background,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-            child: Text(
-              song.title,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
           Expanded(
             child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.circular(14),
@@ -1305,7 +1300,7 @@ class _SongListScreenState extends State<SongListScreen> {
           _buildBottomBar(song),
           if (_queue.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
               child: _buildQueuePanel(),
             )
           else
@@ -1317,8 +1312,8 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Widget _buildBottomBar(Song song) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 2),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 3),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
@@ -1522,12 +1517,11 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   Widget _buildQueuePanel() {
-    final rowCount = (_queue.length / 3).ceil().clamp(1, 99);
-    final panelHeight = (rowCount * 92) + ((rowCount - 1) * 8);
+    final panelHeight = _queuePanelHeight;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(10),
@@ -1537,7 +1531,20 @@ class _SongListScreenState extends State<SongListScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _clearQueue,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 24),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text('비우기', style: TextStyle(fontSize: 12)),
+            ),
+          ),
+          /* Row(
             children: [
               const Text(
                 '예약 큐',
@@ -1558,7 +1565,7 @@ class _SongListScreenState extends State<SongListScreen> {
                 child: const Text('비우기', style: TextStyle(fontSize: 12)),
               ),
             ],
-          ),
+          ), */
           SizedBox(
             height: panelHeight.toDouble(),
             child: GridView.builder(
@@ -1728,35 +1735,47 @@ class _SongTile extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              Row(
                 children: [
-                  _SmallActionButton(
-                    label: '선택',
-                    icon: Icons.check,
-                    onTap: onSelect,
+                  Expanded(
+                    child: _SmallActionButton(
+                      label: '선택',
+                      icon: Icons.check,
+                      onTap: onSelect,
+                    ),
                   ),
-                  _SmallActionButton(
-                    label: '재생',
-                    icon: Icons.play_arrow,
-                    onTap: onPlayNow,
-                    primary: true,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _SmallActionButton(
+                      label: '재생',
+                      icon: Icons.play_arrow,
+                      onTap: onPlayNow,
+                      primary: true,
+                    ),
                   ),
-                  _SmallActionButton(
-                    label: '예약',
-                    icon: Icons.schedule,
-                    onTap: onReserve,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _SmallActionButton(
+                      label: '예약',
+                      icon: Icons.schedule,
+                      onTap: onReserve,
+                    ),
                   ),
-                  _SmallActionButton(
-                    label: '수정',
-                    icon: Icons.edit_outlined,
-                    onTap: onEdit,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _SmallActionButton(
+                      label: '수정',
+                      icon: Icons.edit_outlined,
+                      onTap: onEdit,
+                    ),
                   ),
-                  _SmallActionButton(
-                    label: '삭제',
-                    icon: Icons.delete_outline,
-                    onTap: onDelete,
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _SmallActionButton(
+                      label: '삭제',
+                      icon: Icons.delete_outline,
+                      onTap: onDelete,
+                    ),
                   ),
                 ],
               ),
@@ -1786,28 +1805,33 @@ class _SmallActionButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: const BoxConstraints(minHeight: 40),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         decoration: BoxDecoration(
           color: primary ? AppColors.accent : AppColors.border,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
               size: 15,
               color: primary ? const Color(0xFF0A0A0A) : AppColors.textPrimary,
             ),
-            const SizedBox(width: 5),
+            const SizedBox(width: 3),
             Text(
               label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.fade,
               style: TextStyle(
                 color: primary
                     ? const Color(0xFF0A0A0A)
                     : AppColors.textPrimary,
                 fontWeight: FontWeight.w700,
-                fontSize: 13,
+                fontSize: 12,
               ),
             ),
           ],
