@@ -1,11 +1,12 @@
-﻿
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/prompter_settings.dart';
@@ -24,10 +25,10 @@ class SongListScreen extends StatefulWidget {
 
 class _SongListScreenState extends State<SongListScreen> {
   static const Map<String, String?> _fontOptions = {
-    '기본 (시스템 기본)': null,
-    '맑은 고딕 (저시력 추천)': 'MalgunGothic',
-    'Segoe UI (균형형)': 'SegoeUI',
-    '고정폭 (정렬용)': 'monospace',
+    'System Default': null,
+    'Malgun Gothic': 'MalgunGothic',
+    'Segoe UI': 'SegoeUI',
+    'Monospace': 'monospace',
   };
 
   final _repo = SongRepository.instance;
@@ -36,7 +37,7 @@ class _SongListScreenState extends State<SongListScreen> {
 
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<Duration>? _positionSub;
-  StreamSubscription<Duration?>? _durationSub;
+  StreamSubscription<Duration>? _durationSub;
   Timer? _autoScrollTimer;
 
   List<Song> _songs = [];
@@ -57,12 +58,14 @@ class _SongListScreenState extends State<SongListScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     _bindPlayerStreams();
     _bootstrap();
   }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _autoScrollTimer?.cancel();
     _playerStateSub?.cancel();
     _positionSub?.cancel();
@@ -70,6 +73,24 @@ class _SongListScreenState extends State<SongListScreen> {
     _player.dispose();
     _lyricsScrollController.dispose();
     super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    if (!mounted) return false;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.space) {
+      _togglePlayPause();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.f5) {
+      final song = _selectedSong;
+      if (song != null) {
+        _openPrompter(song);
+      }
+      return true;
+    }
+    return false;
   }
 
   Future<void> _bootstrap() async {
@@ -80,10 +101,10 @@ class _SongListScreenState extends State<SongListScreen> {
 
     Song? initialSong;
     if (lastSongId != null) {
-      initialSong = songs.where((s) => s.id == lastSongId).cast<Song?>().firstWhere(
-            (s) => s != null,
-            orElse: () => null,
-          );
+      initialSong = songs
+          .where((s) => s.id == lastSongId)
+          .cast<Song?>()
+          .firstWhere((s) => s != null, orElse: () => null);
     }
     initialSong ??= songs.isNotEmpty ? songs.first : null;
 
@@ -100,30 +121,32 @@ class _SongListScreenState extends State<SongListScreen> {
     if (_selectedSong != null) {
       await _loadSong(
         _selectedSong!,
-        preferredSlot: _settings.trackSlotForSong(_selectedSong!.id) ?? _settings.lastSelectedTrackSlot,
+        preferredSlot:
+            _settings.trackSlotForSong(_selectedSong!.id) ??
+            _settings.lastSelectedTrackSlot,
       );
     }
   }
 
   void _bindPlayerStreams() {
-    _playerStateSub = _player.playerStateStream.listen((state) async {
+    _playerStateSub = _player.onPlayerStateChanged.listen((state) async {
       if (!mounted) return;
-      setState(() => _playing = state.playing);
+      setState(() => _playing = state == PlayerState.playing);
       _syncAutoScroll();
 
-      if (state.processingState == ProcessingState.completed) {
+      if (state == PlayerState.completed) {
         await _onSongCompleted();
       }
     });
 
-    _positionSub = _player.positionStream.listen((pos) {
+    _positionSub = _player.onPositionChanged.listen((pos) {
       if (!mounted) return;
       setState(() => _position = pos);
     });
 
-    _durationSub = _player.durationStream.listen((dur) {
+    _durationSub = _player.onDurationChanged.listen((dur) {
       if (!mounted) return;
-      setState(() => _duration = dur ?? Duration.zero);
+      setState(() => _duration = dur);
     });
   }
 
@@ -153,12 +176,20 @@ class _SongListScreenState extends State<SongListScreen> {
       }
       if (song == null) continue;
 
-      await _loadSong(song, preferredSlot: next.selectedTrackSlot, autoPlay: true);
+      await _loadSong(
+        song,
+        preferredSlot: next.selectedTrackSlot,
+        autoPlay: true,
+      );
       return;
     }
   }
 
-  Future<void> _loadSong(Song song, {int? preferredSlot, bool autoPlay = false}) async {
+  Future<void> _loadSong(
+    Song song, {
+    int? preferredSlot,
+    bool autoPlay = false,
+  }) async {
     final available = song.availableTrackSlots;
     int? resolvedSlot;
 
@@ -189,48 +220,72 @@ class _SongListScreenState extends State<SongListScreen> {
 
     if (autoPlay && _audioReady) {
       await _player.seek(Duration.zero);
-      await _player.play();
+      await _player.resume();
     }
   }
 
   Future<void> _prepareAudioForSelection() async {
     final song = _selectedSong;
     if (song == null || _selectedTrackSlot == null) {
-      _audioReady = false;
-      _duration = Duration.zero;
-      _position = Duration.zero;
+      if (mounted) {
+        setState(() {
+          _audioReady = false;
+          _duration = Duration.zero;
+          _position = Duration.zero;
+        });
+      }
       return;
     }
 
     final track = song.trackForSlot(_selectedTrackSlot!);
     if (track == null) {
-      _audioReady = false;
-      _duration = Duration.zero;
-      _position = Duration.zero;
+      if (mounted) {
+        setState(() {
+          _audioReady = false;
+          _duration = Duration.zero;
+          _position = Duration.zero;
+        });
+      }
       return;
     }
 
     final path = await _repo.getBackingTrackPath(track.fileName);
     if (path == null) {
-      _audioReady = false;
-      _duration = Duration.zero;
-      _position = Duration.zero;
-      if (mounted) _showSnack('선택한 반주 파일을 찾을 수 없습니다.');
+      if (mounted) {
+        setState(() {
+          _audioReady = false;
+          _duration = Duration.zero;
+          _position = Duration.zero;
+        });
+      }
+      if (mounted) {
+        _showSnack('반주 파일을 찾을 수 없습니다. 곡을 다시 등록해 주세요.');
+      }
       return;
     }
 
     try {
       await _player.stop();
-      await _player.setFilePath(path);
+      await _player.setSourceDeviceFile(path);
       await _player.setVolume(_settings.volume);
-      _audioReady = true;
-      _duration = _player.duration ?? Duration.zero;
-      _position = Duration.zero;
-    } catch (_) {
-      _audioReady = false;
-      _duration = Duration.zero;
-      _position = Duration.zero;
-      if (mounted) _showSnack('반주 파일을 재생할 수 없습니다.');
+      if (mounted) {
+        setState(() {
+          _audioReady = true;
+          _duration = Duration.zero; // updated via onDurationChanged stream
+          _position = Duration.zero;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _audioReady = false;
+          _duration = Duration.zero;
+          _position = Duration.zero;
+        });
+      }
+      if (mounted) {
+        _showSnack('반주 파일을 재생할 수 없습니다: $e');
+      }
     }
   }
 
@@ -250,12 +305,12 @@ class _SongListScreenState extends State<SongListScreen> {
     if (_playing) {
       await _player.pause();
     } else {
-      await _player.play();
+      await _player.resume();
     }
   }
 
   Future<void> _stopPlayback() async {
-    await _player.stop();
+    await _player.pause();
     await _player.seek(Duration.zero);
     if (mounted) setState(() => _position = Duration.zero);
   }
@@ -266,12 +321,16 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
     await _player.seek(Duration.zero);
-    await _player.play();
+    await _player.resume();
   }
 
   void _syncAutoScroll() {
     _autoScrollTimer?.cancel();
-    if (!_playing || _settings.speedLevel <= 0 || !_lyricsScrollController.hasClients) return;
+    if (!_playing ||
+        _settings.speedLevel <= 0 ||
+        !_lyricsScrollController.hasClients) {
+      return;
+    }
 
     _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
       if (!_playing || !_lyricsScrollController.hasClients) return;
@@ -302,11 +361,12 @@ class _SongListScreenState extends State<SongListScreen> {
     return 2.6;
   }
 
-    String? get _resolvedFontFamily {
+  String? get _resolvedFontFamily {
     if (_fontOptions.containsKey(_settings.fontFamily)) {
       return _fontOptions[_settings.fontFamily];
     }
-    if (_settings.fontFamily == '기본') {
+    if (_settings.fontFamily == '기본' ||
+        _settings.fontFamily == 'System Default') {
       return null;
     }
     return _settings.fontFamily;
@@ -320,7 +380,7 @@ class _SongListScreenState extends State<SongListScreen> {
             fontSizeLevel: 4,
             lineHeightLevel: 4,
             speedLevel: 3,
-            fontFamily: '맑은 고딕 (저시력 추천)',
+            fontFamily: 'Malgun Gothic',
             boldText: true,
           ),
         );
@@ -331,7 +391,7 @@ class _SongListScreenState extends State<SongListScreen> {
             fontSizeLevel: 5,
             lineHeightLevel: 5,
             speedLevel: 2,
-            fontFamily: '맑은 고딕 (저시력 추천)',
+            fontFamily: 'Malgun Gothic',
             boldText: true,
           ),
         );
@@ -342,7 +402,7 @@ class _SongListScreenState extends State<SongListScreen> {
             fontSizeLevel: 3,
             lineHeightLevel: 3,
             speedLevel: 2,
-            fontFamily: '기본 (시스템 기본)',
+            fontFamily: 'System Default',
             boldText: false,
           ),
         );
@@ -366,8 +426,7 @@ class _SongListScreenState extends State<SongListScreen> {
     await _prepareAudioForSelection();
   }
 
-  Future<String> _decodeLyricsFromFile(String path) async {
-    final bytes = await File(path).readAsBytes();
+  Future<String> _decodeLyricsFromBytes(List<int> bytes) async {
     try {
       return utf8.decode(bytes).trim();
     } catch (_) {
@@ -375,11 +434,25 @@ class _SongListScreenState extends State<SongListScreen> {
       return latin1.decode(bytes).trim();
     }
   }
+
+  Song? _findSongByTitle(String title, {String? excludeId}) {
+    final normalized = title.trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    for (final song in _songs) {
+      if (song.id == excludeId) continue;
+      if (song.title.trim().toLowerCase() == normalized) {
+        return song;
+      }
+    }
+    return null;
+  }
+
   Future<void> _addSong() async {
     final lyricsFile = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['txt'],
       dialogTitle: '가사 파일(txt) 선택',
+      withData: kIsWeb,
     );
     if (lyricsFile == null || lyricsFile.files.isEmpty) return;
 
@@ -390,15 +463,20 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
 
-    final sourcePath = picked.path;
-    if (sourcePath == null) {
-      _showSnack('파일 경로를 읽을 수 없습니다.');
+    List<int>? bytes = picked.bytes;
+    if (bytes == null && picked.path != null) {
+      try {
+        bytes = await File(picked.path!).readAsBytes();
+      } catch (_) {}
+    }
+    if (bytes == null) {
+      _showSnack('가사 파일 내용을 읽을 수 없습니다.');
       return;
     }
 
     String lyrics;
     try {
-      lyrics = await _decodeLyricsFromFile(sourcePath);
+      lyrics = await _decodeLyricsFromBytes(bytes);
     } catch (_) {
       _showSnack('가사 파일 읽기에 실패했습니다.');
       return;
@@ -406,6 +484,10 @@ class _SongListScreenState extends State<SongListScreen> {
 
     final draft = await _showSongCreateDialog(picked.name);
     if (draft == null) return;
+    if (_findSongByTitle(draft.title) != null) {
+      _showSnack('같은 제목의 곡이 이미 있습니다. 제목을 바꿔 주세요.');
+      return;
+    }
 
     final id = const Uuid().v4();
     try {
@@ -413,7 +495,7 @@ class _SongListScreenState extends State<SongListScreen> {
         id: id,
         title: draft.title,
         lyrics: lyrics,
-        sourceTrackPaths: draft.trackPaths,
+        sourceTrackPaths: kIsWeb ? null : draft.trackPaths,
       );
 
       final nextSongs = List<Song>.from(_songs)..add(song);
@@ -423,8 +505,49 @@ class _SongListScreenState extends State<SongListScreen> {
       setState(() => _songs = nextSongs);
       await _loadSong(song);
       _showSnack('곡이 추가되었습니다.');
+      if (kIsWeb && draft.trackPaths.isNotEmpty) {
+        _showSnack('웹에서는 반주 파일 첨부가 제외되고 가사만 등록됩니다.');
+      }
     } catch (_) {
       _showSnack('곡 추가 중 오류가 발생했습니다.');
+    }
+  }
+
+  Future<void> _editSong(Song song) async {
+    final draft = await _showSongEditDialog(song);
+    if (draft == null) return;
+    if (_findSongByTitle(draft.title, excludeId: song.id) != null) {
+      _showSnack('같은 제목의 곡이 이미 있습니다. 제목을 바꿔 주세요.');
+      return;
+    }
+
+    try {
+      final updatedSong = await _repo.updateSong(
+        song: song,
+        title: draft.title,
+        lyrics: draft.lyricsText,
+        sourceTrackPaths: kIsWeb ? null : draft.trackPaths,
+      );
+
+      final nextSongs = _songs
+          .map((item) => item.id == song.id ? updatedSong : item)
+          .toList(growable: false);
+      await _repo.saveSongs(nextSongs);
+
+      if (!mounted) return;
+      setState(() {
+        _songs = nextSongs;
+        if (_selectedSong?.id == song.id) {
+          _selectedSong = updatedSong;
+        }
+      });
+
+      if (_selectedSong?.id == song.id) {
+        await _loadSong(updatedSong, preferredSlot: _selectedTrackSlot);
+      }
+      _showSnack('곡 정보가 수정되었습니다.');
+    } catch (_) {
+      _showSnack('곡 수정 중 오류가 발생했습니다.');
     }
   }
 
@@ -447,7 +570,11 @@ class _SongListScreenState extends State<SongListScreen> {
               if (result == null || result.files.isEmpty) return;
               final path = result.files.first.path;
               if (path == null) {
-                _showSnack('반주 파일 경로를 읽을 수 없습니다.');
+                if (kIsWeb) {
+                  _showSnack('웹에서는 로컬 반주 파일 첨부를 지원하지 않습니다.');
+                } else {
+                  _showSnack('반주 파일 경로를 읽을 수 없습니다.');
+                }
                 return;
               }
               setLocal(() => trackPaths[slot] = path);
@@ -458,7 +585,10 @@ class _SongListScreenState extends State<SongListScreen> {
 
             return AlertDialog(
               backgroundColor: AppColors.elevated,
-              title: const Text('곡 등록 (가사1 + 반주1~3)', style: TextStyle(color: AppColors.textPrimary)),
+              title: const Text(
+                '곡 등록 (가사1 + 반주1~3)',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
               content: SizedBox(
                 width: dialogWidth,
                 child: SingleChildScrollView(
@@ -469,7 +599,10 @@ class _SongListScreenState extends State<SongListScreen> {
                       TextField(
                         controller: titleController,
                         autofocus: true,
-                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 18),
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 18,
+                        ),
                         decoration: const InputDecoration(
                           labelText: '곡 제목',
                           labelStyle: TextStyle(color: AppColors.textMuted),
@@ -478,7 +611,10 @@ class _SongListScreenState extends State<SongListScreen> {
                       const SizedBox(height: 16),
                       Container(
                         width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.surface,
                           border: Border.all(color: AppColors.border),
@@ -488,14 +624,19 @@ class _SongListScreenState extends State<SongListScreen> {
                           children: [
                             const SizedBox(
                               width: 98,
-                              child: Text('가사1 (txt)', style: TextStyle(color: AppColors.textPrimary)),
+                              child: Text(
+                                '가사1 (txt)',
+                                style: TextStyle(color: AppColors.textPrimary),
+                              ),
                             ),
                             Expanded(
                               child: Text(
                                 fileName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: AppColors.textPrimary),
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                ),
                               ),
                             ),
                           ],
@@ -504,7 +645,10 @@ class _SongListScreenState extends State<SongListScreen> {
                       const SizedBox(height: 14),
                       const Text(
                         '반주 (선택: 0~3개)',
-                        style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       for (final slot in [1, 2, 3])
@@ -512,7 +656,10 @@ class _SongListScreenState extends State<SongListScreen> {
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Container(
                             width: double.infinity,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.surface,
                               border: Border.all(color: AppColors.border),
@@ -524,7 +671,9 @@ class _SongListScreenState extends State<SongListScreen> {
                                   width: 98,
                                   child: Text(
                                     '반주$slot (mp3)',
-                                    style: const TextStyle(color: AppColors.textPrimary),
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                    ),
                                   ),
                                 ),
                                 Expanded(
@@ -544,12 +693,15 @@ class _SongListScreenState extends State<SongListScreen> {
                                 const SizedBox(width: 10),
                                 ElevatedButton(
                                   onPressed: () => pickTrack(slot),
-                                  style: ElevatedButton.styleFrom(minimumSize: const Size(88, 42)),
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(88, 42),
+                                  ),
                                   child: const Text('선택'),
                                 ),
                                 const SizedBox(width: 6),
                                 TextButton(
-                                  onPressed: () => setLocal(() => trackPaths[slot] = null),
+                                  onPressed: () =>
+                                      setLocal(() => trackPaths[slot] = null),
                                   child: const Text('취소'),
                                 ),
                               ],
@@ -561,7 +713,10 @@ class _SongListScreenState extends State<SongListScreen> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('닫기'),
+                ),
                 ElevatedButton(
                   onPressed: () {
                     final title = titleController.text.trim().isEmpty
@@ -573,7 +728,10 @@ class _SongListScreenState extends State<SongListScreen> {
                         normalized[slot] = path;
                       }
                     });
-                    Navigator.pop(ctx, _SongDraft(title: title, trackPaths: normalized));
+                    Navigator.pop(
+                      ctx,
+                      _SongDraft(title: title, trackPaths: normalized),
+                    );
                   },
                   child: const Text('저장'),
                 ),
@@ -584,6 +742,262 @@ class _SongListScreenState extends State<SongListScreen> {
       },
     );
   }
+
+  Future<_SongEditDraft?> _showSongEditDialog(Song song) async {
+    final titleController = TextEditingController(text: song.title);
+    final trackPaths = <int, String?>{1: null, 2: null, 3: null};
+    String? nextLyricsText;
+    String? nextLyricsFileName;
+
+    return showDialog<_SongEditDraft>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            Future<void> pickLyrics() async {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: ['txt'],
+                dialogTitle: '새 가사 파일(txt) 선택',
+                withData: kIsWeb,
+              );
+              if (result == null || result.files.isEmpty) return;
+
+              final picked = result.files.first;
+              if ((picked.extension ?? '').toLowerCase() != 'txt') {
+                _showSnack('txt 파일만 선택할 수 있습니다.');
+                return;
+              }
+
+              List<int>? bytes = picked.bytes;
+              if (bytes == null && picked.path != null) {
+                try {
+                  bytes = await File(picked.path!).readAsBytes();
+                } catch (_) {}
+              }
+              if (bytes == null) {
+                _showSnack('가사 파일 내용을 읽을 수 없습니다.');
+                return;
+              }
+
+              try {
+                final decoded = await _decodeLyricsFromBytes(bytes);
+                setLocal(() {
+                  nextLyricsText = decoded;
+                  nextLyricsFileName = picked.name;
+                });
+              } catch (_) {
+                _showSnack('가사 파일 읽기에 실패했습니다.');
+              }
+            }
+
+            Future<void> pickTrack(int slot) async {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.audio,
+                dialogTitle: '새 반주$slot 파일 선택',
+              );
+              if (result == null || result.files.isEmpty) return;
+              final path = result.files.first.path;
+              if (path == null) {
+                if (kIsWeb) {
+                  _showSnack('웹에서는 로컬 반주 파일 첨부를 지원하지 않습니다.');
+                } else {
+                  _showSnack('반주 파일 경로를 읽을 수 없습니다.');
+                }
+                return;
+              }
+              setLocal(() => trackPaths[slot] = path);
+            }
+
+            final maxWidth = MediaQuery.of(ctx).size.width;
+            final dialogWidth = (maxWidth * 0.86).clamp(620.0, 920.0);
+
+            return AlertDialog(
+              backgroundColor: AppColors.elevated,
+              title: const Text(
+                '곡 수정',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+              content: SizedBox(
+                width: dialogWidth,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: titleController,
+                        autofocus: true,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 18,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '곡 제목',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          border: Border.all(color: AppColors.border),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '가사 (txt)',
+                              style: TextStyle(color: AppColors.textPrimary),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              nextLyricsFileName ?? '기존 파일 유지',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: nextLyricsFileName == null
+                                    ? AppColors.textMuted
+                                    : AppColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                ElevatedButton(
+                                  onPressed: pickLyrics,
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(88, 42),
+                                  ),
+                                  child: const Text('다시 선택'),
+                                ),
+                                const SizedBox(width: 6),
+                                TextButton(
+                                  onPressed: () {
+                                    setLocal(() {
+                                      nextLyricsText = null;
+                                      nextLyricsFileName = null;
+                                    });
+                                  },
+                                  child: const Text('유지'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Text(
+                        '반주 교체 (선택: 0~3개)',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final slot in [1, 2, 3])
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              border: Border.all(color: AppColors.border),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 98,
+                                  child: Text(
+                                    '반주$slot (mp3)',
+                                    style: const TextStyle(
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    trackPaths[slot] != null
+                                        ? trackPaths[slot]!.split('\\').last
+                                        : (song.trackForSlot(slot)?.fileName ??
+                                              '없음'),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: trackPaths[slot] == null
+                                          ? AppColors.textMuted
+                                          : AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                ElevatedButton(
+                                  onPressed: () => pickTrack(slot),
+                                  style: ElevatedButton.styleFrom(
+                                    minimumSize: const Size(88, 42),
+                                  ),
+                                  child: const Text('교체'),
+                                ),
+                                const SizedBox(width: 6),
+                                TextButton(
+                                  onPressed: () =>
+                                      setLocal(() => trackPaths[slot] = null),
+                                  child: const Text('유지'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('닫기'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final title = titleController.text.trim().isEmpty
+                        ? song.title
+                        : titleController.text.trim();
+                    final normalized = <int, String>{};
+                    trackPaths.forEach((slot, path) {
+                      if (path != null && path.trim().isNotEmpty) {
+                        normalized[slot] = path;
+                      }
+                    });
+                    Navigator.pop(
+                      ctx,
+                      _SongEditDraft(
+                        title: title,
+                        lyricsText: nextLyricsText,
+                        trackPaths: normalized,
+                      ),
+                    );
+                  },
+                  child: const Text('저장'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _deleteSong(Song song) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -595,7 +1009,10 @@ class _SongListScreenState extends State<SongListScreen> {
           style: const TextStyle(color: AppColors.textMuted),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
             onPressed: () => Navigator.pop(ctx, true),
@@ -609,8 +1026,10 @@ class _SongListScreenState extends State<SongListScreen> {
 
     await _repo.deleteSong(song);
 
-    final nextSongs = List<Song>.from(_songs)..removeWhere((s) => s.id == song.id);
-    final nextQueue = List<QueueItem>.from(_queue)..removeWhere((q) => q.songId == song.id);
+    final nextSongs = List<Song>.from(_songs)
+      ..removeWhere((s) => s.id == song.id);
+    final nextQueue = List<QueueItem>.from(_queue)
+      ..removeWhere((q) => q.songId == song.id);
 
     Song? nextSelected = _selectedSong;
     if (_selectedSong?.id == song.id) {
@@ -640,10 +1059,18 @@ class _SongListScreenState extends State<SongListScreen> {
     final songSlot = _settings.trackSlotForSong(song.id);
     final slot = song.availableTrackSlots.contains(songSlot)
         ? songSlot
-        : (song.availableTrackSlots.isNotEmpty ? song.availableTrackSlots.first : null);
+        : (song.availableTrackSlots.isNotEmpty
+              ? song.availableTrackSlots.first
+              : null);
 
     final nextQueue = List<QueueItem>.from(_queue)
-      ..add(QueueItem(songId: song.id, selectedTrackSlot: slot, queuedAt: DateTime.now()));
+      ..add(
+        QueueItem(
+          songId: song.id,
+          selectedTrackSlot: slot,
+          queuedAt: DateTime.now(),
+        ),
+      );
 
     await _repo.saveQueue(nextQueue);
     if (!mounted) return;
@@ -659,21 +1086,35 @@ class _SongListScreenState extends State<SongListScreen> {
     setState(() => _queue = next);
   }
 
-  Future<void> _reorderQueue(int oldIndex, int newIndex) async {
-    if (_queue.isEmpty || oldIndex < 0 || oldIndex >= _queue.length) return;
-    final next = List<QueueItem>.from(_queue);
-    if (newIndex > oldIndex) newIndex -= 1;
-    final item = next.removeAt(oldIndex);
-    next.insert(newIndex, item);
-    await _repo.saveQueue(next);
-    if (!mounted) return;
-    setState(() => _queue = next);
-  }
-
   Future<void> _clearQueue() async {
     await _repo.saveQueue(const []);
     if (!mounted) return;
     setState(() => _queue = []);
+  }
+
+  void _openPrompter(Song song) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PrompterScreen(
+          song: song,
+          fontSize: _fontSizePt,
+          lineHeight: _lineHeightVal,
+          fontSizeLevel: _settings.fontSizeLevel,
+          lineHeightLevel: _settings.lineHeightLevel,
+          speedLevel: _settings.speedLevel,
+          fontFamily: _resolvedFontFamily,
+          boldText: _settings.boldText,
+          autoScrollEnabled: _playing || !_audioReady,
+          onFontSizeLevelChanged: (value) =>
+              _updateSettings(_settings.copyWith(fontSizeLevel: value)),
+          onLineHeightLevelChanged: (value) =>
+              _updateSettings(_settings.copyWith(lineHeightLevel: value)),
+          onSpeedLevelChanged: (value) =>
+              _updateSettings(_settings.copyWith(speedLevel: value)),
+        ),
+      ),
+    );
   }
 
   String _formatDuration(Duration d) {
@@ -686,15 +1127,19 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 2)));
+      ..showSnackBar(
+        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('SingPromfter v0.3.2')),
+      appBar: AppBar(title: const Text('SingPromfter v0.5 beta')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.accent))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.accent),
+            )
           : LayoutBuilder(
               builder: (_, constraints) {
                 final wide = constraints.maxWidth >= 980;
@@ -717,59 +1162,100 @@ class _SongListScreenState extends State<SongListScreen> {
                 );
               },
             ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addSong,
-        icon: const Icon(Icons.library_add),
-        label: const Text('곡 추가'),
+        icon: const Icon(Icons.library_add, size: 18),
+        label: const Text('곡 등록'),
+        extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
       ),
     );
   }
 
   Widget _buildSongListPanel() {
     if (_songs.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.queue_music, size: 56, color: AppColors.border),
-            SizedBox(height: 14),
-            Text(
-              '등록된 곡이 없습니다',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 18, fontWeight: FontWeight.w600),
+      return Column(
+        children: [
+          const Expanded(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.queue_music, size: 56, color: AppColors.border),
+                  SizedBox(height: 14),
+                  Text(
+                    '등록된 곡이 없습니다',
+                    style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '하단 버튼으로 곡을 추가해 주세요',
+                    style: TextStyle(color: AppColors.textMuted),
+                  ),
+                ],
+              ),
             ),
-            SizedBox(height: 8),
-            Text('하단 + 버튼으로 곡을 추가해 주세요', style: TextStyle(color: AppColors.textMuted)),
-          ],
-        ),
+          ),
+          _buildSongListFooter(),
+        ],
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 100),
-      itemCount: _songs.length,
-      separatorBuilder: (_, index) => const SizedBox(height: 10),
-      itemBuilder: (_, i) {
-        final song = _songs[i];
-        final selected = _selectedSong?.id == song.id;
-        return _SongTile(
-          song: song,
-          selected: selected,
-          onSelect: () => _loadSong(song),
-          onPlayNow: () async {
-            await _loadSong(song);
-            await _togglePlayPause();
-          },
-          onReserve: () => _reserveSong(song),
-          onDelete: () => _deleteSong(song),
-        );
-      },
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 124),
+            itemCount: _songs.length,
+            separatorBuilder: (_, index) => const SizedBox(height: 8),
+            itemBuilder: (_, i) {
+              final song = _songs[i];
+              final selected = _selectedSong?.id == song.id;
+              return _SongTile(
+                song: song,
+                selected: selected,
+                selectedTrackSlot: selected ? _selectedTrackSlot : null,
+                onSelectTrack: _selectTrackSlot,
+                onSelect: () => _loadSong(song),
+                onPlayNow: () async {
+                  await _loadSong(song);
+                  await _togglePlayPause();
+                },
+                onReserve: () => _reserveSong(song),
+                onEdit: () => _editSong(song),
+                onDelete: () => _deleteSong(song),
+              );
+            },
+          ),
+        ),
+        _buildSongListFooter(),
+      ],
     );
   }
+
+  Widget _buildSongListFooter() {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+      child: Text(
+        'Copyright SVIL. Powered by 디또 2026/03/10',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: AppColors.textMuted, fontSize: 11, height: 1.2),
+      ),
+    );
+  }
+
   Widget _buildPrompterPanel() {
     final song = _selectedSong;
     if (song == null) {
       return const Center(
-        child: Text('곡을 선택해 주세요', style: TextStyle(color: AppColors.textMuted, fontSize: 18)),
+        child: Text(
+          '곡을 선택해 주세요',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 18),
+        ),
       );
     }
 
@@ -778,105 +1264,231 @@ class _SongListScreenState extends State<SongListScreen> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  song.title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _buildTrackSelector(song),
-              ],
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+            child: Text(
+              song.title,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           Expanded(
             child: Container(
               margin: const EdgeInsets.symmetric(horizontal: 12),
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 24),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: AppColors.border),
               ),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      controller: _lyricsScrollController,
-                      child: Text(
-                        song.lyricsText.isEmpty ? '(가사가 없습니다)' : song.lyricsText,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: _fontSizePt,
-                          height: _lineHeightVal,
-                          fontFamily: _resolvedFontFamily,
-                          fontWeight: _settings.boldText ? FontWeight.w800 : FontWeight.w500,
-                        ),
-                      ),
-                    ),
+              child: SingleChildScrollView(
+                controller: _lyricsScrollController,
+                child: Text(
+                  song.lyricsText.isEmpty ? '(가사가 없습니다)' : song.lyricsText,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: _fontSizePt,
+                    height: _lineHeightVal,
+                    fontFamily: _resolvedFontFamily,
+                    fontWeight: _settings.boldText
+                        ? FontWeight.w800
+                        : FontWeight.w500,
                   ),
-                  const SizedBox(height: 10),
-                  _buildPromptTextStyleControls(),
-                ],
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _buildPlaybackSection(song),
-          ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: _buildQueuePanel(),
-          ),
+          _buildBottomBar(song),
+          if (_queue.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _buildQueuePanel(),
+            )
+          else
+            const SizedBox(height: 8),
         ],
       ),
     );
   }
 
-    Widget _buildPromptTextStyleControls() {
+  Widget _buildBottomBar(Song song) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 4),
       decoration: BoxDecoration(
-        color: AppColors.elevated,
-        borderRadius: BorderRadius.circular(10),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppColors.border),
       ),
-      child: Wrap(
-        runSpacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        spacing: 10,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('프롬프트 아래 설정 (v0.3.1)',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          // 1번 줄: 재생 버튼 + 프로그레스 바 + 볼륨
+          Row(
             children: [
-              _PresetBtn(label: '표준', onTap: () => _applyAccessibilityPreset('standard')),
-              _PresetBtn(label: '저시력 추천', onTap: () => _applyAccessibilityPreset('recommended')),
-              _PresetBtn(label: '원거리 무대', onTap: () => _applyAccessibilityPreset('stage')),
+              _CompactBtn(
+                icon: Icons.stop,
+                onTap: () {
+                  _stopPlayback();
+                },
+              ),
+              const SizedBox(width: 4),
+              _CompactBtn(
+                icon: _playing ? Icons.pause : Icons.play_arrow,
+                onTap: () {
+                  _togglePlayPause();
+                },
+                highlighted: true,
+              ),
+              const SizedBox(width: 4),
+              _CompactBtn(
+                icon: Icons.replay,
+                onTap: () {
+                  _restartPlayback();
+                },
+              ),
+              const SizedBox(width: 4),
+              _CompactBtn(
+                icon: Icons.fullscreen,
+                onTap: () => _openPrompter(song),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _formatDuration(_position),
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11,
+                ),
+              ),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 10,
+                    ),
+                  ),
+                  child: Slider(
+                    min: 0,
+                    max: _duration.inMilliseconds.toDouble().clamp(
+                      1,
+                      double.infinity,
+                    ),
+                    value: _position.inMilliseconds.toDouble().clamp(
+                      0,
+                      _duration.inMilliseconds.toDouble().clamp(
+                        1,
+                        double.infinity,
+                      ),
+                    ),
+                    onChanged: _audioReady
+                        ? (v) => _player.seek(Duration(milliseconds: v.toInt()))
+                        : null,
+                  ),
+                ),
+              ),
+              Text(
+                _formatDuration(_duration),
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Icon(Icons.volume_up, size: 14, color: AppColors.textMuted),
+              SizedBox(
+                width: 72,
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 6,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 10,
+                    ),
+                  ),
+                  child: Slider(
+                    min: 0,
+                    max: 1,
+                    value: _settings.volume,
+                    onChanged: (v) =>
+                        _updateSettings(_settings.copyWith(volume: v)),
+                  ),
+                ),
+              ),
             ],
           ),
+          // 2번 줄: 슬라이더 + 스타일 옵션
           Row(
-            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const Text('글꼴', style: TextStyle(color: AppColors.textPrimary)),
-              const SizedBox(width: 8),
+              Expanded(
+                child: _MiniSlider(
+                  label: '크기',
+                  value: _settings.fontSizeLevel,
+                  min: 1,
+                  max: 5,
+                  divisions: 4,
+                  onChanged: (v) =>
+                      _updateSettings(_settings.copyWith(fontSizeLevel: v)),
+                ),
+              ),
+              Expanded(
+                child: _MiniSlider(
+                  label: '줄간격',
+                  value: _settings.lineHeightLevel,
+                  min: 1,
+                  max: 5,
+                  divisions: 4,
+                  onChanged: (v) =>
+                      _updateSettings(_settings.copyWith(lineHeightLevel: v)),
+                ),
+              ),
+              Expanded(
+                child: _MiniSlider(
+                  label: '속도',
+                  value: _settings.speedLevel,
+                  min: 0,
+                  max: 10,
+                  divisions: 20,
+                  onChanged: (v) =>
+                      _updateSettings(_settings.copyWith(speedLevel: v)),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _PresetBtn(
+                label: '표준',
+                onTap: () => _applyAccessibilityPreset('standard'),
+              ),
+              const SizedBox(width: 4),
+              _PresetBtn(
+                label: '저시력',
+                onTap: () => _applyAccessibilityPreset('recommended'),
+              ),
+              const SizedBox(width: 4),
+              _PresetBtn(
+                label: '원거리',
+                onTap: () => _applyAccessibilityPreset('stage'),
+              ),
+              const SizedBox(width: 6),
               DropdownButton<String>(
                 value: _fontOptions.containsKey(_settings.fontFamily)
                     ? _settings.fontFamily
-                    : '기본 (시스템 기본)',
+                    : 'System Default',
                 dropdownColor: AppColors.surface,
+                isDense: true,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 11,
+                ),
                 items: _fontOptions.keys
                     .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                     .toList(growable: false),
@@ -885,283 +1497,148 @@ class _SongListScreenState extends State<SongListScreen> {
                   _updateSettings(_settings.copyWith(fontFamily: v));
                 },
               ),
-            ],
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Checkbox(
-                value: _settings.boldText,
-                onChanged: (v) => _updateSettings(_settings.copyWith(boldText: v ?? false)),
+              const SizedBox(width: 4),
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: Checkbox(
+                  value: _settings.boldText,
+                  onChanged: (v) =>
+                      _updateSettings(_settings.copyWith(boldText: v ?? false)),
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
               ),
-              const Text('굵게 (blod)', style: TextStyle(color: AppColors.textPrimary)),
+              const SizedBox(width: 3),
+              const Text(
+                '굵게',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 11),
+              ),
             ],
           ),
         ],
       ),
     );
   }
-  Widget _buildTrackSelector(Song song) {
-    if (song.backingTracks.isEmpty) {
-      return const Text('반주 없음 (가사만 표시)', style: TextStyle(color: AppColors.textMuted));
-    }
-
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: song.backingTracks.map((track) {
-        final selected = _selectedTrackSlot == track.slot;
-        return OutlinedButton.icon(
-          onPressed: () => _selectTrackSlot(track.slot),
-          icon: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_off, size: 16),
-          label: Text('반주${track.slot}'),
-          style: OutlinedButton.styleFrom(
-            backgroundColor: selected ? AppColors.accent : AppColors.elevated,
-            foregroundColor: selected ? const Color(0xFF0A0A0A) : AppColors.textPrimary,
-            side: BorderSide(color: selected ? AppColors.accent : AppColors.border),
-            minimumSize: const Size(110, 44),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildPlaybackSection(Song song) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: LayoutBuilder(
-        builder: (_, constraints) {
-          final narrow = constraints.maxWidth < 760;
-          return Column(
-            children: [
-              if (narrow) ...[
-                _buildLabeledSlider(
-                  '글자 크기',
-                  _settings.fontSizeLevel,
-                  (v) => _updateSettings(_settings.copyWith(fontSizeLevel: v)),
-                  min: 1,
-                  max: 5,
-                  divisions: 4,
-                ),
-                _buildLabeledSlider(
-                  '줄 간격',
-                  _settings.lineHeightLevel,
-                  (v) => _updateSettings(_settings.copyWith(lineHeightLevel: v)),
-                  min: 1,
-                  max: 5,
-                  divisions: 4,
-                ),
-                _buildLabeledSlider(
-                  '속도',
-                  _settings.speedLevel,
-                  (v) => _updateSettings(_settings.copyWith(speedLevel: v)),
-                  min: 0,
-                  max: 10,
-                  divisions: 20,
-                ),
-              ] else
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildLabeledSlider(
-                        '글자 크기',
-                        _settings.fontSizeLevel,
-                        (v) => _updateSettings(_settings.copyWith(fontSizeLevel: v)),
-                        min: 1,
-                        max: 5,
-                        divisions: 4,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildLabeledSlider(
-                        '줄 간격',
-                        _settings.lineHeightLevel,
-                        (v) => _updateSettings(_settings.copyWith(lineHeightLevel: v)),
-                        min: 1,
-                        max: 5,
-                        divisions: 4,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildLabeledSlider(
-                        '속도',
-                        _settings.speedLevel,
-                        (v) => _updateSettings(_settings.copyWith(speedLevel: v)),
-                        min: 0,
-                        max: 10,
-                        divisions: 20,
-                      ),
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 8),
-              Column(
-                children: [
-                  Slider(
-                    min: 0,
-                    max: _duration.inMilliseconds.toDouble().clamp(1, double.infinity),
-                    value: _position.inMilliseconds.toDouble().clamp(
-                      0,
-                      _duration.inMilliseconds.toDouble().clamp(1, double.infinity),
-                    ),
-                    onChanged: _audioReady ? (v) => _player.seek(Duration(milliseconds: v.toInt())) : null,
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(_formatDuration(_position),
-                          style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                      Text(_formatDuration(_duration),
-                          style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                alignment: WrapAlignment.center,
-                children: [
-                  _PlayBtn(icon: Icons.stop, label: '정지', onTap: _stopPlayback),
-                  _PlayBtn(
-                    icon: _playing ? Icons.pause : Icons.play_arrow,
-                    label: _playing ? '일시정지' : '재생',
-                    onTap: _togglePlayPause,
-                    highlighted: true,
-                  ),
-                  _PlayBtn(icon: Icons.replay, label: '처음', onTap: _restartPlayback),
-                  _PlayBtn(
-                    icon: Icons.fullscreen,
-                    label: '전체화면',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => PrompterScreen(
-                          song: song,
-                          fontSize: _fontSizePt,
-                          lineHeight: _lineHeightVal,
-                          fontFamily: _resolvedFontFamily,
-                          boldText: _settings.boldText,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.volume_down, size: 18, color: AppColors.textMuted),
-                  Expanded(
-                    child: Slider(
-                      min: 0,
-                      max: 1,
-                      value: _settings.volume,
-                      onChanged: (v) => _updateSettings(_settings.copyWith(volume: v)),
-                    ),
-                  ),
-                  const Icon(Icons.volume_up, size: 18, color: AppColors.textMuted),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildLabeledSlider(
-    String label,
-    double value,
-    ValueChanged<double> onChanged, {
-    required double min,
-    required double max,
-    int? divisions,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-        Slider(min: min, max: max, divisions: divisions, value: value, onChanged: onChanged),
-      ],
-    );
-  }
 
   Widget _buildQueuePanel() {
+    final rowCount = (_queue.length / 3).ceil().clamp(1, 99);
+    final panelHeight = (rowCount * 92) + ((rowCount - 1) * 8);
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
               const Text(
                 '예약 큐',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
-              TextButton(onPressed: _queue.isEmpty ? null : _clearQueue, child: const Text('큐 비우기')),
+              TextButton(
+                onPressed: _clearQueue,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('비우기', style: TextStyle(fontSize: 12)),
+              ),
             ],
           ),
-          if (_queue.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 10),
-              child: Text('예약된 곡이 없습니다.', style: TextStyle(color: AppColors.textMuted)),
-            )
-          else
-            SizedBox(
-              height: 140,
-              child: ReorderableListView.builder(
-                itemCount: _queue.length,
-                onReorder: _reorderQueue,
-                buildDefaultDragHandles: false,
-                itemBuilder: (_, i) {
-                  final item = _queue[i];
-                  Song? song;
-                  for (final s in _songs) {
-                    if (s.id == item.songId) {
-                      song = s;
-                      break;
-                    }
-                  }
-                  return ListTile(
-                    key: ValueKey('${item.songId}_${item.queuedAt.toIso8601String()}_$i'),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    dense: true,
-                    leading: ReorderableDragStartListener(
-                      index: i,
-                      child: const Icon(Icons.drag_indicator, color: AppColors.textMuted),
-                    ),
-                    title: Text(
-                      '${i + 1}. ${song?.title ?? '(삭제된 곡)'}',
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
-                    ),
-                    subtitle: Text(
-                      item.selectedTrackSlot == null ? '가사 전용' : '반주 ${item.selectedTrackSlot}',
-                      style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
-                    ),
-                    trailing: IconButton(
-                      onPressed: () => _removeQueueItem(i),
-                      icon: const Icon(Icons.close, size: 18),
-                    ),
-                  );
-                },
+          SizedBox(
+            height: panelHeight.toDouble(),
+            child: GridView.builder(
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _queue.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 2.6,
               ),
+              itemBuilder: (_, i) {
+                final item = _queue[i];
+                Song? song;
+                for (final s in _songs) {
+                  if (s.id == item.songId) {
+                    song = s;
+                    break;
+                  }
+                }
+                return Container(
+                  key: ValueKey(
+                    '${item.songId}_${item.queuedAt.toIso8601String()}_$i',
+                  ),
+                  padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.elevated,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '${i + 1}. ${song?.title ?? '(삭제된 곡)'}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              item.selectedTrackSlot == null
+                                  ? '가사'
+                                  : 'MR${item.selectedTrackSlot}',
+                              style: const TextStyle(
+                                color: AppColors.textMuted,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _removeQueueItem(i),
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          size: 16,
+                          color: AppColors.textMuted,
+                        ),
+                        tooltip: '삭제',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 28,
+                          minHeight: 28,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
+          ),
         ],
       ),
     );
@@ -1171,28 +1648,28 @@ class _SongListScreenState extends State<SongListScreen> {
 class _SongTile extends StatelessWidget {
   final Song song;
   final bool selected;
+  final int? selectedTrackSlot;
+  final void Function(int slot)? onSelectTrack;
   final VoidCallback onSelect;
   final VoidCallback onPlayNow;
   final VoidCallback onReserve;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const _SongTile({
     required this.song,
     required this.selected,
+    this.selectedTrackSlot,
+    this.onSelectTrack,
     required this.onSelect,
     required this.onPlayNow,
     required this.onReserve,
+    required this.onEdit,
     required this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
-    final mrLabel = song.backingTracks.isEmpty
-        ? 'MR 없음'
-        : song.backingTracks.length == 1
-            ? 'MR 1개 있음'
-            : 'MR ${song.backingTracks.length}개 있음';
-
     return Material(
       color: selected ? const Color(0xFF2A240A) : AppColors.elevated,
       borderRadius: BorderRadius.circular(12),
@@ -1200,7 +1677,7 @@ class _SongTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: onSelect,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1214,17 +1691,73 @@ class _SongTile extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(mrLabel, style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
-              const SizedBox(height: 10),
+              if (selected &&
+                  song.backingTracks.isNotEmpty &&
+                  onSelectTrack != null) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: song.backingTracks.map((track) {
+                    final isSel = selectedTrackSlot == track.slot;
+                    return OutlinedButton.icon(
+                      onPressed: () => onSelectTrack!(track.slot),
+                      icon: Icon(
+                        isSel
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        size: 14,
+                      ),
+                      label: Text('반주${track.slot}'),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: isSel
+                            ? AppColors.accent
+                            : AppColors.elevated,
+                        foregroundColor: isSel
+                            ? const Color(0xFF0A0A0A)
+                            : AppColors.textPrimary,
+                        side: BorderSide(
+                          color: isSel ? AppColors.accent : AppColors.border,
+                        ),
+                        minimumSize: const Size(90, 38),
+                        textStyle: const TextStyle(fontSize: 13),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _SmallActionButton(label: '선택', icon: Icons.check, onTap: onSelect),
-                  _SmallActionButton(label: '재생', icon: Icons.play_arrow, onTap: onPlayNow, primary: true),
-                  _SmallActionButton(label: '예약', icon: Icons.schedule, onTap: onReserve),
-                  _SmallActionButton(label: '삭제', icon: Icons.delete_outline, onTap: onDelete),
+                  _SmallActionButton(
+                    label: '선택',
+                    icon: Icons.check,
+                    onTap: onSelect,
+                  ),
+                  _SmallActionButton(
+                    label: '재생',
+                    icon: Icons.play_arrow,
+                    onTap: onPlayNow,
+                    primary: true,
+                  ),
+                  _SmallActionButton(
+                    label: '예약',
+                    icon: Icons.schedule,
+                    onTap: onReserve,
+                  ),
+                  _SmallActionButton(
+                    label: '수정',
+                    icon: Icons.edit_outlined,
+                    onTap: onEdit,
+                  ),
+                  _SmallActionButton(
+                    label: '삭제',
+                    icon: Icons.delete_outline,
+                    onTap: onDelete,
+                  ),
                 ],
               ),
             ],
@@ -1261,12 +1794,18 @@ class _SmallActionButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 15, color: primary ? const Color(0xFF0A0A0A) : AppColors.textPrimary),
+            Icon(
+              icon,
+              size: 15,
+              color: primary ? const Color(0xFF0A0A0A) : AppColors.textPrimary,
+            ),
             const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
-                color: primary ? const Color(0xFF0A0A0A) : AppColors.textPrimary,
+                color: primary
+                    ? const Color(0xFF0A0A0A)
+                    : AppColors.textPrimary,
                 fontWeight: FontWeight.w700,
                 fontSize: 13,
               ),
@@ -1278,15 +1817,13 @@ class _SmallActionButton extends StatelessWidget {
   }
 }
 
-class _PlayBtn extends StatelessWidget {
+class _CompactBtn extends StatelessWidget {
   final IconData icon;
-  final String label;
-  final Future<void> Function() onTap;
+  final VoidCallback onTap;
   final bool highlighted;
 
-  const _PlayBtn({
+  const _CompactBtn({
     required this.icon,
-    required this.label,
     required this.onTap,
     this.highlighted = false,
   });
@@ -1294,35 +1831,71 @@ class _PlayBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => onTap(),
+      onTap: onTap,
       child: Container(
-        width: 88,
-        height: 64,
+        width: 36,
+        height: 36,
         decoration: BoxDecoration(
           color: highlighted ? AppColors.accent : AppColors.elevated,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: highlighted ? AppColors.accent : AppColors.border),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: highlighted ? AppColors.accent : AppColors.border,
+          ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 24, color: highlighted ? const Color(0xFF0A0A0A) : AppColors.textPrimary),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: highlighted ? const Color(0xFF0A0A0A) : AppColors.textPrimary,
-              ),
-            ),
-          ],
+        child: Icon(
+          icon,
+          size: 20,
+          color: highlighted ? const Color(0xFF0A0A0A) : AppColors.textPrimary,
         ),
       ),
     );
   }
 }
 
+class _MiniSlider extends StatelessWidget {
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final int? divisions;
+  final ValueChanged<double> onChanged;
+
+  const _MiniSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    this.divisions,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: AppColors.textMuted, fontSize: 10),
+        ),
+        SliderTheme(
+          data: SliderThemeData(
+            trackHeight: 3,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+          ),
+          child: Slider(
+            min: min,
+            max: max,
+            divisions: divisions,
+            value: value,
+            onChanged: onChanged,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class _PresetBtn extends StatelessWidget {
   final String label;
@@ -1352,6 +1925,7 @@ class _PresetBtn extends StatelessWidget {
     );
   }
 }
+
 class _SongDraft {
   final String title;
   final Map<int, String> trackPaths;
@@ -1359,11 +1933,14 @@ class _SongDraft {
   const _SongDraft({required this.title, required this.trackPaths});
 }
 
+class _SongEditDraft {
+  final String title;
+  final String? lyricsText;
+  final Map<int, String> trackPaths;
 
-
-
-
-
-
-
-
+  const _SongEditDraft({
+    required this.title,
+    required this.lyricsText,
+    required this.trackPaths,
+  });
+}

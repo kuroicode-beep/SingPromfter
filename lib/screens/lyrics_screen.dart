@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../models/song.dart';
 import '../repository/song_repository.dart';
@@ -20,6 +20,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
 
   double _fontSize = 3;
   double _lineHeight = 3;
+  double _volume = 1.0;
 
   bool _playing = false;
   Duration _position = Duration.zero;
@@ -37,21 +38,20 @@ class _LyricsScreenState extends State<LyricsScreen> {
     final path = await _repo.getMrPath(widget.song.mrFileName!);
     if (path == null) return;
     try {
-      await _player.setFilePath(path);
-      _duration = _player.duration ?? Duration.zero;
+      await _player.setSourceDeviceFile(path);
     } catch (_) {}
 
-    _player.playerStateStream.listen((state) {
+    _player.onPlayerStateChanged.listen((state) {
       if (!mounted) return;
-      setState(() => _playing = state.playing);
+      setState(() => _playing = state == PlayerState.playing);
     });
-    _player.positionStream.listen((pos) {
+    _player.onPositionChanged.listen((pos) {
       if (!mounted) return;
       setState(() => _position = pos);
     });
-    _player.durationStream.listen((dur) {
+    _player.onDurationChanged.listen((dur) {
       if (!mounted) return;
-      setState(() => _duration = dur ?? Duration.zero);
+      setState(() => _duration = dur);
     });
   }
 
@@ -246,7 +246,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
           icon: Icons.stop,
           label: '정지',
           onTap: () async {
-            await _player.stop();
+            await _player.pause();
             await _player.seek(Duration.zero);
           },
           color: AppColors.elevated,
@@ -255,7 +255,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
         _PlayBtn(
           icon: _playing ? Icons.pause : Icons.play_arrow,
           label: _playing ? '일시정지' : '재생',
-          onTap: () => _playing ? _player.pause() : _player.play(),
+          onTap: () => _playing ? _player.pause() : _player.resume(),
           color: AppColors.accent,
           textColor: const Color(0xFF0A0A0A),
           large: true,
@@ -266,7 +266,7 @@ class _LyricsScreenState extends State<LyricsScreen> {
           label: '처음부터',
           onTap: () async {
             await _player.seek(Duration.zero);
-            await _player.play();
+            await _player.resume();
           },
           color: AppColors.elevated,
         ),
@@ -279,15 +279,14 @@ class _LyricsScreenState extends State<LyricsScreen> {
       children: [
         const Icon(Icons.volume_down, color: AppColors.textMuted, size: 18),
         Expanded(
-          child: StreamBuilder<double>(
-            stream: _player.volumeStream,
-            initialData: 1.0,
-            builder: (_, snap) => Slider(
-              min: 0,
-              max: 1,
-              value: snap.data ?? 1.0,
-              onChanged: (v) => _player.setVolume(v),
-            ),
+          child: Slider(
+            min: 0,
+            max: 1,
+            value: _volume,
+            onChanged: (v) {
+              _player.setVolume(v);
+              setState(() => _volume = v);
+            },
           ),
         ),
         const Icon(Icons.volume_up, color: AppColors.textMuted, size: 18),
