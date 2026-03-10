@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 
@@ -7,12 +8,16 @@ class PrompterScreen extends StatefulWidget {
   final Song song;
   final double fontSize;
   final double lineHeight;
+  final String? fontFamily;
+  final bool boldText;
 
   const PrompterScreen({
     super.key,
     required this.song,
     required this.fontSize,
     required this.lineHeight,
+    this.fontFamily,
+    this.boldText = false,
   });
 
   @override
@@ -68,13 +73,14 @@ class _PrompterScreenState extends State<PrompterScreen> {
               padding: EdgeInsets.fromLTRB(32, _controlsVisible ? 80 : 48, 32, 120),
               child: Center(
                 child: Text(
-                  widget.song.lyrics.isEmpty ? '(가사 없음)' : widget.song.lyrics,
+                  widget.song.lyricsText.isEmpty ? '(가사가 없습니다)' : widget.song.lyricsText,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: _fontSize,
                     height: _lineHeight,
-                    fontWeight: FontWeight.w500,
+                    fontFamily: widget.fontFamily,
+                    fontWeight: widget.boldText ? FontWeight.w800 : FontWeight.w500,
                   ),
                 ),
               ),
@@ -206,6 +212,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
 class _RoundBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+
   const _RoundBtn({required this.icon, required this.onTap});
 
   @override
@@ -228,6 +235,7 @@ class _RoundBtn extends StatelessWidget {
 class _ScrollBtn extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+
   const _ScrollBtn({required this.icon, required this.onTap});
 
   @override

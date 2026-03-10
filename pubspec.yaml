@@ -91,3 +91,15 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+  fonts:
+    - family: MalgunGothic
+      fonts:
+        - asset: assets/fonts/malgun.ttf
+        - asset: assets/fonts/malgunbd.ttf
+          weight: 700
+    - family: SegoeUI
+      fonts:
+        - asset: assets/fonts/segoeui.ttf
+        - asset: assets/fonts/segoeuib.ttf
+          weight: 700

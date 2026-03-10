@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/song_list_screen.dart';
+import 'package:singpromfter_app/screens/song_list_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -35,3 +35,4 @@ class SingPromfterApp extends StatelessWidget {
     );
   }
 }
+
