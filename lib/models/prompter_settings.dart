@@ -1,13 +1,17 @@
 ﻿import 'dart:convert';
 
+import '../theme/prompter_levels.dart';
+
 class PrompterSettings {
   final double fontSizeLevel;
   final double lineHeightLevel;
   final double speedLevel;
   final double volume;
+  final double playbackRate;
   final int? lastSelectedTrackSlot;
   final String fontFamily;
   final bool boldText;
+  final double? customFontSizePt;
   final Map<String, int> lastSelectedTrackSlotBySong;
 
   const PrompterSettings({
@@ -15,32 +19,48 @@ class PrompterSettings {
     this.lineHeightLevel = 3,
     this.speedLevel = 2,
     this.volume = 1,
+    this.playbackRate = 1,
     this.lastSelectedTrackSlot,
     this.fontFamily = '기본',
     this.boldText = false,
+    this.customFontSizePt,
     this.lastSelectedTrackSlotBySong = const {},
   });
+
+  double get effectiveFontSizePt =>
+      customFontSizePt ?? PrompterLevels.fontSizeForLevel(fontSizeLevel);
+
+  double get effectiveLineHeight =>
+      PrompterLevels.lineHeightForLevel(lineHeightLevel);
 
   PrompterSettings copyWith({
     double? fontSizeLevel,
     double? lineHeightLevel,
     double? speedLevel,
     double? volume,
+    double? playbackRate,
     int? lastSelectedTrackSlot,
     String? fontFamily,
     bool? boldText,
+    double? customFontSizePt,
     Map<String, int>? lastSelectedTrackSlotBySong,
     bool clearTrackSlot = false,
+    bool clearCustomFontSize = false,
   }) {
     return PrompterSettings(
       fontSizeLevel: fontSizeLevel ?? this.fontSizeLevel,
       lineHeightLevel: lineHeightLevel ?? this.lineHeightLevel,
       speedLevel: speedLevel ?? this.speedLevel,
       volume: volume ?? this.volume,
-      lastSelectedTrackSlot:
-          clearTrackSlot ? null : (lastSelectedTrackSlot ?? this.lastSelectedTrackSlot),
+      playbackRate: playbackRate ?? this.playbackRate,
+      lastSelectedTrackSlot: clearTrackSlot
+          ? null
+          : (lastSelectedTrackSlot ?? this.lastSelectedTrackSlot),
       fontFamily: fontFamily ?? this.fontFamily,
       boldText: boldText ?? this.boldText,
+      customFontSizePt: clearCustomFontSize
+          ? null
+          : (customFontSizePt ?? this.customFontSizePt),
       lastSelectedTrackSlotBySong:
           lastSelectedTrackSlotBySong ?? this.lastSelectedTrackSlotBySong,
     );
@@ -58,15 +78,17 @@ class PrompterSettings {
   }
 
   Map<String, dynamic> toJson() => {
-        'fontSizeLevel': fontSizeLevel,
-        'lineHeightLevel': lineHeightLevel,
-        'speedLevel': speedLevel,
-        'volume': volume,
-        'lastSelectedTrackSlot': lastSelectedTrackSlot,
-        'fontFamily': fontFamily,
-        'boldText': boldText,
-        'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
-      };
+    'fontSizeLevel': fontSizeLevel,
+    'lineHeightLevel': lineHeightLevel,
+    'speedLevel': speedLevel,
+    'volume': volume,
+    'playbackRate': playbackRate,
+    'lastSelectedTrackSlot': lastSelectedTrackSlot,
+    'fontFamily': fontFamily,
+    'boldText': boldText,
+    'customFontSizePt': customFontSizePt,
+    'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
+  };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
     final rawMap = json['lastSelectedTrackSlotBySong'];
@@ -85,16 +107,21 @@ class PrompterSettings {
       lineHeightLevel: (json['lineHeightLevel'] as num?)?.toDouble() ?? 3,
       speedLevel: (json['speedLevel'] as num?)?.toDouble() ?? 2,
       volume: (json['volume'] as num?)?.toDouble() ?? 1,
+      playbackRate: (json['playbackRate'] as num?)?.toDouble() ?? 1,
       lastSelectedTrackSlot: (json['lastSelectedTrackSlot'] as num?)?.toInt(),
       fontFamily: json['fontFamily'] as String? ?? '기본',
       boldText: json['boldText'] as bool? ?? false,
+      customFontSizePt: (json['customFontSizePt'] as num?)?.toDouble(),
       lastSelectedTrackSlotBySong: bySong,
     );
   }
 
-  static String encode(PrompterSettings settings) => jsonEncode(settings.toJson());
+  static String encode(PrompterSettings settings) =>
+      jsonEncode(settings.toJson());
 
   static PrompterSettings decode(String raw) {
-    return PrompterSettings.fromJson((jsonDecode(raw) as Map).cast<String, dynamic>());
+    return PrompterSettings.fromJson(
+      (jsonDecode(raw) as Map).cast<String, dynamic>(),
+    );
   }
 }

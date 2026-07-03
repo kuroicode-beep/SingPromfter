@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../constants/app_constants.dart';
 import '../models/song.dart';
+import '../theme/prompter_levels.dart';
 
 class PrompterScreen extends StatefulWidget {
   final Song song;
@@ -11,6 +13,7 @@ class PrompterScreen extends StatefulWidget {
   final double lineHeight;
   final double? fontSizeLevel;
   final double? lineHeightLevel;
+  final double? customFontSizePt;
   final double speedLevel;
   final String? fontFamily;
   final bool boldText;
@@ -26,6 +29,7 @@ class PrompterScreen extends StatefulWidget {
     required this.lineHeight,
     this.fontSizeLevel,
     this.lineHeightLevel,
+    this.customFontSizePt,
     this.speedLevel = 0,
     this.fontFamily,
     this.boldText = false,
@@ -46,6 +50,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
   bool _controlsVisible = true;
   late double _fontSizeLevel;
   late double _lineHeightLevel;
+  late double? _customFontSizePt;
   late double _speedLevel;
   late bool _autoScrollEnabled;
 
@@ -55,6 +60,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _fontSizeLevel = widget.fontSizeLevel ?? _fontSizeToLevel(widget.fontSize);
     _lineHeightLevel =
         widget.lineHeightLevel ?? _lineHeightToLevel(widget.lineHeight);
+    _customFontSizePt = widget.customFontSizePt;
     _speedLevel = widget.speedLevel;
     _autoScrollEnabled = widget.autoScrollEnabled;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -81,40 +87,17 @@ class _PrompterScreenState extends State<PrompterScreen> {
     return false;
   }
 
-  double get _fontSize => _fontSizeForLevel(_fontSizeLevel);
+  double get _fontSize =>
+      _customFontSizePt ?? PrompterLevels.fontSizeForLevel(_fontSizeLevel);
 
-  double get _lineHeight => _lineHeightForLevel(_lineHeightLevel);
-
-  double _fontSizeForLevel(double level) {
-    if (level <= 1) return 18;
-    if (level <= 2) return 24;
-    if (level <= 3) return 32;
-    if (level <= 4) return 42;
-    return 56;
-  }
-
-  double _lineHeightForLevel(double level) {
-    if (level <= 1) return 1.4;
-    if (level <= 2) return 1.6;
-    if (level <= 3) return 1.9;
-    if (level <= 4) return 2.2;
-    return 2.6;
-  }
+  double get _lineHeight => PrompterLevels.lineHeightForLevel(_lineHeightLevel);
 
   double _fontSizeToLevel(double value) {
-    if (value <= 18) return 1;
-    if (value <= 24) return 2;
-    if (value <= 32) return 3;
-    if (value <= 42) return 4;
-    return 5;
+    return PrompterLevels.levelForFontSize(value);
   }
 
   double _lineHeightToLevel(double value) {
-    if (value <= 1.4) return 1;
-    if (value <= 1.6) return 2;
-    if (value <= 1.9) return 3;
-    if (value <= 2.2) return 4;
-    return 5;
+    return PrompterLevels.levelForLineHeight(value);
   }
 
   void _scroll(double delta) {
@@ -137,9 +120,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
       return;
     }
 
-    _autoScrollTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
+    _autoScrollTimer = Timer.periodic(AppConstants.autoScrollInterval, (_) {
       if (!_autoScrollEnabled || !_scrollController.hasClients) return;
-      final delta = _speedLevel * 1.4;
+      final delta = PrompterLevels.scrollDeltaForSpeed(_speedLevel);
       final next = (_scrollController.offset + delta).clamp(
         0.0,
         _scrollController.position.maxScrollExtent,
@@ -149,7 +132,10 @@ class _PrompterScreenState extends State<PrompterScreen> {
   }
 
   void _updateFontSizeLevel(double value) {
-    setState(() => _fontSizeLevel = value);
+    setState(() {
+      _fontSizeLevel = value;
+      _customFontSizePt = null;
+    });
     widget.onFontSizeLevelChanged?.call(value);
   }
 
@@ -285,6 +271,10 @@ class _PrompterScreenState extends State<PrompterScreen> {
                     icon: _autoScrollEnabled
                         ? Icons.pause_circle
                         : Icons.play_circle,
+                    semanticsLabel: _autoScrollEnabled
+                        ? '자동 스크롤 끄기'
+                        : '자동 스크롤 켜기',
+                    toggled: _autoScrollEnabled,
                     onTap: () {
                       setState(() => _autoScrollEnabled = !_autoScrollEnabled);
                       _syncAutoScroll();
@@ -295,8 +285,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
                     label: '크기',
                     value: _fontSizeLevel,
                     min: 1,
-                    max: 5,
-                    divisions: 4,
+                    max: 7,
+                    divisions: 6,
+                    semanticValue: '현재 ${_fontSize.round()} 포인트',
                     onChanged: _updateFontSizeLevel,
                   ),
                   const SizedBox(width: 10),
@@ -304,8 +295,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
                     label: '줄간격',
                     value: _lineHeightLevel,
                     min: 1,
-                    max: 5,
-                    divisions: 4,
+                    max: 7,
+                    divisions: 6,
                     onChanged: _updateLineHeightLevel,
                   ),
                   const SizedBox(width: 10),
@@ -320,11 +311,13 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   const SizedBox(width: 10),
                   _BarIconButton(
                     icon: Icons.keyboard_arrow_up,
+                    semanticsLabel: '가사 위로 이동',
                     onTap: () => _scroll(-200),
                   ),
                   const SizedBox(width: 6),
                   _BarIconButton(
                     icon: Icons.keyboard_arrow_down,
+                    semanticsLabel: '가사 아래로 이동',
                     onTap: () => _scroll(200),
                   ),
                 ],
@@ -343,6 +336,7 @@ class _InlineSlider extends StatelessWidget {
   final double min;
   final double max;
   final int? divisions;
+  final String? semanticValue;
   final ValueChanged<double> onChanged;
 
   const _InlineSlider({
@@ -351,39 +345,96 @@ class _InlineSlider extends StatelessWidget {
     required this.min,
     required this.max,
     this.divisions,
+    this.semanticValue,
     required this.onChanged,
+  });
+
+  double get _step => divisions != null ? (max - min) / divisions! : 1;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '$label 조절',
+      value: semanticValue ?? value.toStringAsFixed(value % 1 == 0 ? 0 : 1),
+      child: SizedBox(
+        width: 224,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            Row(
+              children: [
+                _FullStepButton(
+                  icon: Icons.remove,
+                  semanticsLabel: '$label 줄이기',
+                  onTap: () =>
+                      onChanged((value - _step).clamp(min, max).toDouble()),
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 10,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 16,
+                      ),
+                    ),
+                    child: Slider(
+                      min: min,
+                      max: max,
+                      divisions: divisions,
+                      value: value.clamp(min, max).toDouble(),
+                      semanticFormatterCallback: (_) =>
+                          semanticValue ?? '$label ${value.toStringAsFixed(1)}',
+                      onChanged: onChanged,
+                    ),
+                  ),
+                ),
+                _FullStepButton(
+                  icon: Icons.add,
+                  semanticsLabel: '$label 늘리기',
+                  onTap: () =>
+                      onChanged((value + _step).clamp(min, max).toDouble()),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FullStepButton extends StatelessWidget {
+  final IconData icon;
+  final String semanticsLabel;
+  final VoidCallback onTap;
+
+  const _FullStepButton({
+    required this.icon,
+    required this.semanticsLabel,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 132,
-      child: Row(
-        children: [
-          SizedBox(
-            width: 40,
-            child: Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
-            ),
-          ),
-          Expanded(
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
-              ),
-              child: Slider(
-                min: min,
-                max: max,
-                divisions: divisions,
-                value: value,
-                onChanged: onChanged,
-              ),
-            ),
-          ),
-        ],
+    return Semantics(
+      label: semanticsLabel,
+      button: true,
+      enabled: true,
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: IconButton(
+          onPressed: onTap,
+          icon: Icon(icon, color: Colors.white70, size: 22),
+          tooltip: semanticsLabel,
+        ),
       ),
     );
   }
@@ -392,21 +443,36 @@ class _InlineSlider extends StatelessWidget {
 class _BarIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
+  final String semanticsLabel;
+  final bool? toggled;
 
-  const _BarIconButton({required this.icon, required this.onTap});
+  const _BarIconButton({
+    required this.icon,
+    required this.onTap,
+    required this.semanticsLabel,
+    this.toggled,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: Colors.white12,
-          borderRadius: BorderRadius.circular(8),
+    return Semantics(
+      label: semanticsLabel,
+      button: true,
+      enabled: true,
+      toggled: toggled,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: Colors.white12,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: ExcludeSemantics(
+            child: Icon(icon, color: Colors.white70, size: 22),
+          ),
         ),
-        child: Icon(icon, color: Colors.white70, size: 18),
       ),
     );
   }

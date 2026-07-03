@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 class QueueItem {
   final String songId;
@@ -12,16 +12,17 @@ class QueueItem {
   });
 
   Map<String, dynamic> toJson() => {
-        'songId': songId,
-        'selectedTrackSlot': selectedTrackSlot,
-        'queuedAt': queuedAt.toIso8601String(),
-      };
+    'songId': songId,
+    'selectedTrackSlot': selectedTrackSlot,
+    'queuedAt': queuedAt.toIso8601String(),
+  };
 
   factory QueueItem.fromJson(Map<String, dynamic> json) => QueueItem(
-        songId: json['songId'] as String,
-        selectedTrackSlot: (json['selectedTrackSlot'] as num?)?.toInt(),
-        queuedAt: DateTime.tryParse(json['queuedAt'] as String? ?? '') ?? DateTime.now(),
-      );
+    songId: json['songId'] as String,
+    selectedTrackSlot: (json['selectedTrackSlot'] as num?)?.toInt(),
+    queuedAt:
+        DateTime.tryParse(json['queuedAt'] as String? ?? '') ?? DateTime.now(),
+  );
 
   static String encodeList(List<QueueItem> items) =>
       jsonEncode(items.map((e) => e.toJson()).toList());
@@ -33,4 +34,3 @@ class QueueItem {
         .toList();
   }
 }
-

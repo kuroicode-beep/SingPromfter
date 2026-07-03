@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
+  // WCAG 2.1 AA contrast notes (dark theme):
+  // textPrimary #F5F5F5 on background #0A0A0A: ~18:1
+  // textMuted #B5BCC5 on surface #111111: ~9:1
+  // textMuted #B5BCC5 on elevated #1A1A1A: ~8:1
+  // accent #EAB308 on background #0A0A0A: ~12:1
+  // black #0A0A0A on accent #EAB308: ~12:1
   static const background = Color(0xFF0A0A0A);
   static const surface = Color(0xFF111111);
   static const elevated = Color(0xFF1A1A1A);
   static const accent = Color(0xFFEAB308);
   static const accentHover = Color(0xFFFACC15);
   static const textPrimary = Color(0xFFF5F5F5);
-  static const textMuted = Color(0xFF9CA3AF);
+  static const textMuted = Color(0xFFB5BCC5);
   static const border = Color(0xFF262626);
   static const danger = Color(0xFFEF4444);
 }

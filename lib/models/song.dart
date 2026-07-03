@@ -9,6 +9,7 @@ class Song {
   final List<BackingTrack> backingTracks;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final bool isFavorite;
 
   const Song({
     required this.id,
@@ -18,11 +19,10 @@ class Song {
     required this.backingTracks,
     required this.createdAt,
     required this.updatedAt,
+    this.isFavorite = false,
   });
 
   String get lyrics => lyricsText;
-
-  String? get mrFileName => trackForSlot(1)?.fileName;
 
   bool get hasMr => backingTracks.isNotEmpty;
 
@@ -46,6 +46,7 @@ class Song {
     List<BackingTrack>? backingTracks,
     DateTime? createdAt,
     DateTime? updatedAt,
+    bool? isFavorite,
   }) {
     return Song(
       id: id ?? this.id,
@@ -55,18 +56,30 @@ class Song {
       backingTracks: backingTracks ?? this.backingTracks,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      isFavorite: isFavorite ?? this.isFavorite,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'lyricsPath': lyricsPath,
-        'lyricsText': lyricsText,
-        'backingTracks': backingTracks.map((e) => e.toJson()).toList(),
-        'createdAt': createdAt.toIso8601String(),
-        'updatedAt': updatedAt.toIso8601String(),
-      };
+    'id': id,
+    'title': title,
+    'lyricsPath': lyricsPath,
+    'lyricsText': lyricsText,
+    'backingTracks': backingTracks.map((e) => e.toJson()).toList(),
+    'createdAt': createdAt.toIso8601String(),
+    'updatedAt': updatedAt.toIso8601String(),
+    'isFavorite': isFavorite,
+  };
+
+  Map<String, dynamic> toMetaJson() => {
+    'id': id,
+    'title': title,
+    'lyricsPath': lyricsPath,
+    'backingTracks': backingTracks.map((e) => e.toJson()).toList(),
+    'createdAt': createdAt.toIso8601String(),
+    'updatedAt': updatedAt.toIso8601String(),
+    'isFavorite': isFavorite,
+  };
 
   factory Song.fromJson(Map<String, dynamic> json) {
     final now = DateTime.now();
@@ -86,11 +99,20 @@ class Song {
       id: json['id'] as String,
       title: json['title'] as String? ?? '',
       lyricsPath: json['lyricsPath'] as String? ?? '${json['id']}.txt',
-      lyricsText: json['lyricsText'] as String? ?? json['lyrics'] as String? ?? '',
+      lyricsText:
+          json['lyricsText'] as String? ?? json['lyrics'] as String? ?? '',
       backingTracks: rawTracks,
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
+      isFavorite: json['isFavorite'] as bool? ?? false,
     );
+  }
+
+  factory Song.fromMetaJson(
+    Map<String, dynamic> json, {
+    String lyricsText = '',
+  }) {
+    return Song.fromJson({...json, 'lyricsText': lyricsText});
   }
 
   static String encodeList(List<Song> songs) =>
@@ -103,4 +125,3 @@ class Song {
         .toList();
   }
 }
-

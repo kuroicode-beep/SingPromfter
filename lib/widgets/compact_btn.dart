@@ -1,0 +1,56 @@
+// file: lib/widgets/compact_btn.dart
+//
+// 프롬프터 하단 제어 바의 48dp 접근성 버튼.
+import 'package:flutter/material.dart';
+
+import '../theme/app_theme.dart';
+
+class CompactBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool highlighted;
+  final String semanticsLabel;
+  final bool? toggled;
+
+  const CompactBtn({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    required this.semanticsLabel,
+    this.highlighted = false,
+    this.toggled,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticsLabel,
+      button: true,
+      enabled: true,
+      toggled: toggled,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: highlighted ? AppColors.accent : AppColors.elevated,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: highlighted ? AppColors.accent : AppColors.border,
+            ),
+          ),
+          child: ExcludeSemantics(
+            child: Icon(
+              icon,
+              size: 24,
+              color: highlighted
+                  ? const Color(0xFF0A0A0A)
+                  : AppColors.textPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

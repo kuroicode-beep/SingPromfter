@@ -2,10 +2,12 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../constants/app_constants.dart';
 import '../models/backing_track.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
+import 'song_meta_store.dart';
 
 const _kSongsKey = 'singpromfter_songs';
 const _kSettingsKey = 'singpromfter_settings';
@@ -15,6 +17,7 @@ const _kLastSongIdKey = 'singpromfter_last_song_id';
 class SongRepository {
   SongRepository._();
   static final SongRepository instance = SongRepository._();
+  final SongMetaStore _metaStore = SongMetaStore();
 
   Future<Directory> get _dataDir async {
     final base = await getApplicationDocumentsDirectory();
@@ -23,17 +26,23 @@ class SongRepository {
     return dir;
   }
 
+  Future<Directory> getDataDir() => _dataDir;
+
   Future<Directory> get _lyricsDir async {
     final dir = Directory('${(await _dataDir).path}/txt');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
+  Future<Directory> getLyricsDir() => _lyricsDir;
+
   Future<Directory> get _mrDir async {
     final dir = Directory('${(await _dataDir).path}/mp3');
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
+
+  Future<Directory> getBackingTrackDir() => _mrDir;
 
   Future<Directory> get _legacyLyricsDir async {
     final base = await getApplicationDocumentsDirectory();
@@ -46,12 +55,16 @@ class SongRepository {
   }
 
   Future<List<Song>> loadSongs() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kSongsKey);
-    if (raw == null || raw.isEmpty) return [];
     try {
+      if (await _metaStore.exists()) {
+        return await _metaStore.load();
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kSongsKey);
+      if (raw == null || raw.isEmpty) return [];
       final songs = Song.decodeList(raw);
-      if (kIsWeb) return songs;
+
       // lyricsText가 비어있는 곡은 파일에서 읽어 마이그레이션
       bool changed = false;
       final migrated = await Future.wait(
@@ -81,19 +94,18 @@ class SongRepository {
           return song.copyWith(lyricsText: text);
         }),
       );
-      // 변경이 있으면 SharedPreferences에 저장
-      if (changed) {
-        await prefs.setString(_kSongsKey, Song.encodeList(migrated));
-      }
+      if (changed) debugPrint('legacy songs 가사 텍스트 마이그레이션 완료');
+      await _metaStore.save(migrated);
+      await prefs.remove(_kSongsKey);
       return migrated;
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('loadSongs 실패: $e\n$stack');
       return [];
     }
   }
 
   Future<void> saveSongs(List<Song> songs) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kSongsKey, Song.encodeList(songs));
+    await _metaStore.save(songs);
   }
 
   Future<PrompterSettings> loadSettings() async {
@@ -102,7 +114,8 @@ class SongRepository {
     if (raw == null || raw.isEmpty) return const PrompterSettings();
     try {
       return PrompterSettings.decode(raw);
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('loadSettings 실패, 기본 설정 사용: $e\n$stack');
       return const PrompterSettings();
     }
   }
@@ -118,7 +131,8 @@ class SongRepository {
     if (raw == null || raw.isEmpty) return [];
     try {
       return QueueItem.decodeList(raw);
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('loadQueue 실패, 빈 큐 사용: $e\n$stack');
       return [];
     }
   }
@@ -147,11 +161,14 @@ class SongRepository {
     required String title,
     required String lyrics,
     Map<int, String>? sourceTrackPaths,
+    Map<int, String>? trackLabels,
+    Map<int, int?>? trackStartMs,
+    Map<int, int?>? trackEndMs,
   }) async {
     final lyricsPath = await writeLyricsFile(title: title, lyrics: lyrics);
     final tracks = <BackingTrack>[];
 
-    if (sourceTrackPaths != null && !kIsWeb) {
+    if (sourceTrackPaths != null) {
       for (final entry in sourceTrackPaths.entries) {
         final slot = entry.key;
         if (slot < 1 || slot > 3) continue;
@@ -163,7 +180,13 @@ class SongRepository {
           sourcePath: source,
         );
         tracks.add(
-          BackingTrack(slot: slot, fileName: fileName, label: 'MR$slot'),
+          BackingTrack(
+            slot: slot,
+            fileName: fileName,
+            label: _trackLabel(trackLabels, slot, 'MR$slot'),
+            startMs: trackStartMs?[slot],
+            endMs: trackEndMs?[slot],
+          ),
         );
       }
       tracks.sort((a, b) => a.slot.compareTo(b.slot));
@@ -186,6 +209,9 @@ class SongRepository {
     required String title,
     String? lyrics,
     Map<int, String>? sourceTrackPaths,
+    Map<int, String>? trackLabels,
+    Map<int, int?>? trackStartMs,
+    Map<int, int?>? trackEndMs,
   }) async {
     final nextTitle = title.trim().isEmpty ? song.title : title.trim();
     final nextLyrics = lyrics ?? song.lyricsText;
@@ -197,7 +223,7 @@ class SongRepository {
     final nextTracks = <BackingTrack>[];
     final oldTrackNamesToDelete = <String>{};
 
-    for (final slot in [1, 2, 3]) {
+    for (final slot in AppConstants.backingTrackSlots) {
       final replacementPath = sourceTrackPaths?[slot];
       final existingTrack = song.trackForSlot(slot);
 
@@ -208,7 +234,13 @@ class SongRepository {
           sourcePath: replacementPath,
         );
         nextTracks.add(
-          BackingTrack(slot: slot, fileName: fileName, label: 'MR$slot'),
+          BackingTrack(
+            slot: slot,
+            fileName: fileName,
+            label: _trackLabel(trackLabels, slot, 'MR$slot'),
+            startMs: trackStartMs?[slot],
+            endMs: trackEndMs?[slot],
+          ),
         );
         if (existingTrack != null && existingTrack.fileName != fileName) {
           oldTrackNamesToDelete.add(existingTrack.fileName);
@@ -224,7 +256,13 @@ class SongRepository {
           BackingTrack(
             slot: existingTrack.slot,
             fileName: existingTrack.fileName,
-            label: existingTrack.label,
+            label: _trackLabel(trackLabels, slot, existingTrack.label),
+            startMs: trackStartMs?.containsKey(slot) == true
+                ? trackStartMs![slot]
+                : existingTrack.startMs,
+            endMs: trackEndMs?.containsKey(slot) == true
+                ? trackEndMs![slot]
+                : existingTrack.endMs,
           ),
         );
         continue;
@@ -248,11 +286,21 @@ class SongRepository {
         oldTrackNamesToDelete.add(existingTrack.fileName);
       }
       nextTracks.add(
-        BackingTrack(slot: slot, fileName: renamedFileName, label: 'MR$slot'),
+        BackingTrack(
+          slot: slot,
+          fileName: renamedFileName,
+          label: _trackLabel(trackLabels, slot, existingTrack.label),
+          startMs: trackStartMs?.containsKey(slot) == true
+              ? trackStartMs![slot]
+              : existingTrack.startMs,
+          endMs: trackEndMs?.containsKey(slot) == true
+              ? trackEndMs![slot]
+              : existingTrack.endMs,
+        ),
       );
     }
 
-    if (!kIsWeb && song.lyricsPath != nextLyricsPath) {
+    if (song.lyricsPath != nextLyricsPath) {
       await _deleteFileIfExists(song.lyricsPath);
       await _deleteFileIfExists(
         '${(await _legacyLyricsDir).path}/${song.id}.txt',
@@ -276,10 +324,6 @@ class SongRepository {
     required String title,
     required String lyrics,
   }) async {
-    if (kIsWeb) {
-      // Web has no writable local filesystem path for dart:io File.
-      return buildLyricsFileName(title);
-    }
     final lyricsFile = File(
       '${(await _lyricsDir).path}/${buildLyricsFileName(title)}',
     );
@@ -292,9 +336,6 @@ class SongRepository {
     required int slot,
     required String sourcePath,
   }) async {
-    if (kIsWeb) {
-      throw UnsupportedError('웹에서는 로컬 반주 파일 복사를 지원하지 않습니다.');
-    }
     final dir = await _mrDir;
     final fileName = buildBackingTrackFileName(title, slot);
     final dest = File('${dir.path}/$fileName');
@@ -302,24 +343,12 @@ class SongRepository {
     return fileName;
   }
 
-  Future<String> copyMr({
-    required String title,
-    required String sourcePath,
-  }) async {
-    return copyBackingTrack(title: title, slot: 1, sourcePath: sourcePath);
-  }
-
   Future<String?> getBackingTrackPath(String fileName) async {
-    if (kIsWeb) return null;
     final file = await _findBackingTrackFile(fileName);
     return file?.path;
   }
 
-  Future<String?> getMrPath(String mrFileName) =>
-      getBackingTrackPath(mrFileName);
-
   Future<void> deleteSong(Song song) async {
-    if (kIsWeb) return;
     final lyricsPath = song.lyricsPath;
     final lyricsFile = File(lyricsPath);
     if (await lyricsFile.exists()) {
@@ -359,6 +388,11 @@ class SongRepository {
         .trim()
         .replaceAll(RegExp(r'[. ]+$'), '');
     return sanitized.isEmpty ? 'song' : sanitized;
+  }
+
+  String _trackLabel(Map<int, String>? labels, int slot, String fallback) {
+    final label = labels?[slot]?.trim();
+    return label == null || label.isEmpty ? fallback : label;
   }
 
   Future<File?> _findBackingTrackFile(String fileName) async {
