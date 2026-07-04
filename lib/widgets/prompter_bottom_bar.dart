@@ -3,6 +3,7 @@
 // 메인 화면 하단의 재생/접근성 컨트롤 바.
 import 'package:flutter/material.dart';
 
+import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
@@ -56,12 +57,8 @@ class PrompterBottomBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 4, 12, 2),
-      padding: const EdgeInsets.fromLTRB(10, 6, 10, 3),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: AppShapes.panel(),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -112,7 +109,7 @@ class PrompterBottomBar extends StatelessWidget {
                   width: 220,
                   child: SliderTheme(
                     data: SliderThemeData(
-                      trackHeight: 4,
+                      trackHeight: 6,
                       thumbShape: const RoundSliderThumbShape(
                         enabledThumbRadius: 10,
                       ),
@@ -258,10 +255,7 @@ class PrompterBottomBar extends StatelessWidget {
                       : 'System Default',
                   dropdownColor: AppColors.surface,
                   isDense: false,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 13,
-                  ),
+                  style: AppTypography.body,
                   items: fontOptions.keys
                       .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                       .toList(growable: false),
@@ -286,9 +280,35 @@ class PrompterBottomBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                const Text(
-                  '굵게',
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                Text('굵게', style: AppTypography.body),
+                const SizedBox(width: 8),
+                DropdownButton<PrompterDisplayMode>(
+                  value: settings.displayMode,
+                  dropdownColor: AppColors.surface,
+                  style: AppTypography.body,
+                  items: const [
+                    DropdownMenuItem(
+                      value: PrompterDisplayMode.full,
+                      child: Text('전체 가사'),
+                    ),
+                    DropdownMenuItem(
+                      value: PrompterDisplayMode.highlight,
+                      child: Text('줄 하이라이트'),
+                    ),
+                  ],
+                  onChanged: (mode) {
+                    if (mode == null) return;
+                    onSettingsChanged(settings.copyWith(displayMode: mode));
+                  },
+                ),
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: '줄 하이라이트는 자동 스크롤 속도 기준으로 이동합니다.',
+                  child: Icon(
+                    Icons.info_outline,
+                    size: 20,
+                    color: AppColors.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -314,7 +334,7 @@ class _DurationLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       PrompterBottomBar.formatDuration(value),
-      style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+      style: AppTypography.bodyMuted,
     );
   }
 }

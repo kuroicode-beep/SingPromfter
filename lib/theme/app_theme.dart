@@ -45,6 +45,52 @@ class AppColors {
   // tertiary #FFB785 on surfaceContainer #1F1F27: ~7:1
 }
 
+/// Core Precision Dark 셰이프·타이포 규칙 (Sprint 6).
+class AppShapes {
+  AppShapes._();
+
+  static const double panelRadiusValue = 16;
+  static const double controlRadiusValue = 8;
+  static const BorderRadius panelRadius = BorderRadius.all(Radius.circular(16));
+  static const BorderRadius controlRadius = BorderRadius.all(Radius.circular(8));
+
+  static BoxDecoration panel({Color? color}) => BoxDecoration(
+        color: color ?? AppColors.surfaceContainer,
+        borderRadius: panelRadius,
+        border: Border.all(color: AppColors.outline),
+      );
+}
+
+class AppTypography {
+  AppTypography._();
+
+  static const screenTitle = TextStyle(
+    fontSize: 24,
+    fontWeight: FontWeight.w600,
+    color: AppColors.onSurface,
+  );
+  static const listTitle = TextStyle(
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    color: AppColors.onSurface,
+  );
+  static const body = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    color: AppColors.onSurface,
+  );
+  static const bodyMuted = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    color: AppColors.onSurfaceVariant,
+  );
+  static const labelStrong = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+    color: AppColors.onSurface,
+  );
+}
+
 class AppTheme {
   static ThemeData get dark {
     return ThemeData(
@@ -113,8 +159,25 @@ class AppTheme {
         color: AppColors.surfaceContainer,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppShapes.panelRadius,
           side: const BorderSide(color: AppColors.outline),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.elevated,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: AppShapes.controlRadius,
+          borderSide: const BorderSide(color: AppColors.outline),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: AppShapes.controlRadius,
+          borderSide: const BorderSide(color: AppColors.outline),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: AppShapes.controlRadius,
+          borderSide: const BorderSide(color: AppColors.secondary, width: 2),
         ),
       ),
     );

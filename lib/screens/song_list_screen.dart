@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/custom_font_size_dialog.dart';
+import '../models/app_destination.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
@@ -19,6 +20,7 @@ import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
 import '../services/song_list_shortcut_service.dart';
+import '../services/song_filter_service.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../widgets/snack_message.dart';
 
@@ -62,9 +64,18 @@ class _SongListScreenState extends State<SongListScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
+  AppDestination _destination = AppDestination.home;
+  String _searchQuery = '';
+  SongListFilterMode _searchFilterMode = SongListFilterMode.all;
+  int _highlightLineIndex = 0;
+
   @override
   void initState() {
     super.initState();
+    _autoScroll.onLineIndexChanged = () {
+      if (!mounted) return;
+      setState(() => _highlightLineIndex = _autoScroll.lineIndex);
+    };
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     _bindPlayerStreams();
     _bootstrap();
@@ -198,7 +209,9 @@ class _SongListScreenState extends State<SongListScreen> {
         _selectedTrackStartMs = track?.startMs;
         _selectedTrackEndMs = track?.endMs;
         _position = Duration.zero;
+        _highlightLineIndex = 0;
       });
+      _autoScroll.resetLineIndex();
     }
 
     await _repo.saveLastSongId(song.id);
@@ -264,7 +277,11 @@ class _SongListScreenState extends State<SongListScreen> {
       selectedSong: _selectedSong,
       playing: _playing,
       speedLevel: _settings.speedLevel,
+      displayMode: _settings.displayMode,
     );
+    if (mounted) {
+      setState(() => _highlightLineIndex = _autoScroll.lineIndex);
+    }
   }
 
   Future<void> _applyAccessibilityPreset(String preset) =>
@@ -527,6 +544,45 @@ class _SongListScreenState extends State<SongListScreen> {
     if (message != null) _showSnack(message);
   }
 
+  Future<void> _startSong(Song song) async {
+    await _loadSong(song);
+    if (_audioReady && !_playing) {
+      await _togglePlayPause();
+    }
+    if (!mounted) return;
+    _openPrompter(song);
+  }
+
+  Future<void> _reserveAllSongs(List<Song> songs) async {
+    if (songs.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('전체 곡 예약'),
+        content: Text('검색 결과 ${songs.length}곡을 모두 예약 큐에 추가할까요?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('예약'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _applyQueueChange(
+      _queueService.addSongs(
+        queue: _queue,
+        songs: songs,
+        settings: _settings,
+      ),
+      message: '${songs.length}곡 예약 완료',
+    );
+  }
+
   void _openPrompter(Song song) {
     PrompterNavigation.open(
       context: context,
@@ -536,6 +592,10 @@ class _SongListScreenState extends State<SongListScreen> {
       lineHeight: _settings.effectiveLineHeight,
       fontFamily: PrompterSettingsService.resolvedFontFamily(_settings),
       autoScrollEnabled: _playing || !_audioReady,
+      audioReady: _audioReady,
+      position: _position,
+      duration: _duration,
+      onSeek: _audio.seek,
       onSettingsChanged: _updateSettings,
     );
   }
@@ -547,6 +607,8 @@ class _SongListScreenState extends State<SongListScreen> {
   Widget build(BuildContext context) {
     return SongListScreenContent(
       loading: _loading,
+      destination: _destination,
+      onDestinationChanged: (next) => setState(() => _destination = next),
       songs: _songs,
       queue: _queue,
       selectedSong: _selectedSong,
@@ -557,17 +619,21 @@ class _SongListScreenState extends State<SongListScreen> {
       position: _position,
       duration: _duration,
       lyricsScrollController: _lyricsScrollController,
+      highlightLineIndex: _highlightLineIndex,
+      searchQuery: _searchQuery,
+      searchFilterMode: _searchFilterMode,
+      onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
+      onSearchFilterModeChanged: (value) =>
+          setState(() => _searchFilterMode = value),
       onAddSong: _addSong,
       onBatchRegister: _batchRegister,
       onExportBackup: _exportBackup,
       onImportBackup: _importBackup,
       onSelectTrack: (_, slot) => _selectTrackSlot(slot),
       onSelectSong: _loadSong,
-      onPlayNow: (song) async {
-        await _loadSong(song);
-        await _togglePlayPause();
-      },
+      onStart: _startSong,
       onReserveSong: _reserveSong,
+      onReserveAllSongs: _reserveAllSongs,
       onEditSong: _editSong,
       onDeleteSong: _deleteSong,
       onToggleFavorite: _toggleFavorite,

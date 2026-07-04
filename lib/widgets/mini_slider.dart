@@ -45,10 +45,7 @@ class MiniSlider extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
-          ),
+          Text(label, style: AppTypography.bodyMuted),
           Row(
             children: [
               StepButton(
@@ -59,7 +56,7 @@ class MiniSlider extends StatelessWidget {
               Expanded(
                 child: SliderTheme(
                   data: SliderThemeData(
-                    trackHeight: 4,
+                    trackHeight: 6,
                     thumbShape: const RoundSliderThumbShape(
                       enabledThumbRadius: 10,
                     ),
@@ -110,8 +107,8 @@ class StepButton extends StatelessWidget {
       button: true,
       enabled: true,
       child: SizedBox(
-        width: 48,
-        height: 48,
+        width: 50,
+        height: 50,
         child: IconButton(
           onPressed: onTap,
           icon: Icon(icon, size: 22, color: AppColors.textPrimary),

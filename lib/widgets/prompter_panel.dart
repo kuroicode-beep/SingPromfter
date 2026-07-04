@@ -8,6 +8,8 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
+import 'prompter_lyrics_view.dart';
+import 'prompter_progress_bar.dart';
 import 'queue_panel.dart';
 
 class PrompterPanel extends StatelessWidget {
@@ -15,6 +17,7 @@ class PrompterPanel extends StatelessWidget {
   final List<Song> songs;
   final List<QueueItem> queue;
   final ScrollController lyricsScrollController;
+  final int highlightLineIndex;
   final double fontSize;
   final double lineHeight;
   final String? fontFamily;
@@ -37,6 +40,7 @@ class PrompterPanel extends StatelessWidget {
   final VoidCallback onClearQueue;
   final void Function(int oldIndex, int newIndex) onReorderQueue;
   final ValueChanged<int> onRemoveQueueItem;
+  final bool showQueue;
 
   const PrompterPanel({
     super.key,
@@ -44,6 +48,7 @@ class PrompterPanel extends StatelessWidget {
     required this.songs,
     required this.queue,
     required this.lyricsScrollController,
+    required this.highlightLineIndex,
     required this.fontSize,
     required this.lineHeight,
     required this.fontFamily,
@@ -66,6 +71,7 @@ class PrompterPanel extends StatelessWidget {
     required this.onClearQueue,
     required this.onReorderQueue,
     required this.onRemoveQueueItem,
+    this.showQueue = true,
   });
 
   @override
@@ -87,30 +93,27 @@ class PrompterPanel extends StatelessWidget {
           Expanded(
             child: Container(
               margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
+              decoration: AppShapes.panel(),
+              child: PrompterLyricsView(
+                lyricsText: currentSong.lyricsText,
+                displayMode: settings.displayMode,
+                fontSize: fontSize,
+                lineHeight: lineHeight,
+                fontFamily: fontFamily,
+                boldText: settings.boldText,
+                highlightLineIndex: highlightLineIndex,
+                scrollController: lyricsScrollController,
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
               ),
-              child: SingleChildScrollView(
-                controller: lyricsScrollController,
-                child: Text(
-                  currentSong.lyricsText.isEmpty
-                      ? '(가사가 없습니다)'
-                      : currentSong.lyricsText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: fontSize,
-                    height: lineHeight,
-                    fontFamily: fontFamily,
-                    fontWeight: settings.boldText
-                        ? FontWeight.w800
-                        : FontWeight.w500,
-                  ),
-                ),
-              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+            child: PrompterProgressBar(
+              position: position,
+              duration: duration,
+              enabled: audioReady,
+              onSeek: onSeek,
             ),
           ),
           PrompterBottomBar(
@@ -133,18 +136,20 @@ class PrompterPanel extends StatelessWidget {
             onAccessibilityPreset: onAccessibilityPreset,
             onMessage: onMessage,
           ),
-          if (queue.isNotEmpty)
+          if (showQueue && queue.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
               child: QueuePanel(
                 queue: queue,
                 songs: songs,
+                playingSongId: currentSong.id,
+                playing: playing,
                 onClear: onClearQueue,
                 onReorder: onReorderQueue,
                 onRemove: onRemoveQueueItem,
               ),
             )
-          else
+          else if (showQueue)
             const SizedBox(height: 8),
         ],
       ),

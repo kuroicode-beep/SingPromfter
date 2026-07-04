@@ -1,90 +1,162 @@
 // file: lib/widgets/song_list_screen_view.dart
 //
-// SongListScreen의 반응형 레이아웃과 곡 등록 버튼을 렌더링한다.
+// SongListScreen의 네비 레일·반응형 3열 홈·검색/설정 화면을 렌더링한다.
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
+import '../models/app_destination.dart';
+import '../models/song.dart';
 import '../theme/app_theme.dart';
+import 'app_nav_rail.dart';
+import 'home_now_playing_bar.dart';
 
 class SongListScreenView extends StatelessWidget {
   final bool loading;
-  final Widget songListPanel;
-  final Widget prompterPanel;
+  final AppDestination destination;
+  final ValueChanged<AppDestination> onDestinationChanged;
   final VoidCallback onAddSong;
-  final VoidCallback onBatchRegister;
-  final VoidCallback onExportBackup;
-  final VoidCallback onImportBackup;
+  final Song? selectedSong;
+  final int? selectedTrackSlot;
+  final bool playing;
+  final VoidCallback? onStartPrompter;
+  final Widget homeSongListPanel;
+  final Widget favoritesSongListPanel;
+  final Widget prompterPanel;
+  final Widget queuePanel;
+  final Widget searchPanel;
+  final Widget settingsPanel;
 
   const SongListScreenView({
     super.key,
     required this.loading,
-    required this.songListPanel,
-    required this.prompterPanel,
+    required this.destination,
+    required this.onDestinationChanged,
     required this.onAddSong,
-    required this.onBatchRegister,
-    required this.onExportBackup,
-    required this.onImportBackup,
+    required this.selectedSong,
+    required this.selectedTrackSlot,
+    required this.playing,
+    required this.onStartPrompter,
+    required this.homeSongListPanel,
+    required this.favoritesSongListPanel,
+    required this.prompterPanel,
+    required this.queuePanel,
+    required this.searchPanel,
+    required this.settingsPanel,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('SingPromfter'),
-        actions: [
-          IconButton(
-            onPressed: onBatchRegister,
-            icon: const Icon(Icons.playlist_add),
-            tooltip: '일괄 등록',
+      body: Row(
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final expanded =
+                  MediaQuery.sizeOf(context).width >=
+                  AppConstants.wideLayoutBreakpoint;
+              return AppNavRail(
+                destination: destination,
+                expanded: expanded,
+                onDestinationChanged: onDestinationChanged,
+                onAddSong: onAddSong,
+              );
+            },
           ),
-          IconButton(
-            onPressed: onExportBackup,
-            icon: const Icon(Icons.archive_outlined),
-            tooltip: '백업 내보내기',
-          ),
-          IconButton(
-            onPressed: onImportBackup,
-            icon: const Icon(Icons.unarchive_outlined),
-            tooltip: '백업 가져오기',
+          Expanded(
+            child: loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.accent),
+                  )
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      final wide =
+                          constraints.maxWidth >=
+                          AppConstants.wideLayoutBreakpoint;
+                      return _buildDestinationBody(wide);
+                    },
+                  ),
           ),
         ],
       ),
-      body: loading
-          ? const Center(
-              child: CircularProgressIndicator(color: AppColors.accent),
-            )
-          : LayoutBuilder(
-              builder: (_, constraints) {
-                final wide =
-                    constraints.maxWidth >= AppConstants.wideLayoutBreakpoint;
-                if (wide) {
-                  return Row(
-                    children: [
-                      SizedBox(width: 360, child: songListPanel),
-                      const VerticalDivider(width: 1),
-                      Expanded(child: prompterPanel),
-                    ],
-                  );
-                }
+    );
+  }
 
-                return Column(
-                  children: [
-                    Expanded(flex: 5, child: songListPanel),
-                    const Divider(height: 1),
-                    Expanded(flex: 6, child: prompterPanel),
-                  ],
-                );
-              },
+  Widget _buildDestinationBody(bool wide) {
+    switch (destination) {
+      case AppDestination.search:
+        return searchPanel;
+      case AppDestination.settings:
+        return settingsPanel;
+      case AppDestination.favorites:
+        return _buildHomeBody(wide, favoritesSongListPanel);
+      case AppDestination.home:
+        return _buildHomeBody(wide, homeSongListPanel);
+    }
+  }
+
+  Widget _buildHomeBody(bool wide, Widget songListPanel) {
+    final nowPlayingBar = HomeNowPlayingBar(
+      song: selectedSong,
+      selectedTrackSlot: selectedTrackSlot,
+      playing: playing,
+      onStartPrompter: onStartPrompter,
+    );
+
+    if (wide) {
+      return Column(
+        children: [
+          nowPlayingBar,
+          Expanded(
+            child: Row(
+              children: [
+                SizedBox(
+                  width: AppConstants.homeSongListWidth,
+                  child: songListPanel,
+                ),
+                const VerticalDivider(width: 1, thickness: 1),
+                Expanded(
+                  child: prompterPanel,
+                ),
+                const VerticalDivider(width: 1, thickness: 1),
+                SizedBox(
+                  width: AppConstants.homeQueueWidth,
+                  child: queuePanel,
+                ),
+              ],
             ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endTop,
-      floatingActionButton: Padding(
-        padding: const EdgeInsets.only(top: 8, right: 4),
-        child: FloatingActionButton.extended(
-          onPressed: onAddSong,
-          icon: const Icon(Icons.library_add, size: 18),
-          label: const Text('곡 등록'),
-          extendedPadding: const EdgeInsets.symmetric(horizontal: 14),
-        ),
+          ),
+        ],
+      );
+    }
+
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        children: [
+          nowPlayingBar,
+          Material(
+            color: AppColors.surfaceContainer,
+            child: TabBar(
+              labelStyle: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
+              unselectedLabelStyle: AppTypography.body,
+              indicatorColor: AppColors.primaryContainer,
+              tabs: const [
+                Tab(text: '곡 목록'),
+                Tab(text: '프롬pter'),
+                Tab(text: '예약 큐'),
+              ],
+            ),
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                songListPanel,
+                prompterPanel,
+                queuePanel,
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

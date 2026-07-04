@@ -159,6 +159,7 @@ class SongRepository {
   Future<Song> addSong({
     required String id,
     required String title,
+    String artist = '',
     required String lyrics,
     Map<int, String>? sourceTrackPaths,
     Map<int, String>? trackLabels,
@@ -196,6 +197,7 @@ class SongRepository {
     return Song(
       id: id,
       title: title,
+      artist: artist.trim(),
       lyricsPath: lyricsPath,
       lyricsText: lyrics,
       backingTracks: tracks,
@@ -207,6 +209,7 @@ class SongRepository {
   Future<Song> updateSong({
     required Song song,
     required String title,
+    String? artist,
     String? lyrics,
     Map<int, String>? sourceTrackPaths,
     Map<int, String>? trackLabels,
@@ -313,6 +316,7 @@ class SongRepository {
 
     return song.copyWith(
       title: nextTitle,
+      artist: artist?.trim() ?? song.artist,
       lyricsPath: nextLyricsPath,
       lyricsText: nextLyrics,
       backingTracks: nextTracks,

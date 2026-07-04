@@ -3,6 +3,7 @@
 // 곡 등록/수정 다이얼로그가 화면에 돌려주는 임시 입력 모델.
 class SongDraft {
   final String title;
+  final String artist;
   final Map<int, String> trackPaths;
   final Map<int, String> trackLabels;
   final Map<int, int?> trackStartMs;
@@ -10,6 +11,7 @@ class SongDraft {
 
   const SongDraft({
     required this.title,
+    this.artist = '',
     required this.trackPaths,
     this.trackLabels = const {},
     this.trackStartMs = const {},
@@ -19,6 +21,7 @@ class SongDraft {
 
 class SongEditDraft {
   final String title;
+  final String artist;
   final String? lyricsText;
   final Map<int, String> trackPaths;
   final Map<int, String> trackLabels;
@@ -27,6 +30,7 @@ class SongEditDraft {
 
   const SongEditDraft({
     required this.title,
+    this.artist = '',
     required this.lyricsText,
     required this.trackPaths,
     this.trackLabels = const {},

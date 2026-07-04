@@ -15,6 +15,7 @@ class SongCreateDialog {
     final titleController = TextEditingController(
       text: fileName.replaceAll(RegExp(r'\.txt$', caseSensitive: false), ''),
     );
+    final artistController = TextEditingController();
     final trackPaths = <int, String?>{1: null, 2: null, 3: null};
     final trackLabels = <int, String>{1: 'MR1', 2: 'MR2', 3: 'MR3'};
 
@@ -66,15 +67,24 @@ class SongCreateDialog {
                           labelStyle: TextStyle(color: AppColors.textMuted),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: artistController,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '가수 (선택)',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       _InfoRow(label: '가사1 (txt)', value: fileName),
                       const SizedBox(height: 14),
                       const Text(
                         '반주 (선택: 0~3개)',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 13,
-                        ),
+                        style: AppTypography.bodyMuted,
                       ),
                       const SizedBox(height: 8),
                       for (final slot in AppConstants.backingTrackSlots)
@@ -118,6 +128,7 @@ class SongCreateDialog {
                       ctx,
                       SongDraft(
                         title: title,
+                        artist: artistController.text.trim(),
                         trackPaths: normalized,
                         trackLabels: normalizedLabels,
                       ),

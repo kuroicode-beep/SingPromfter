@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/song.dart';
+import '../services/song_filter_service.dart';
 import '../theme/app_theme.dart';
 import 'song_tile.dart';
 
@@ -11,9 +12,12 @@ class SongListPanel extends StatelessWidget {
   final List<Song> songs;
   final Song? selectedSong;
   final int? selectedTrackSlot;
+  final SongListFilterMode filterMode;
+  final bool showSearchControls;
+  final String? listTitle;
   final void Function(Song song, int slot) onSelectTrack;
   final ValueChanged<Song> onSelect;
-  final ValueChanged<Song> onPlayNow;
+  final ValueChanged<Song> onStart;
   final ValueChanged<Song> onReserve;
   final ValueChanged<Song> onEdit;
   final ValueChanged<Song> onDelete;
@@ -24,9 +28,12 @@ class SongListPanel extends StatelessWidget {
     required this.songs,
     required this.selectedSong,
     required this.selectedTrackSlot,
+    this.filterMode = SongListFilterMode.all,
+    this.showSearchControls = false,
+    this.listTitle,
     required this.onSelectTrack,
     required this.onSelect,
-    required this.onPlayNow,
+    required this.onStart,
     required this.onReserve,
     required this.onEdit,
     required this.onDelete,
@@ -55,7 +62,7 @@ class SongListPanel extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '하단 버튼으로 곡을 추가해 주세요',
+                    '좌측 레일의 곡 등록으로 추가해 주세요',
                     style: TextStyle(color: AppColors.textMuted),
                   ),
                 ],
@@ -67,17 +74,77 @@ class SongListPanel extends StatelessWidget {
       );
     }
 
-    return _SongListFilterPanel(
-      songs: songs,
-      selectedSong: selectedSong,
-      selectedTrackSlot: selectedTrackSlot,
-      onSelectTrack: onSelectTrack,
-      onSelect: onSelect,
-      onPlayNow: onPlayNow,
-      onReserve: onReserve,
-      onEdit: onEdit,
-      onDelete: onDelete,
-      onToggleFavorite: onToggleFavorite,
+    if (showSearchControls) {
+      return _SongListFilterPanel(
+        songs: songs,
+        selectedSong: selectedSong,
+        selectedTrackSlot: selectedTrackSlot,
+        initialFilterMode: filterMode,
+        onSelectTrack: onSelectTrack,
+        onSelect: onSelect,
+        onStart: onStart,
+        onReserve: onReserve,
+        onEdit: onEdit,
+        onDelete: onDelete,
+        onToggleFavorite: onToggleFavorite,
+      );
+    }
+
+    final filteredSongs = SongFilterService.filter(songs, mode: filterMode);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (listTitle != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: Row(
+              children: [
+                Text(listTitle!, style: AppTypography.listTitle),
+                const Spacer(),
+                Text(
+                  '${filteredSongs.length}/${songs.length}곡',
+                  style: AppTypography.bodyMuted,
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: filteredSongs.isEmpty
+              ? Center(
+                  child: Text(
+                    filterMode == SongListFilterMode.favorites
+                        ? '즐겨찾기 곡이 없습니다'
+                        : '표시할 곡이 없습니다',
+                    style: AppTypography.bodyMuted,
+                  ),
+                )
+              : ListView.separated(
+                  padding: EdgeInsets.fromLTRB(12, 0, 12, listTitle == null ? 12 : 8),
+                  itemCount: filteredSongs.length,
+                  separatorBuilder: (_, index) =>
+                      const Divider(height: 1, thickness: 1),
+                  itemBuilder: (_, i) {
+                    final song = filteredSongs[i];
+                    final selected = selectedSong?.id == song.id;
+                    return SongTile(
+                      song: song,
+                      selected: selected,
+                      selectedTrackSlot:
+                          selected ? selectedTrackSlot : null,
+                      onSelectTrack: (slot) => onSelectTrack(song, slot),
+                      onSelect: () => onSelect(song),
+                      onStart: () => onStart(song),
+                      onReserve: () => onReserve(song),
+                      onEdit: () => onEdit(song),
+                      onDelete: () => onDelete(song),
+                      onToggleFavorite: () => onToggleFavorite(song),
+                    );
+                  },
+                ),
+        ),
+        const _SongListFooter(),
+      ],
     );
   }
 }
@@ -86,9 +153,10 @@ class _SongListFilterPanel extends StatefulWidget {
   final List<Song> songs;
   final Song? selectedSong;
   final int? selectedTrackSlot;
+  final SongListFilterMode initialFilterMode;
   final void Function(Song song, int slot) onSelectTrack;
   final ValueChanged<Song> onSelect;
-  final ValueChanged<Song> onPlayNow;
+  final ValueChanged<Song> onStart;
   final ValueChanged<Song> onReserve;
   final ValueChanged<Song> onEdit;
   final ValueChanged<Song> onDelete;
@@ -98,9 +166,10 @@ class _SongListFilterPanel extends StatefulWidget {
     required this.songs,
     required this.selectedSong,
     required this.selectedTrackSlot,
+    required this.initialFilterMode,
     required this.onSelectTrack,
     required this.onSelect,
-    required this.onPlayNow,
+    required this.onStart,
     required this.onReserve,
     required this.onEdit,
     required this.onDelete,
@@ -113,7 +182,13 @@ class _SongListFilterPanel extends StatefulWidget {
 
 class _SongListFilterPanelState extends State<_SongListFilterPanel> {
   final _searchController = TextEditingController();
-  bool _showFavoritesOnly = false;
+  late SongListFilterMode _filterMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _filterMode = widget.initialFilterMode;
+  }
 
   @override
   void dispose() {
@@ -123,7 +198,11 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final filteredSongs = _filteredSongs;
+    final filteredSongs = SongFilterService.filter(
+      widget.songs,
+      query: _searchController.text,
+      mode: _filterMode,
+    );
 
     return Column(
       children: [
@@ -132,10 +211,10 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
           child: TextField(
             controller: _searchController,
             minLines: 1,
-            style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
+            style: AppTypography.body,
             decoration: InputDecoration(
               hintText: '곡 제목 검색...',
-              hintStyle: const TextStyle(color: AppColors.textMuted),
+              hintStyle: AppTypography.bodyMuted,
               prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
               suffixIcon: _searchController.text.isEmpty
                   ? null
@@ -144,12 +223,6 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
                       icon: const Icon(Icons.clear),
                       tooltip: '검색어 지우기',
                     ),
-              filled: true,
-              fillColor: AppColors.elevated,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: AppColors.border),
-              ),
             ),
             onChanged: (_) => setState(() {}),
           ),
@@ -159,39 +232,45 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
           child: Row(
             children: [
               FilterChip(
-                label: const Text('전체'),
-                selected: !_showFavoritesOnly,
-                onSelected: (_) => setState(() => _showFavoritesOnly = false),
+                label: Text('전체', style: AppTypography.body),
+                selected: _filterMode == SongListFilterMode.all,
+                onSelected: (_) =>
+                    setState(() => _filterMode = SongListFilterMode.all),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
               ),
               const SizedBox(width: 8),
               FilterChip(
-                label: const Text('즐겨찾기'),
-                selected: _showFavoritesOnly,
-                onSelected: (_) => setState(() => _showFavoritesOnly = true),
+                label: Text('즐겨찾기', style: AppTypography.body),
+                selected: _filterMode == SongListFilterMode.favorites,
+                onSelected: (_) =>
+                    setState(() => _filterMode = SongListFilterMode.favorites),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
               ),
               const Spacer(),
               Text(
                 '${filteredSongs.length}/${widget.songs.length}곡',
-                style: const TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 12,
-                ),
+                style: AppTypography.bodyMuted,
               ),
             ],
           ),
         ),
         Expanded(
           child: filteredSongs.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     '검색 결과가 없습니다',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 16),
+                    style: AppTypography.bodyMuted,
                   ),
                 )
               : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 124),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                   itemCount: filteredSongs.length,
-                  separatorBuilder: (_, index) => const SizedBox(height: 8),
+                  separatorBuilder: (_, index) =>
+                      const Divider(height: 1, thickness: 1),
                   itemBuilder: (_, i) {
                     final song = filteredSongs[i];
                     final selected = widget.selectedSong?.id == song.id;
@@ -203,7 +282,7 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
                           : null,
                       onSelectTrack: (slot) => widget.onSelectTrack(song, slot),
                       onSelect: () => widget.onSelect(song),
-                      onPlayNow: () => widget.onPlayNow(song),
+                      onStart: () => widget.onStart(song),
                       onReserve: () => widget.onReserve(song),
                       onEdit: () => widget.onEdit(song),
                       onDelete: () => widget.onDelete(song),
@@ -216,57 +295,6 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
       ],
     );
   }
-
-  List<Song> get _filteredSongs {
-    final query = _searchController.text.trim();
-    return widget.songs
-        .where((song) {
-          if (_showFavoritesOnly && !song.isFavorite) return false;
-          if (query.isEmpty) return true;
-          return _matchesTitle(song.title, query);
-        })
-        .toList(growable: false);
-  }
-
-  bool _matchesTitle(String title, String query) {
-    final normalizedTitle = title.toLowerCase();
-    final normalizedQuery = query.toLowerCase();
-    return normalizedTitle.contains(normalizedQuery) ||
-        _koreanInitials(title).contains(normalizedQuery);
-  }
-
-  String _koreanInitials(String value) {
-    const initials = [
-      'ㄱ',
-      'ㄲ',
-      'ㄴ',
-      'ㄷ',
-      'ㄸ',
-      'ㄹ',
-      'ㅁ',
-      'ㅂ',
-      'ㅃ',
-      'ㅅ',
-      'ㅆ',
-      'ㅇ',
-      'ㅈ',
-      'ㅉ',
-      'ㅊ',
-      'ㅋ',
-      'ㅌ',
-      'ㅍ',
-      'ㅎ',
-    ];
-    final buffer = StringBuffer();
-    for (final codeUnit in value.runes) {
-      if (codeUnit >= 0xAC00 && codeUnit <= 0xD7A3) {
-        buffer.write(initials[(codeUnit - 0xAC00) ~/ 588]);
-      } else {
-        buffer.write(String.fromCharCode(codeUnit).toLowerCase());
-      }
-    }
-    return buffer.toString();
-  }
 }
 
 class _SongListFooter extends StatelessWidget {
@@ -274,12 +302,12 @@ class _SongListFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
       child: Text(
         'Copyright SVIL. Powered by 디또 2026/03/10',
         textAlign: TextAlign.center,
-        style: TextStyle(color: AppColors.textMuted, fontSize: 11, height: 1.2),
+        style: AppTypography.bodyMuted.copyWith(height: 1.3),
       ),
     );
   }

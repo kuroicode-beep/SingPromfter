@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:singpromfter_app/models/prompter_settings.dart';
 import 'package:singpromfter_app/models/queue_item.dart';
+import 'package:singpromfter_app/models/song.dart';
 import 'package:singpromfter_app/services/queue_logic.dart';
 
 void main() {
@@ -32,6 +34,38 @@ void main() {
       final next = QueueLogic.reorder(queue, 0, 99);
 
       expect(identical(next, queue), isTrue);
+    });
+
+    test('appendSongs adds each song to queue', () {
+      final songs = [
+        Song(
+          id: '1',
+          title: 'A',
+          lyricsPath: 'a.txt',
+          lyricsText: '가사',
+          backingTracks: const [],
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+        Song(
+          id: '2',
+          title: 'B',
+          lyricsPath: 'b.txt',
+          lyricsText: '가사',
+          backingTracks: const [],
+          createdAt: DateTime(2026),
+          updatedAt: DateTime(2026),
+        ),
+      ];
+
+      final next = QueueLogic.appendSongs(
+        queue: const [],
+        songs: songs,
+        settings: const PrompterSettings(),
+      );
+
+      expect(next, hasLength(2));
+      expect(next.map((item) => item.songId), ['1', '2']);
     });
   });
 }

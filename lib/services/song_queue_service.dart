@@ -36,6 +36,20 @@ class SongQueueService {
     return nextQueue;
   }
 
+  Future<List<QueueItem>> addSongs({
+    required List<QueueItem> queue,
+    required List<Song> songs,
+    required PrompterSettings settings,
+  }) async {
+    final nextQueue = QueueLogic.appendSongs(
+      queue: queue,
+      songs: songs,
+      settings: settings,
+    );
+    await _repo.saveQueue(nextQueue);
+    return nextQueue;
+  }
+
   Future<List<QueueItem>> removeAt(List<QueueItem> queue, int index) async {
     final nextQueue = QueueLogic.removeAt(queue, index);
     await _repo.saveQueue(nextQueue);

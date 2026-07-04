@@ -10,6 +10,8 @@ import '../theme/app_theme.dart';
 class QueuePanel extends StatelessWidget {
   final List<QueueItem> queue;
   final List<Song> songs;
+  final String? playingSongId;
+  final bool playing;
   final VoidCallback onClear;
   final ReorderCallback onReorder;
   final ValueChanged<int> onRemove;
@@ -18,6 +20,8 @@ class QueuePanel extends StatelessWidget {
     super.key,
     required this.queue,
     required this.songs,
+    this.playingSongId,
+    this.playing = false,
     required this.onClear,
     required this.onReorder,
     required this.onRemove,
@@ -25,35 +29,35 @@ class QueuePanel extends StatelessWidget {
 
   double get _height {
     final visibleRows = queue.length.clamp(1, 5);
-    return (visibleRows * 58) + ((visibleRows - 1) * 8);
+    return visibleRows * 72.0;
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: AppShapes.panel(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: onClear,
-              style: TextButton.styleFrom(
-                minimumSize: const Size(72, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                tapTargetSize: MaterialTapTargetSize.padded,
+          Row(
+            children: [
+              Text('예약 큐', style: AppTypography.listTitle),
+              const Spacer(),
+              TextButton(
+                onPressed: onClear,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(72, 50),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+                child: Text('비우기', style: AppTypography.body),
               ),
-              child: const Text('비우기', style: TextStyle(fontSize: 12)),
-            ),
+            ],
           ),
+          const Divider(height: 1, thickness: 1),
           SizedBox(
             height: _height,
             child: ReorderableListView(
@@ -61,19 +65,16 @@ class QueuePanel extends StatelessWidget {
               onReorder: onReorder,
               children: [
                 for (var i = 0; i < queue.length; i++)
-                  Padding(
+                  _QueueTile(
                     key: ValueKey(
                       '${queue[i].songId}_${queue[i].queuedAt.toIso8601String()}',
                     ),
-                    padding: EdgeInsets.only(
-                      bottom: i == queue.length - 1 ? 0 : 8,
-                    ),
-                    child: _QueueTile(
-                      index: i,
-                      item: queue[i],
-                      song: _songFor(queue[i]),
-                      onRemove: () => onRemove(i),
-                    ),
+                    index: i,
+                    item: queue[i],
+                    song: _songFor(queue[i]),
+                    isNowPlaying: playing && playingSongId == queue[i].songId,
+                    showDivider: i < queue.length - 1,
+                    onRemove: () => onRemove(i),
                   ),
               ],
             ),
@@ -95,78 +96,120 @@ class _QueueTile extends StatelessWidget {
   final int index;
   final QueueItem item;
   final Song? song;
+  final bool isNowPlaying;
+  final bool showDivider;
   final VoidCallback onRemove;
 
   const _QueueTile({
+    super.key,
     required this.index,
     required this.item,
     required this.song,
+    required this.isNowPlaying,
+    required this.showDivider,
     required this.onRemove,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
-      decoration: BoxDecoration(
-        color: AppColors.elevated,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          ReorderableDragStartListener(
-            index: index,
-            child: const Padding(
-              padding: EdgeInsets.only(right: 8),
-              child: Icon(
-                Icons.drag_handle,
-                size: 18,
-                color: AppColors.textMuted,
-              ),
-            ),
+    return Column(
+      key: key,
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: isNowPlaying ? AppColors.selectedSurface : Colors.transparent,
+            borderRadius: AppShapes.controlRadius,
+            border: isNowPlaying
+                ? const Border(
+                    left: BorderSide(color: AppColors.primaryContainer, width: 3),
+                  )
+                : null,
           ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
               children: [
-                Text(
-                  '${index + 1}. ${song?.title ?? '(삭제된 곡)'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.drag_handle,
+                      size: 22,
+                      color: AppColors.textMuted,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 4),
                 Text(
-                  item.selectedTrackSlot == null
-                      ? '가사'
-                      : 'MR${item.selectedTrackSlot}',
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
-                    fontSize: 11,
+                  (index + 1).toString().padLeft(2, '0'),
+                  style: AppTypography.bodyMuted.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              song?.title ?? '(삭제된 곡)',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.labelStrong,
+                            ),
+                          ),
+                          if (isNowPlaying)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryContainer,
+                                borderRadius: AppShapes.controlRadius,
+                              ),
+                              child: Text(
+                                'NOW',
+                                style: AppTypography.body.copyWith(
+                                  color: AppColors.onPrimaryContainer,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        item.selectedTrackSlot == null
+                            ? '가사 전용'
+                            : '반주 ${item.selectedTrackSlot}',
+                        style: AppTypography.bodyMuted,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 24,
+                    color: AppColors.textMuted,
+                  ),
+                  tooltip: '삭제',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 50, minHeight: 50),
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: onRemove,
-            icon: const Icon(
-              Icons.delete_outline,
-              size: 22,
-              color: AppColors.textMuted,
-            ),
-            tooltip: '삭제',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-          ),
-        ],
-      ),
+        ),
+        if (showDivider) const Divider(height: 1, thickness: 1),
+      ],
     );
   }
 }

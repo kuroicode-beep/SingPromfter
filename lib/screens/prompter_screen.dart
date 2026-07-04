@@ -4,8 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../constants/app_constants.dart';
+import '../models/prompter_display_mode.dart';
 import '../models/song.dart';
+import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
+import '../utils/lyrics_line_utils.dart';
+import '../widgets/prompter_lyrics_view.dart';
+import '../widgets/prompter_progress_bar.dart';
 
 class PrompterScreen extends StatefulWidget {
   final Song song;
@@ -18,6 +23,12 @@ class PrompterScreen extends StatefulWidget {
   final String? fontFamily;
   final bool boldText;
   final bool autoScrollEnabled;
+  final PrompterDisplayMode displayMode;
+  final bool audioReady;
+  final Duration position;
+  final Duration duration;
+  final ValueChanged<Duration>? onSeek;
+  final ValueChanged<PrompterDisplayMode>? onDisplayModeChanged;
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
   final ValueChanged<double>? onSpeedLevelChanged;
@@ -34,6 +45,12 @@ class PrompterScreen extends StatefulWidget {
     this.fontFamily,
     this.boldText = false,
     this.autoScrollEnabled = false,
+    this.displayMode = PrompterDisplayMode.full,
+    this.audioReady = false,
+    this.position = Duration.zero,
+    this.duration = Duration.zero,
+    this.onSeek,
+    this.onDisplayModeChanged,
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
     this.onSpeedLevelChanged,
@@ -53,6 +70,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
   late double? _customFontSizePt;
   late double _speedLevel;
   late bool _autoScrollEnabled;
+  late PrompterDisplayMode _displayMode;
+  int _highlightLineIndex = 0;
 
   @override
   void initState() {
@@ -63,6 +82,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _customFontSizePt = widget.customFontSizePt;
     _speedLevel = widget.speedLevel;
     _autoScrollEnabled = widget.autoScrollEnabled;
+    _displayMode = widget.displayMode;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncAutoScroll());
@@ -114,11 +134,24 @@ class _PrompterScreenState extends State<PrompterScreen> {
 
   void _syncAutoScroll() {
     _autoScrollTimer?.cancel();
-    if (!_autoScrollEnabled ||
-        _speedLevel <= 0 ||
-        !_scrollController.hasClients) {
+    if (!_autoScrollEnabled || _speedLevel <= 0) {
       return;
     }
+
+    if (_displayMode == PrompterDisplayMode.highlight) {
+      final lineCount = LyricsLineUtils.splitLines(widget.song.lyricsText).length;
+      if (lineCount <= 1) return;
+
+      _autoScrollTimer = Timer.periodic(AppConstants.autoScrollInterval, (_) {
+        if (!_autoScrollEnabled || _speedLevel <= 0) return;
+        if (_highlightLineIndex < lineCount - 1) {
+          setState(() => _highlightLineIndex += 1);
+        }
+      });
+      return;
+    }
+
+    if (!_scrollController.hasClients) return;
 
     _autoScrollTimer = Timer.periodic(AppConstants.autoScrollInterval, (_) {
       if (!_autoScrollEnabled || !_scrollController.hasClients) return;
@@ -129,6 +162,17 @@ class _PrompterScreenState extends State<PrompterScreen> {
       );
       _scrollController.jumpTo(next);
     });
+  }
+
+  void _toggleDisplayMode() {
+    setState(() {
+      _displayMode = _displayMode == PrompterDisplayMode.full
+          ? PrompterDisplayMode.highlight
+          : PrompterDisplayMode.full;
+      _highlightLineIndex = 0;
+    });
+    widget.onDisplayModeChanged?.call(_displayMode);
+    _syncAutoScroll();
   }
 
   void _updateFontSizeLevel(double value) {
@@ -161,31 +205,23 @@ class _PrompterScreenState extends State<PrompterScreen> {
         onTap: _toggleControls,
         child: Stack(
           children: [
-            SingleChildScrollView(
-              controller: _scrollController,
+            PrompterLyricsView(
+              lyricsText: widget.song.lyricsText,
+              displayMode: _displayMode,
+              fontSize: _fontSize,
+              lineHeight: _lineHeight,
+              fontFamily: widget.fontFamily,
+              boldText: widget.boldText,
+              highlightLineIndex: _highlightLineIndex,
+              scrollController: _scrollController,
               padding: EdgeInsets.fromLTRB(
                 32,
                 _controlsVisible ? 80 : 48,
                 32,
                 110,
               ),
-              child: Center(
-                child: Text(
-                  widget.song.lyricsText.isEmpty
-                      ? '(가사가 없습니다)'
-                      : widget.song.lyricsText,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: _fontSize,
-                    height: _lineHeight,
-                    fontFamily: widget.fontFamily,
-                    fontWeight: widget.boldText
-                        ? FontWeight.w800
-                        : FontWeight.w500,
-                  ),
-                ),
-              ),
+              textColor: Colors.white,
+              mutedColor: Colors.white70,
             ),
             if (_controlsVisible) _buildTopBar(),
             _buildBottomBar(),
@@ -263,65 +299,91 @@ class _PrompterScreenState extends State<PrompterScreen> {
           ),
           child: SafeArea(
             top: false,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _BarIconButton(
-                    icon: _autoScrollEnabled
-                        ? Icons.pause_circle
-                        : Icons.play_circle,
-                    semanticsLabel: _autoScrollEnabled
-                        ? '자동 스크롤 끄기'
-                        : '자동 스크롤 켜기',
-                    toggled: _autoScrollEnabled,
-                    onTap: () {
-                      setState(() => _autoScrollEnabled = !_autoScrollEnabled);
-                      _syncAutoScroll();
-                    },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.audioReady && widget.onSeek != null)
+                  PrompterProgressBar(
+                    position: widget.position,
+                    duration: widget.duration,
+                    enabled: widget.audioReady,
+                    onSeek: widget.onSeek!,
+                    activeColor: AppColors.primary,
+                    labelColor: Colors.white70,
                   ),
-                  const SizedBox(width: 10),
-                  _InlineSlider(
-                    label: '크기',
-                    value: _fontSizeLevel,
-                    min: 1,
-                    max: 7,
-                    divisions: 6,
-                    semanticValue: '현재 ${_fontSize.round()} 포인트',
-                    onChanged: _updateFontSizeLevel,
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _BarIconButton(
+                        icon: _autoScrollEnabled
+                            ? Icons.pause_circle
+                            : Icons.play_circle,
+                        semanticsLabel: _autoScrollEnabled
+                            ? '자동 스크롤 끄기'
+                            : '자동 스크롤 켜기',
+                        toggled: _autoScrollEnabled,
+                        onTap: () {
+                          setState(() => _autoScrollEnabled = !_autoScrollEnabled);
+                          _syncAutoScroll();
+                        },
+                      ),
+                      const SizedBox(width: 10),
+                      _BarIconButton(
+                        icon: _displayMode == PrompterDisplayMode.highlight
+                            ? Icons.format_line_spacing
+                            : Icons.view_headline,
+                        semanticsLabel:
+                            _displayMode == PrompterDisplayMode.highlight
+                                ? '전체 가사 모드'
+                                : '줄 하이라이트 모드',
+                        toggled: _displayMode == PrompterDisplayMode.highlight,
+                        onTap: _toggleDisplayMode,
+                      ),
+                      const SizedBox(width: 10),
+                      _InlineSlider(
+                        label: '크기',
+                        value: _fontSizeLevel,
+                        min: 1,
+                        max: 7,
+                        divisions: 6,
+                        semanticValue: '현재 ${_fontSize.round()} 포인트',
+                        onChanged: _updateFontSizeLevel,
+                      ),
+                      const SizedBox(width: 10),
+                      _InlineSlider(
+                        label: '줄간격',
+                        value: _lineHeightLevel,
+                        min: 1,
+                        max: 7,
+                        divisions: 6,
+                        onChanged: _updateLineHeightLevel,
+                      ),
+                      const SizedBox(width: 10),
+                      _InlineSlider(
+                        label: '속도',
+                        value: _speedLevel,
+                        min: 0,
+                        max: 10,
+                        divisions: 20,
+                        onChanged: _updateSpeedLevel,
+                      ),
+                      const SizedBox(width: 10),
+                      _BarIconButton(
+                        icon: Icons.keyboard_arrow_up,
+                        semanticsLabel: '가사 위로 이동',
+                        onTap: () => _scroll(-200),
+                      ),
+                      const SizedBox(width: 6),
+                      _BarIconButton(
+                        icon: Icons.keyboard_arrow_down,
+                        semanticsLabel: '가사 아래로 이동',
+                        onTap: () => _scroll(200),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  _InlineSlider(
-                    label: '줄간격',
-                    value: _lineHeightLevel,
-                    min: 1,
-                    max: 7,
-                    divisions: 6,
-                    onChanged: _updateLineHeightLevel,
-                  ),
-                  const SizedBox(width: 10),
-                  _InlineSlider(
-                    label: '속도',
-                    value: _speedLevel,
-                    min: 0,
-                    max: 10,
-                    divisions: 20,
-                    onChanged: _updateSpeedLevel,
-                  ),
-                  const SizedBox(width: 10),
-                  _BarIconButton(
-                    icon: Icons.keyboard_arrow_up,
-                    semanticsLabel: '가사 위로 이동',
-                    onTap: () => _scroll(-200),
-                  ),
-                  const SizedBox(width: 6),
-                  _BarIconButton(
-                    icon: Icons.keyboard_arrow_down,
-                    semanticsLabel: '가사 아래로 이동',
-                    onTap: () => _scroll(200),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

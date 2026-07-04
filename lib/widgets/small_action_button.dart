@@ -28,11 +28,11 @@ class SmallActionButton extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          constraints: const BoxConstraints(minHeight: 50),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           decoration: BoxDecoration(
             color: primary ? AppColors.primaryContainer : AppColors.border,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppShapes.controlRadius,
           ),
           child: ExcludeSemantics(
             child: Row(
@@ -41,23 +41,21 @@ class SmallActionButton extends StatelessWidget {
               children: [
                 Icon(
                   icon,
-                  size: 17,
+                  size: 18,
                   color: primary
                       ? AppColors.onPrimaryContainer
                       : AppColors.textPrimary,
                 ),
-                const SizedBox(width: 3),
+                const SizedBox(width: 4),
                 Text(
                   label,
                   maxLines: 1,
                   softWrap: false,
                   overflow: TextOverflow.fade,
-                  style: TextStyle(
+                  style: AppTypography.labelStrong.copyWith(
                     color: primary
                         ? AppColors.onPrimaryContainer
                         : AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
                   ),
                 ),
               ],

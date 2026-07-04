@@ -66,6 +66,7 @@ class SongLibraryService {
     final song = await _repo.addSong(
       id: const Uuid().v4(),
       title: draft.title,
+      artist: draft.artist,
       lyrics: lyrics,
       sourceTrackPaths: draft.trackPaths,
       trackLabels: draft.trackLabels,
@@ -85,6 +86,7 @@ class SongLibraryService {
     final updatedSong = await _repo.updateSong(
       song: song,
       title: draft.title,
+      artist: draft.artist,
       lyrics: draft.lyricsText,
       sourceTrackPaths: draft.trackPaths,
       trackLabels: draft.trackLabels,

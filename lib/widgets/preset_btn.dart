@@ -26,21 +26,17 @@ class PresetBtn extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          constraints: const BoxConstraints(minWidth: 50, minHeight: 50),
           alignment: Alignment.center,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: AppColors.border,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: AppShapes.controlRadius,
           ),
           child: ExcludeSemantics(
             child: Text(
               label,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
+              style: AppTypography.labelStrong,
             ),
           ),
         ),

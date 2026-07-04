@@ -17,6 +17,7 @@ class SongEditDialog {
 
   static Future<SongEditDraft?> show(BuildContext context, Song song) {
     final titleController = TextEditingController(text: song.title);
+    final artistController = TextEditingController(text: song.artist);
     final trackPaths = <int, String?>{1: null, 2: null, 3: null};
     final trackLabels = <int, String>{
       for (final slot in AppConstants.backingTrackSlots)
@@ -122,6 +123,18 @@ class SongEditDialog {
                           labelStyle: TextStyle(color: AppColors.textMuted),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: artistController,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '가수 (선택)',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                        ),
+                      ),
                       const SizedBox(height: 16),
                       _LyricsPickerCard(
                         fileName: nextLyricsFileName,
@@ -136,10 +149,7 @@ class SongEditDialog {
                       const SizedBox(height: 14),
                       const Text(
                         '반주 교체 (선택: 0~3개)',
-                        style: TextStyle(
-                          color: AppColors.textMuted,
-                          fontSize: 13,
-                        ),
+                        style: AppTypography.bodyMuted,
                       ),
                       const SizedBox(height: 8),
                       for (final slot in AppConstants.backingTrackSlots)
@@ -198,6 +208,7 @@ class SongEditDialog {
                       ctx,
                       SongEditDraft(
                         title: title,
+                        artist: artistController.text.trim(),
                         lyricsText: nextLyricsText,
                         trackPaths: normalized,
                         trackLabels: normalizedLabels,

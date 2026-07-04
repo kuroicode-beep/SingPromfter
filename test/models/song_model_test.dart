@@ -4,10 +4,11 @@ import 'package:singpromfter_app/models/song.dart';
 
 void main() {
   group('Song serialization', () {
-    test('toJson/fromJson preserves current fields', () {
+    test('toJson/fromJson preserves current fields including artist', () {
       final original = Song(
         id: 'song-1',
         title: '테스트 곡',
+        artist: '테스트 가수',
         lyricsPath: 'C:/data/txt/test.txt',
         lyricsText: '가사 내용',
         backingTracks: const [
@@ -29,12 +30,22 @@ void main() {
 
       expect(restored.id, original.id);
       expect(restored.title, original.title);
+      expect(restored.artist, '테스트 가수');
       expect(restored.lyricsText, original.lyricsText);
       expect(restored.isFavorite, isTrue);
       expect(restored.backingTracks, hasLength(2));
       expect(restored.backingTracks.first.label, '원곡');
       expect(restored.backingTracks.first.startMs, 1000);
       expect(restored.backingTracks.first.endMs, 90000);
+    });
+
+    test('fromJson without artist defaults to empty string', () {
+      final song = Song.fromJson({
+        'id': 'legacy-artist',
+        'title': '구버전 곡',
+      });
+
+      expect(song.artist, '');
     });
 
     test('legacy mrFileName migrates to slot 1 backing track', () {

@@ -23,7 +23,7 @@ void main() {
             song: song,
             selected: false,
             onSelect: () {},
-            onPlayNow: () {},
+            onStart: () {},
             onReserve: () {},
             onEdit: () {},
             onDelete: () {},
@@ -34,7 +34,8 @@ void main() {
     );
 
     expect(find.text('테스트 곡'), findsOneWidget);
-    expect(find.text('재생'), findsOneWidget);
+    expect(find.text('재생'), findsNothing);
+    expect(find.text('시작'), findsOneWidget);
     expect(find.text('예약'), findsOneWidget);
     expect(find.byIcon(Icons.star), findsOneWidget);
   });
