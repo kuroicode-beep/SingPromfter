@@ -2,13 +2,13 @@
 
 작성일: 2026-06-28  
 업데이트: 2026-07-04  
-기준 버전: `1.0.1+1`
+기준 버전: `1.1.3+1`
 
 ## 01. 버전 관리
 
 - Flutter 앱 패키지명: `singpromfter_app`
-- 앱 버전: `pubspec.yaml`의 `1.0.1+1`
-- README 기능 표기: `v1.0.1`
+- 앱 버전: `pubspec.yaml`의 `1.1.3+1`
+- README 기능 표기: `v1.1.3`
 - 주요 의존성: `audioplayers`, `file_picker`, `shared_preferences`, `path_provider`, `uuid`, `archive`
 - Windows 빌드 명령: `flutter build windows`
 
@@ -32,6 +32,7 @@
 
 - `id`: UUID 문자열
 - `title`: 곡 제목
+- `artist`: 가수명 (옵션, 기본 `''`)
 - `lyricsPath`: 가사 파일 경로 또는 파일명
 - `lyricsText`: 가사 본문 캐시
 - `backingTracks`: `BackingTrack` 리스트
@@ -64,6 +65,7 @@
 - `boldText`
 - `customFontSizePt`
 - `lastSelectedTrackSlotBySong`
+- `displayMode`: `full` | `highlight` (줄 하이라이트)
 
 ## 05. 저장소 / 서비스
 
@@ -100,6 +102,8 @@ SharedPreferences 키:
 - `BackupService`: zip 백업 내보내기/가져오기
 - `BatchRegistrationService`: 폴더 기반 txt/mp3 일괄 등록
 - `SongActionCoordinator`: 곡 등록/수정/삭제 다이얼로그 흐름 조정
+- `SongListShortcutService` / `PrompterKeyboardScope`: 키보드 단축키 해석 및 포커스 범위
+- `SongFilterService`: 제목·가수·초성 검색
 
 ## 06. 오디오 / 백그라운드 작업
 
@@ -119,21 +123,20 @@ SharedPreferences 키:
 
 ### SongListScreen
 
-- 앱의 주 화면
-- 넓은 화면: 좌측 곡 목록, 우측 가사/재생 패널
-- 좁은 화면: 상단 곡 목록, 하단 가사/재생 패널
-- 곡 타일 액션: 선택, 재생, 예약, 수정, 삭제, 즐겨찾기
-- 목록 상단: 제목 검색, 한글 초성 검색, 전체/즐겨찾기 필터
-- 선택된 곡에 반주가 있으면 슬롯 버튼 표시
-- 하단 컨트롤: 재생, 정지, 처음부터, 시크, 볼륨, 재생 속도, 프롬프터 설정
+- 앱의 주 화면 (`SongListScreen` → `SongListScreenContent` → `SongListScreenView`)
+- 상단: `AppTopNavBar` — 로고, 탭(홈/곡 검색/즐겨찾기/설정), [곡 등록]
+- 넓은 화면: `HomeNowPlayingBar` + [곡목록 360px | 프롬프터 | 예약 큐(접이식)]
+- 좁은 화면: 탭(곡 목록 / 프롬프터 / 예약 큐)
+- 곡 타일: 카드 탭으로 선택, [예약]/[시작] 상시, [수정]/[삭제]는 선택 시만
+- 하단: `PrompterBottomBar` — 재생 컨트롤(항상) + 표시 설정(접이식)
+- 키보드: `PrompterKeyboardScope`로 Space/F5/화살표 처리
 
 ### PrompterScreen
 
 - 검정 배경, 흰색 가사, 중앙 정렬
-- 상단 닫기/제목 영역
-- 하단 컨트롤 바: 자동 스크롤, 크기, 줄간격, 속도, 위/아래 이동
-- 화면 탭으로 컨트롤 표시/숨김
-- `Escape`로 닫기
+- `PrompterDisplayMode`: 전체 가사 / 줄 하이라이트
+- 상단 닫기/제목, 하단 컨트롤 바(크기/줄간격/속도/스크롤)
+- `PrompterKeyboardScope`: ↑↓ 볼륨, ←→ 속도, Escape 닫기
 
 ## 08. 접근성 / 테마
 
@@ -151,9 +154,21 @@ SharedPreferences 키:
   - 저시력: 크기 4, 줄간격 4, 속도 3, Malgun Gothic, 굵게 켬
   - 원거리: 크기 5, 줄간격 5, 속도 2, Malgun Gothic, 굵게 켬
 
-## 09. 검증
+## 09. 키보드 단축키
 
-2026-07-04 기준 확인된 명령:
+| 키 | 메인 화면 | 전체화면 |
+|---|---|---|
+| Space | 재생/일시정지 | — |
+| F5 | 전체화면 프롬프터 | — |
+| Escape | — | 닫기 |
+| ↑ / ↓ | 볼륨 ±0.1 | 볼륨 ±0.1 |
+| ← / → | 프롬프터 속도 ±0.5 | 프롬프터 속도 ±0.5 |
+
+텍스트 입력 중(`EditableText` 포커스)에는 비활성. 구현: `PrompterKeyboardScope` + `SongListShortcutService`.
+
+## 10. 검증
+
+2026-07-04 (v1.1.3) 기준:
 
 ```powershell
 flutter analyze
@@ -164,9 +179,9 @@ flutter build windows
 결과:
 
 - 정적 분석: 통과
-- 테스트: 통과, 20개
+- 테스트: 통과, 32개
 - Windows 빌드: 통과
-- 산출물: `build/windows/x64/runner/Release/singpromfter_app.exe`
+- 산출물: `dist/SingPromfter-v1.1.3/singpromfter_app.exe`
 
 현재 자동화 테스트 범위:
 
@@ -175,5 +190,8 @@ flutter build windows
 - `Song`, `QueueItem` 직렬화 테스트
 - `PrompterLevels` 단계 변환 테스트
 - `QueueLogic` 삭제/재정렬 테스트
-- `SongTile` 위젯 스모크 테스트
+- `SongFilterService` 검색 테스트
+- `SongListShortcutService` 단축키 테스트
+- `PrompterLyricsView` 하이라이트 테스트
+- `SongSearchPanel` 위젯 테스트
 
