@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 
 import '../constants/app_constants.dart';
 import '../models/prompter_display_mode.dart';
+import '../models/prompter_settings.dart';
 import '../models/song.dart';
+import '../services/song_list_shortcut_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/lyrics_line_utils.dart';
@@ -20,6 +22,7 @@ class PrompterScreen extends StatefulWidget {
   final double? lineHeightLevel;
   final double? customFontSizePt;
   final double speedLevel;
+  final double volume;
   final String? fontFamily;
   final bool boldText;
   final bool autoScrollEnabled;
@@ -32,6 +35,7 @@ class PrompterScreen extends StatefulWidget {
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
   final ValueChanged<double>? onSpeedLevelChanged;
+  final ValueChanged<double>? onVolumeChanged;
 
   const PrompterScreen({
     super.key,
@@ -42,6 +46,7 @@ class PrompterScreen extends StatefulWidget {
     this.lineHeightLevel,
     this.customFontSizePt,
     this.speedLevel = 0,
+    this.volume = 1,
     this.fontFamily,
     this.boldText = false,
     this.autoScrollEnabled = false,
@@ -54,6 +59,7 @@ class PrompterScreen extends StatefulWidget {
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
     this.onSpeedLevelChanged,
+    this.onVolumeChanged,
   });
 
   @override
@@ -104,7 +110,29 @@ class _PrompterScreenState extends State<PrompterScreen> {
       Navigator.pop(context);
       return true;
     }
-    return false;
+
+    final adjusted = SongListShortcutService.adjustSettings(
+      PrompterSettings(
+        fontSizeLevel: _fontSizeLevel,
+        lineHeightLevel: _lineHeightLevel,
+        speedLevel: _speedLevel,
+        volume: widget.volume,
+        fontFamily: widget.fontFamily ?? '기본',
+        boldText: widget.boldText,
+        customFontSizePt: _customFontSizePt,
+        displayMode: _displayMode,
+      ),
+      event.logicalKey,
+    );
+    if (adjusted == null) return false;
+
+    if (adjusted.volume != widget.volume) {
+      widget.onVolumeChanged?.call(adjusted.volume);
+    }
+    if (adjusted.speedLevel != _speedLevel) {
+      _updateSpeedLevel(adjusted.speedLevel);
+    }
+    return true;
   }
 
   double get _fontSize =>

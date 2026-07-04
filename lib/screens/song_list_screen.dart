@@ -100,8 +100,10 @@ class _SongListScreenState extends State<SongListScreen> {
     return SongListShortcutService.handle(
       event: event,
       selectedSong: _selectedSong,
+      settings: _settings,
       onTogglePlayPause: _togglePlayPause,
       onOpenPrompter: _openPrompter,
+      onSettingsChanged: _updateSettings,
     );
   }
 

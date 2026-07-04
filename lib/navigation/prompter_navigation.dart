@@ -35,6 +35,7 @@ class PrompterNavigation {
           lineHeightLevel: settings.lineHeightLevel,
           customFontSizePt: settings.customFontSizePt,
           speedLevel: settings.speedLevel,
+          volume: settings.volume,
           fontFamily: fontFamily,
           boldText: settings.boldText,
           autoScrollEnabled: autoScrollEnabled,
@@ -52,6 +53,8 @@ class PrompterNavigation {
               onSettingsChanged(settings.copyWith(lineHeightLevel: value)),
           onSpeedLevelChanged: (value) =>
               onSettingsChanged(settings.copyWith(speedLevel: value)),
+          onVolumeChanged: (value) =>
+              onSettingsChanged(settings.copyWith(volume: value)),
         ),
       ),
     );
