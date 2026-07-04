@@ -36,14 +36,26 @@ class SongTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? const Color(0xFF2A240A) : AppColors.elevated,
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onSelect,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-          child: Column(
+        child: Ink(
+          decoration: BoxDecoration(
+            color: selected ? AppColors.selectedSurface : AppColors.elevated,
+            borderRadius: BorderRadius.circular(12),
+            border: Border(
+              left: BorderSide(
+                color: selected
+                    ? AppColors.primaryContainer
+                    : Colors.transparent,
+                width: 3,
+              ),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -100,13 +112,15 @@ class SongTile extends StatelessWidget {
                       ),
                       style: OutlinedButton.styleFrom(
                         backgroundColor: isSel
-                            ? AppColors.accent
+                            ? AppColors.primaryContainer
                             : AppColors.elevated,
                         foregroundColor: isSel
-                            ? const Color(0xFF0A0A0A)
+                            ? AppColors.onPrimaryContainer
                             : AppColors.textPrimary,
                         side: BorderSide(
-                          color: isSel ? AppColors.accent : AppColors.border,
+                          color: isSel
+                              ? AppColors.primaryContainer
+                              : AppColors.border,
                         ),
                         minimumSize: const Size(96, 48),
                         textStyle: const TextStyle(fontSize: 13),
@@ -165,6 +179,7 @@ class SongTile extends StatelessWidget {
           ),
         ),
       ),
+    ),
     );
   }
 }

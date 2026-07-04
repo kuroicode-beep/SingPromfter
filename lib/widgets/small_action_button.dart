@@ -31,7 +31,7 @@ class SmallActionButton extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 48),
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
           decoration: BoxDecoration(
-            color: primary ? AppColors.accent : AppColors.border,
+            color: primary ? AppColors.primaryContainer : AppColors.border,
             borderRadius: BorderRadius.circular(8),
           ),
           child: ExcludeSemantics(
@@ -43,7 +43,7 @@ class SmallActionButton extends StatelessWidget {
                   icon,
                   size: 17,
                   color: primary
-                      ? const Color(0xFF0A0A0A)
+                      ? AppColors.onPrimaryContainer
                       : AppColors.textPrimary,
                 ),
                 const SizedBox(width: 3),
@@ -54,7 +54,7 @@ class SmallActionButton extends StatelessWidget {
                   overflow: TextOverflow.fade,
                   style: TextStyle(
                     color: primary
-                        ? const Color(0xFF0A0A0A)
+                        ? AppColors.onPrimaryContainer
                         : AppColors.textPrimary,
                     fontWeight: FontWeight.w700,
                     fontSize: 12,

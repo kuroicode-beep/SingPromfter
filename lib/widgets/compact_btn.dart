@@ -34,10 +34,10 @@ class CompactBtn extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: highlighted ? AppColors.accent : AppColors.elevated,
+            color: highlighted ? AppColors.primaryContainer : AppColors.elevated,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: highlighted ? AppColors.accent : AppColors.border,
+              color: highlighted ? AppColors.primaryContainer : AppColors.border,
             ),
           ),
           child: ExcludeSemantics(
@@ -45,7 +45,7 @@ class CompactBtn extends StatelessWidget {
               icon,
               size: 24,
               color: highlighted
-                  ? const Color(0xFF0A0A0A)
+                  ? AppColors.onPrimaryContainer
                   : AppColors.textPrimary,
             ),
           ),
