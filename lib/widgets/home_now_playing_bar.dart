@@ -67,9 +67,11 @@ class HomeNowPlayingBar extends StatelessWidget {
             style: FilledButton.styleFrom(
               backgroundColor: AppColors.primaryContainer,
               foregroundColor: AppColors.onPrimaryContainer,
+              disabledBackgroundColor: AppColors.elevated,
+              disabledForegroundColor: AppColors.onSurfaceVariant,
               minimumSize: const Size(112, 50),
             ),
-            child: const Text('곡 시작'),
+            child: Text(current == null ? '곡 선택 필요' : '곡 시작'),
           ),
         ],
       ),

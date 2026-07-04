@@ -9,7 +9,6 @@ import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
 import 'prompter_lyrics_view.dart';
-import 'prompter_progress_bar.dart';
 import 'queue_panel.dart';
 
 class PrompterPanel extends StatelessWidget {
@@ -103,17 +102,8 @@ class PrompterPanel extends StatelessWidget {
                 boldText: settings.boldText,
                 highlightLineIndex: highlightLineIndex,
                 scrollController: lyricsScrollController,
-                padding: const EdgeInsets.fromLTRB(18, 10, 18, 18),
+                padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
-            child: PrompterProgressBar(
-              position: position,
-              duration: duration,
-              enabled: audioReady,
-              onSeek: onSeek,
             ),
           ),
           PrompterBottomBar(

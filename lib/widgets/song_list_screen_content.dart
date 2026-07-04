@@ -197,6 +197,7 @@ class SongListScreenContent extends StatelessWidget {
       selectedSong: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
+      queueIsEmpty: queue.isEmpty,
       onStartPrompter:
           selected == null ? null : () => onOpenPrompter(selected),
       homeSongListPanel: _buildSongListPanel(

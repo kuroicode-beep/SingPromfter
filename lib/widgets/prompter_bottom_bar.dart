@@ -1,8 +1,9 @@
 // file: lib/widgets/prompter_bottom_bar.dart
 //
-// 메인 화면 하단의 재생/접근성 컨트롤 바.
+// 메인 화면 하단 재생 바(항상 표시) + 표시 설정(접이식).
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
@@ -10,8 +11,9 @@ import '../theme/app_theme.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
 import 'preset_btn.dart';
+import 'prompter_progress_bar.dart';
 
-class PrompterBottomBar extends StatelessWidget {
+class PrompterBottomBar extends StatefulWidget {
   final Song song;
   final bool playing;
   final bool audioReady;
@@ -54,6 +56,13 @@ class PrompterBottomBar extends StatelessWidget {
   });
 
   @override
+  State<PrompterBottomBar> createState() => _PrompterBottomBarState();
+}
+
+class _PrompterBottomBarState extends State<PrompterBottomBar> {
+  bool _displaySettingsExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 4, 12, 2),
@@ -61,248 +70,262 @@ class PrompterBottomBar extends StatelessWidget {
       decoration: AppShapes.panel(),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                CompactBtn(
-                  icon: Icons.stop,
-                  semanticsLabel: '정지',
-                  onTap: onStop,
+          Row(
+            children: [
+              CompactBtn(
+                icon: Icons.stop,
+                semanticsLabel: '정지',
+                onTap: widget.onStop,
+              ),
+              const SizedBox(width: 6),
+              CompactBtn(
+                icon: widget.playing ? Icons.pause : Icons.play_arrow,
+                semanticsLabel: widget.playing ? '일시정지' : '재생',
+                toggled: widget.playing,
+                onTap: widget.onTogglePlayPause,
+                highlighted: true,
+              ),
+              const SizedBox(width: 6),
+              CompactBtn(
+                icon: Icons.replay,
+                semanticsLabel: '처음부터 재생',
+                onTap: widget.onRestart,
+              ),
+              const SizedBox(width: 6),
+              CompactBtn(
+                icon: Icons.skip_next,
+                semanticsLabel: '다음 예약곡',
+                onTap: () {
+                  if (!widget.hasQueuedSongs) {
+                    widget.onMessage('다음 예약곡이 없습니다.');
+                    return;
+                  }
+                  widget.onSkipNext();
+                },
+              ),
+              const SizedBox(width: 6),
+              CompactBtn(
+                icon: Icons.fullscreen,
+                semanticsLabel: '전체화면 프롬프터 열기',
+                onTap: widget.onOpenPrompter,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          PrompterProgressBar(
+            position: widget.position,
+            duration: widget.duration,
+            enabled: widget.audioReady,
+            onSeek: widget.onSeek,
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: MiniSlider(
+                  label: '볼륨',
+                  value: widget.settings.volume,
+                  min: 0,
+                  max: 1,
+                  divisions: 10,
+                  step: 0.1,
+                  onChanged: (v) => widget.onSettingsChanged(
+                    widget.settings.copyWith(volume: v),
+                  ),
                 ),
-                const SizedBox(width: 6),
-                CompactBtn(
-                  icon: playing ? Icons.pause : Icons.play_arrow,
-                  semanticsLabel: playing ? '일시정지' : '재생',
-                  toggled: playing,
-                  onTap: onTogglePlayPause,
-                  highlighted: true,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: MiniSlider(
+                  label: '재생속도',
+                  value: widget.settings.playbackRate,
+                  min: 0.5,
+                  max: 1.5,
+                  divisions: 10,
+                  step: 0.1,
+                  semanticValue:
+                      '현재 ${widget.settings.playbackRate.toStringAsFixed(1)} 배속',
+                  onChanged: (v) => widget.onSettingsChanged(
+                    widget.settings.copyWith(playbackRate: v),
+                  ),
                 ),
-                const SizedBox(width: 6),
-                CompactBtn(
-                  icon: Icons.replay,
-                  semanticsLabel: '처음부터 재생',
-                  onTap: onRestart,
-                ),
-                const SizedBox(width: 6),
-                CompactBtn(
-                  icon: Icons.skip_next,
-                  semanticsLabel: '다음 예약곡',
-                  onTap: () {
-                    if (!hasQueuedSongs) {
-                      onMessage('다음 예약곡이 없습니다.');
-                      return;
-                    }
-                    onSkipNext();
-                  },
-                ),
-                const SizedBox(width: 6),
-                CompactBtn(
-                  icon: Icons.fullscreen,
-                  semanticsLabel: '전체화면 프롬프터 열기',
-                  onTap: onOpenPrompter,
-                ),
-                const SizedBox(width: 10),
-                _DurationLabel(value: position),
-                SizedBox(
-                  width: 220,
-                  child: SliderTheme(
-                    data: SliderThemeData(
-                      trackHeight: 6,
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 10,
-                      ),
-                      overlayShape: const RoundSliderOverlayShape(
-                        overlayRadius: 16,
-                      ),
+              ),
+            ],
+          ),
+          const Divider(height: 16, thickness: 1),
+          Semantics(
+            label: '표시 설정',
+            button: true,
+            expanded: _displaySettingsExpanded,
+            child: InkWell(
+              onTap: () => setState(
+                () => _displaySettingsExpanded = !_displaySettingsExpanded,
+              ),
+              borderRadius: AppShapes.controlRadius,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Text('표시 설정', style: AppTypography.body.copyWith(fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    Icon(
+                      _displaySettingsExpanded
+                          ? Icons.expand_less
+                          : Icons.expand_more,
+                      color: AppColors.textMuted,
                     ),
-                    child: Slider(
-                      min: 0,
-                      max: duration.inMilliseconds.toDouble().clamp(
-                        1,
-                        double.infinity,
-                      ),
-                      value: position.inMilliseconds.toDouble().clamp(
-                        0,
-                        duration.inMilliseconds.toDouble().clamp(
-                          1,
-                          double.infinity,
-                        ),
-                      ),
-                      semanticFormatterCallback: (value) =>
-                          '재생 위치 ${formatDuration(Duration(milliseconds: value.toInt()))}',
-                      onChanged: audioReady
-                          ? (v) => onSeek(Duration(milliseconds: v.toInt()))
-                          : null,
-                    ),
-                  ),
+                  ],
                 ),
-                _DurationLabel(value: duration),
-                const SizedBox(width: 10),
-                SizedBox(
-                  width: 210,
-                  child: MiniSlider(
-                    label: '볼륨',
-                    value: settings.volume,
-                    min: 0,
-                    max: 1,
-                    divisions: 10,
-                    step: 0.1,
-                    onChanged: (v) =>
-                        onSettingsChanged(settings.copyWith(volume: v)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 210,
-                  child: MiniSlider(
-                    label: '재생속도',
-                    value: settings.playbackRate,
-                    min: 0.5,
-                    max: 1.5,
-                    divisions: 10,
-                    step: 0.1,
-                    semanticValue:
-                        '현재 ${settings.playbackRate.toStringAsFixed(1)} 배속',
-                    onChanged: (v) =>
-                        onSettingsChanged(settings.copyWith(playbackRate: v)),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+          if (_displaySettingsExpanded) ...[
+            const SizedBox(height: 8),
+            Row(
               children: [
-                SizedBox(
-                  width: 210,
+                Expanded(
                   child: MiniSlider(
                     label: '크기',
-                    value: settings.fontSizeLevel,
+                    value: widget.settings.fontSizeLevel,
                     min: 1,
                     max: 7,
                     divisions: 6,
                     semanticValue:
-                        '현재 ${settings.effectiveFontSizePt.round()} 포인트',
-                    onChanged: (v) => onSettingsChanged(
-                      settings.copyWith(
+                        '현재 ${widget.settings.effectiveFontSizePt.round()} 포인트',
+                    onChanged: (v) => widget.onSettingsChanged(
+                      widget.settings.copyWith(
                         fontSizeLevel: v,
                         clearCustomFontSize: true,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 210,
+                const SizedBox(width: 12),
+                Expanded(
                   child: MiniSlider(
                     label: '줄간격',
-                    value: settings.lineHeightLevel,
+                    value: widget.settings.lineHeightLevel,
                     min: 1,
                     max: 7,
                     divisions: 6,
-                    onChanged: (v) => onSettingsChanged(
-                      settings.copyWith(lineHeightLevel: v),
+                    onChanged: (v) => widget.onSettingsChanged(
+                      widget.settings.copyWith(lineHeightLevel: v),
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 210,
-                  child: MiniSlider(
-                    label: '속도',
-                    value: settings.speedLevel,
-                    min: 0,
-                    max: 10,
-                    divisions: 20,
-                    onChanged: (v) =>
-                        onSettingsChanged(settings.copyWith(speedLevel: v)),
-                  ),
-                ),
-                const SizedBox(width: 8),
+              ],
+            ),
+            const SizedBox(height: 8),
+            MiniSlider(
+              label: '속도',
+              value: widget.settings.speedLevel,
+              min: 0,
+              max: 10,
+              divisions: 20,
+              onChanged: (v) => widget.onSettingsChanged(
+                widget.settings.copyWith(speedLevel: v),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
                 PresetBtn(
-                  label: settings.customFontSizePt == null
+                  label: widget.settings.customFontSizePt == null
                       ? '직접'
-                      : '${settings.customFontSizePt!.round()}pt',
+                      : '${widget.settings.customFontSizePt!.round()}pt',
                   semanticsLabel: '사용자 정의 글자 크기',
-                  onTap: onCustomFontSize,
+                  onTap: widget.onCustomFontSize,
                 ),
-                const SizedBox(width: 8),
                 PresetBtn(
                   label: '표준',
                   semanticsLabel: '표준 접근성 프리셋',
-                  onTap: () => onAccessibilityPreset('standard'),
+                  onTap: () => widget.onAccessibilityPreset('standard'),
                 ),
-                const SizedBox(width: 6),
                 PresetBtn(
                   label: '저시력',
                   semanticsLabel: '저시력 추천 프리셋',
-                  onTap: () => onAccessibilityPreset('recommended'),
+                  onTap: () => widget.onAccessibilityPreset('recommended'),
                 ),
-                const SizedBox(width: 6),
                 PresetBtn(
                   label: '원거리',
                   semanticsLabel: '원거리 무대 프리셋',
-                  onTap: () => onAccessibilityPreset('stage'),
+                  onTap: () => widget.onAccessibilityPreset('stage'),
                 ),
-                const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: fontOptions.containsKey(settings.fontFamily)
-                      ? settings.fontFamily
-                      : 'System Default',
-                  dropdownColor: AppColors.surface,
-                  isDense: false,
-                  style: AppTypography.body,
-                  items: fontOptions.keys
-                      .map((f) => DropdownMenuItem(value: f, child: Text(f)))
-                      .toList(growable: false),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    onSettingsChanged(settings.copyWith(fontFamily: v));
-                  },
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: widget.fontOptions.containsKey(widget.settings.fontFamily)
+                        ? widget.settings.fontFamily
+                        : 'System Default',
+                    dropdownColor: AppColors.surface,
+                    style: AppTypography.body,
+                    items: widget.fontOptions.keys
+                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                        .toList(growable: false),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      widget.onSettingsChanged(
+                        widget.settings.copyWith(fontFamily: v),
+                      );
+                    },
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Semantics(
                   label: '굵은 글씨',
-                  checked: settings.boldText,
+                  checked: widget.settings.boldText,
                   child: SizedBox(
-                    width: 48,
-                    height: 48,
+                    width: AppConstants.minTouchTarget,
+                    height: AppConstants.minTouchTarget,
                     child: Checkbox(
-                      value: settings.boldText,
-                      onChanged: (v) => onSettingsChanged(
-                        settings.copyWith(boldText: v ?? false),
+                      value: widget.settings.boldText,
+                      onChanged: (v) => widget.onSettingsChanged(
+                        widget.settings.copyWith(boldText: v ?? false),
                       ),
-                      visualDensity: VisualDensity.standard,
                     ),
                   ),
                 ),
                 Text('굵게', style: AppTypography.body),
-                const SizedBox(width: 8),
-                DropdownButton<PrompterDisplayMode>(
-                  value: settings.displayMode,
-                  dropdownColor: AppColors.surface,
-                  style: AppTypography.body,
-                  items: const [
-                    DropdownMenuItem(
-                      value: PrompterDisplayMode.full,
-                      child: Text('전체 가사'),
-                    ),
-                    DropdownMenuItem(
-                      value: PrompterDisplayMode.highlight,
-                      child: Text('줄 하이라이트'),
-                    ),
-                  ],
-                  onChanged: (mode) {
-                    if (mode == null) return;
-                    onSettingsChanged(settings.copyWith(displayMode: mode));
-                  },
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButton<PrompterDisplayMode>(
+                    isExpanded: true,
+                    value: widget.settings.displayMode,
+                    dropdownColor: AppColors.surface,
+                    style: AppTypography.body,
+                    items: const [
+                      DropdownMenuItem(
+                        value: PrompterDisplayMode.full,
+                        child: Text('전체 가사'),
+                      ),
+                      DropdownMenuItem(
+                        value: PrompterDisplayMode.highlight,
+                        child: Text('줄 하이라이트'),
+                      ),
+                    ],
+                    onChanged: (mode) {
+                      if (mode == null) return;
+                      widget.onSettingsChanged(
+                        widget.settings.copyWith(displayMode: mode),
+                      );
+                    },
+                  ),
                 ),
                 const SizedBox(width: 4),
-                Tooltip(
+                const Tooltip(
                   message: '줄 하이라이트는 자동 스크롤 속도 기준으로 이동합니다.',
                   child: Icon(
                     Icons.info_outline,
@@ -312,29 +335,9 @@ class PrompterBottomBar extends StatelessWidget {
                 ),
               ],
             ),
-          ),
+          ],
         ],
       ),
-    );
-  }
-
-  static String formatDuration(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
-  }
-}
-
-class _DurationLabel extends StatelessWidget {
-  final Duration value;
-
-  const _DurationLabel({required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      PrompterBottomBar.formatDuration(value),
-      style: AppTypography.bodyMuted,
     );
   }
 }

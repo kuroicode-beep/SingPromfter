@@ -4,7 +4,12 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
-import 'prompter_bottom_bar.dart';
+
+String formatPrompterDuration(Duration d) {
+  final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$m:$s';
+}
 
 class PrompterProgressBar extends StatelessWidget {
   final Duration position;
@@ -56,11 +61,11 @@ class PrompterProgressBar extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                PrompterBottomBar.formatDuration(position),
+                formatPrompterDuration(position),
                 style: AppTypography.body.copyWith(color: labelColor),
               ),
               Text(
-                PrompterBottomBar.formatDuration(duration),
+                formatPrompterDuration(duration),
                 style: AppTypography.body.copyWith(color: labelColor),
               ),
             ],

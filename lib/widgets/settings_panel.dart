@@ -1,6 +1,6 @@
 // file: lib/widgets/settings_panel.dart
 //
-// 백업·일괄 등록·프롬pter 기본값 설정 화면.
+// 백업·일괄 등록·프롬프터 기본값·저작권 정보 설정 화면.
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -37,7 +37,7 @@ class SettingsPanel extends StatelessWidget {
         ),
         _SettingsTile(
           icon: Icons.archive_outlined,
-          title: '백업 내보내기',
+          title: '백업보내기',
           subtitle: '곡·설정을 zip 파일로 저장',
           onTap: onExportBackup,
         ),
@@ -48,7 +48,7 @@ class SettingsPanel extends StatelessWidget {
           onTap: onImportBackup,
         ),
         const SizedBox(height: 24),
-        Text('프롬pter 기본값', style: AppTypography.listTitle),
+        Text('프롬프터 기본값', style: AppTypography.listTitle),
         const SizedBox(height: 8),
         Text(
           '접근성 프리셋을 선택하면 글자 크기·줄 간격·속도가 함께 적용됩니다.',
@@ -78,6 +78,13 @@ class SettingsPanel extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 32),
+        Text('앱 정보', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Text(
+          'Copyright SVIL. Powered by 디또 2026/03/10',
+          style: AppTypography.bodyMuted.copyWith(height: 1.4),
+        ),
       ],
     );
   }
@@ -105,7 +112,10 @@ class _SettingsTile extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         minVerticalPadding: 12,
         leading: Icon(icon, color: AppColors.primary, size: 26),
-        title: Text(title, style: AppTypography.body.copyWith(fontWeight: FontWeight.w600)),
+        title: Text(
+          title,
+          style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+        ),
         subtitle: Text(subtitle, style: AppTypography.bodyMuted),
         trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
         onTap: onTap,

@@ -13,5 +13,5 @@ class AppConstants {
   static const double scrollDeltaMultiplier = 1.4;
   static const int maxBackingTrackSlots = 3;
   static const List<int> backingTrackSlots = [1, 2, 3];
-  static const double minTouchTarget = 48;
+  static const double minTouchTarget = 50;
 }

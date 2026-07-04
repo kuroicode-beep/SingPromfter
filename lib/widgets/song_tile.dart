@@ -1,8 +1,9 @@
 // file: lib/widgets/song_tile.dart
 //
-// 곡 목록의 단일 카드 UI. 선택, 재생, 예약, 수정, 삭제 액션을 노출한다.
+// 곡 목록의 단일 카드 UI. 탭으로 선택, [예약]/[시작]은 항상, [수정]/[삭제]는 선택 시만 표시.
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'small_action_button.dart';
@@ -140,7 +141,7 @@ class SongTile extends StatelessWidget {
                                     ? AppColors.primaryContainer
                                     : AppColors.border,
                               ),
-                              minimumSize: const Size(96, 50),
+                              minimumSize: const Size(96, AppConstants.minTouchTarget),
                               textStyle: AppTypography.body.copyWith(fontSize: 16),
                               padding: const EdgeInsets.symmetric(horizontal: 10),
                             ),
@@ -149,32 +150,23 @@ class SongTile extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: 8),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      alignment: WrapAlignment.end,
                       children: [
-                        Expanded(
-                          child: SmallActionButton(
-                            label: '선택',
-                            icon: Icons.check,
-                            onTap: onSelect,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: SmallActionButton(
+                        if (selected) ...[
+                          SmallActionButton(
                             label: '수정',
                             icon: Icons.edit_outlined,
                             onTap: onEdit,
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: SmallActionButton(
+                          SmallActionButton(
                             label: '삭제',
                             icon: Icons.delete_outline,
                             onTap: onDelete,
                           ),
-                        ),
-                        const SizedBox(width: 8),
+                        ],
                         Semantics(
                           label: '${song.title} 예약',
                           button: true,
@@ -183,12 +175,15 @@ class SongTile extends StatelessWidget {
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.tertiary,
                               side: const BorderSide(color: AppColors.tertiary),
-                              minimumSize: const Size(72, 50),
+                              minimumSize: const Size(
+                                80,
+                                AppConstants.minTouchTarget,
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
                             ),
                             child: const Text('예약'),
                           ),
                         ),
-                        const SizedBox(width: 6),
                         Semantics(
                           label: '${song.title} 시작',
                           button: true,
@@ -197,7 +192,11 @@ class SongTile extends StatelessWidget {
                             style: FilledButton.styleFrom(
                               backgroundColor: AppColors.primaryContainer,
                               foregroundColor: AppColors.onPrimaryContainer,
-                              minimumSize: const Size(72, 50),
+                              minimumSize: const Size(
+                                80,
+                                AppConstants.minTouchTarget,
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 14),
                             ),
                             child: const Text('시작'),
                           ),

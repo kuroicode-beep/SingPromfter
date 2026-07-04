@@ -1,8 +1,9 @@
 // file: lib/widgets/compact_btn.dart
 //
-// 프롬프터 하단 제어 바의 48dp 접근성 버튼.
+// 프롬프터 하단 제어 바의 50dp 접근성 버튼.
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../theme/app_theme.dart';
 
 class CompactBtn extends StatelessWidget {
@@ -31,8 +32,8 @@ class CompactBtn extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          width: 48,
-          height: 48,
+          width: AppConstants.minTouchTarget,
+          height: AppConstants.minTouchTarget,
           decoration: BoxDecoration(
             color: highlighted ? AppColors.primaryContainer : AppColors.elevated,
             borderRadius: BorderRadius.circular(10),

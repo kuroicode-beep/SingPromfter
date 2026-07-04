@@ -1,13 +1,14 @@
 // file: lib/widgets/song_list_screen_view.dart
 //
-// SongListScreen의 네비 레일·반응형 3열 홈·검색/설정 화면을 렌더링한다.
+// SongListScreen의 상단 탭·반응형 3열 홈·검색/설정 화면을 렌더링한다.
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
 import '../models/app_destination.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
-import 'app_nav_rail.dart';
+import 'app_top_nav_bar.dart';
+import 'collapsible_queue_sidebar.dart';
 import 'home_now_playing_bar.dart';
 
 class SongListScreenView extends StatelessWidget {
@@ -18,6 +19,7 @@ class SongListScreenView extends StatelessWidget {
   final Song? selectedSong;
   final int? selectedTrackSlot;
   final bool playing;
+  final bool queueIsEmpty;
   final VoidCallback? onStartPrompter;
   final Widget homeSongListPanel;
   final Widget favoritesSongListPanel;
@@ -35,6 +37,7 @@ class SongListScreenView extends StatelessWidget {
     required this.selectedSong,
     required this.selectedTrackSlot,
     required this.playing,
+    required this.queueIsEmpty,
     required this.onStartPrompter,
     required this.homeSongListPanel,
     required this.favoritesSongListPanel,
@@ -47,20 +50,12 @@ class SongListScreenView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
+      body: Column(
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final expanded =
-                  MediaQuery.sizeOf(context).width >=
-                  AppConstants.wideLayoutBreakpoint;
-              return AppNavRail(
-                destination: destination,
-                expanded: expanded,
-                onDestinationChanged: onDestinationChanged,
-                onAddSong: onAddSong,
-              );
-            },
+          AppTopNavBar(
+            destination: destination,
+            onDestinationChanged: onDestinationChanged,
+            onAddSong: onAddSong,
           ),
           Expanded(
             child: loading
@@ -114,12 +109,10 @@ class SongListScreenView extends StatelessWidget {
                   child: songListPanel,
                 ),
                 const VerticalDivider(width: 1, thickness: 1),
-                Expanded(
-                  child: prompterPanel,
-                ),
+                Expanded(child: prompterPanel),
                 const VerticalDivider(width: 1, thickness: 1),
-                SizedBox(
-                  width: AppConstants.homeQueueWidth,
+                CollapsibleQueueSidebar(
+                  queueIsEmpty: queueIsEmpty,
                   child: queuePanel,
                 ),
               ],
@@ -142,7 +135,7 @@ class SongListScreenView extends StatelessWidget {
               indicatorColor: AppColors.primaryContainer,
               tabs: const [
                 Tab(text: '곡 목록'),
-                Tab(text: '프롬pter'),
+                Tab(text: '프롬프터'),
                 Tab(text: '예약 큐'),
               ],
             ),

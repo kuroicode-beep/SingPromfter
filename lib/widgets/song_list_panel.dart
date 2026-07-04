@@ -1,6 +1,6 @@
 // file: lib/widgets/song_list_panel.dart
 //
-// 등록된 곡 목록과 하단 저작권 문구를 표시하는 패널.
+// 등록된 곡 목록을 표시하는 패널.
 import 'package:flutter/material.dart';
 
 import '../models/song.dart';
@@ -62,14 +62,13 @@ class SongListPanel extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '좌측 레일의 곡 등록으로 추가해 주세요',
+                    '상단의 곡 등록으로 추가해 주세요',
                     style: TextStyle(color: AppColors.textMuted),
                   ),
                 ],
               ),
             ),
           ),
-          _SongListFooter(),
         ],
       );
     }
@@ -143,7 +142,6 @@ class SongListPanel extends StatelessWidget {
                   },
                 ),
         ),
-        const _SongListFooter(),
       ],
     );
   }
@@ -291,24 +289,7 @@ class _SongListFilterPanelState extends State<_SongListFilterPanel> {
                   },
                 ),
         ),
-        const _SongListFooter(),
       ],
-    );
-  }
-}
-
-class _SongListFooter extends StatelessWidget {
-  const _SongListFooter();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-      child: Text(
-        'Copyright SVIL. Powered by 디또 2026/03/10',
-        textAlign: TextAlign.center,
-        style: AppTypography.bodyMuted.copyWith(height: 1.3),
-      ),
     );
   }
 }
