@@ -62,12 +62,12 @@ visibility: "internal"
 
 ## Git·배포
 
-- 커밋/푸시: **미실행** (요청 시 진행)
-- 빌드 산출물: `build/windows/x64/runner/Release/singpromfter_app.exe`
-- 권장 태그: `v1.1.1`
+- 커밋: `5135614` — `fix: UI 개선 2차 — 상단 탭·카드 버튼·하단 바 재구성 (v1.1.1)`
+- 푸시: `origin/master`, 태그 `v1.1.1` 푸시 완료
+- 배포: `dist/SingPromfter-v1.1.1/singpromfter_app.exe`
+- 바탕화면 바로가기: `SingPromfter.lnk` → v1.1.1 경로로 갱신
 
 ## 핸드오프
 
 - Codex 독립 검증 (잘림 0건, 좁은/넓은 창 수동 확인)
-- 배포: `dist/SingPromfter-v1.1.1/` 복사 및 바로가기 갱신
 - `app_nav_rail.dart`는 미참조 상태 — 후속 정리 가능
