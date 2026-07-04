@@ -40,21 +40,25 @@ class PrompterProgressBar extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SliderTheme(
-            data: SliderThemeData(
-              trackHeight: 6,
-              activeTrackColor: activeColor,
-              inactiveTrackColor: AppColors.outline,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-            ),
-            child: Slider(
-              min: 0,
-              max: maxMs.toDouble(),
-              value: value.toDouble(),
-              onChanged: enabled
-                  ? (v) => onSeek(Duration(milliseconds: v.round()))
-                  : null,
+          Focus(
+            canRequestFocus: false,
+            skipTraversal: true,
+            child: SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 6,
+                activeTrackColor: activeColor,
+                inactiveTrackColor: AppColors.outline,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              ),
+              child: Slider(
+                min: 0,
+                max: maxMs.toDouble(),
+                value: value.toDouble(),
+                onChanged: enabled
+                    ? (v) => onSeek(Duration(milliseconds: v.round()))
+                    : null,
+              ),
             ),
           ),
           Row(

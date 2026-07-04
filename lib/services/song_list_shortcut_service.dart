@@ -13,6 +13,12 @@ class SongListShortcutService {
   static const double volumeStep = 0.1;
   static const double speedStep = 0.5;
 
+  static bool isTextInputFocused() {
+    final primaryFocus = FocusManager.instance.primaryFocus;
+    if (primaryFocus == null) return false;
+    return primaryFocus.context?.widget is EditableText;
+  }
+
   static bool handle({
     required KeyEvent event,
     required Song? selectedSong,
@@ -22,8 +28,7 @@ class SongListShortcutService {
     required ValueChanged<PrompterSettings> onSettingsChanged,
   }) {
     if (event is! KeyDownEvent) return false;
-    final primaryFocus = FocusManager.instance.primaryFocus;
-    if (primaryFocus?.context?.widget is EditableText) {
+    if (isTextInputFocused()) {
       return false;
     }
 

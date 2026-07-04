@@ -54,24 +54,28 @@ class MiniSlider extends StatelessWidget {
                 onTap: _decrement,
               ),
               Expanded(
-                child: SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: 6,
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 10,
+                child: Focus(
+                  canRequestFocus: false,
+                  skipTraversal: true,
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 6,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 10,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 16,
+                      ),
                     ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 16,
+                    child: Slider(
+                      min: min,
+                      max: max,
+                      divisions: divisions,
+                      value: value.clamp(min, max).toDouble(),
+                      semanticFormatterCallback: (_) =>
+                          semanticValue ?? '$label ${value.toStringAsFixed(1)}',
+                      onChanged: onChanged,
                     ),
-                  ),
-                  child: Slider(
-                    min: min,
-                    max: max,
-                    divisions: divisions,
-                    value: value.clamp(min, max).toDouble(),
-                    semanticFormatterCallback: (_) =>
-                        semanticValue ?? '$label ${value.toStringAsFixed(1)}',
-                    onChanged: onChanged,
                   ),
                 ),
               ),

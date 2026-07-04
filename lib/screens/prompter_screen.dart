@@ -7,12 +7,12 @@ import '../constants/app_constants.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
-import '../services/song_list_shortcut_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/lyrics_line_utils.dart';
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_progress_bar.dart';
+import '../widgets/prompter_keyboard_scope.dart';
 
 class PrompterScreen extends StatefulWidget {
   final Song song;
@@ -90,29 +90,27 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _autoScrollEnabled = widget.autoScrollEnabled;
     _displayMode = widget.displayMode;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncAutoScroll());
+  }
+
+  @override
+  void didUpdateWidget(covariant PrompterScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.speedLevel != oldWidget.speedLevel) {
+      _speedLevel = widget.speedLevel;
+      _syncAutoScroll();
+    }
   }
 
   @override
   void dispose() {
     _autoScrollTimer?.cancel();
-    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _scrollController.dispose();
     super.dispose();
   }
 
-  bool _handleKeyEvent(KeyEvent event) {
-    if (event is! KeyDownEvent) return false;
-    if (!mounted) return false;
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      Navigator.pop(context);
-      return true;
-    }
-
-    final adjusted = SongListShortcutService.adjustSettings(
-      PrompterSettings(
+  PrompterSettings get _keyboardSettings => PrompterSettings(
         fontSizeLevel: _fontSizeLevel,
         lineHeightLevel: _lineHeightLevel,
         speedLevel: _speedLevel,
@@ -121,18 +119,15 @@ class _PrompterScreenState extends State<PrompterScreen> {
         boldText: widget.boldText,
         customFontSizePt: _customFontSizePt,
         displayMode: _displayMode,
-      ),
-      event.logicalKey,
-    );
-    if (adjusted == null) return false;
+      );
 
-    if (adjusted.volume != widget.volume) {
-      widget.onVolumeChanged?.call(adjusted.volume);
+  void _applyKeyboardSettings(PrompterSettings next) {
+    if (next.volume != widget.volume) {
+      widget.onVolumeChanged?.call(next.volume);
     }
-    if (adjusted.speedLevel != _speedLevel) {
-      _updateSpeedLevel(adjusted.speedLevel);
+    if (next.speedLevel != _speedLevel) {
+      _updateSpeedLevel(next.speedLevel);
     }
-    return true;
   }
 
   double get _fontSize =>
@@ -227,33 +222,39 @@ class _PrompterScreenState extends State<PrompterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _toggleControls,
-        child: Stack(
-          children: [
-            PrompterLyricsView(
-              lyricsText: widget.song.lyricsText,
-              displayMode: _displayMode,
-              fontSize: _fontSize,
-              lineHeight: _lineHeight,
-              fontFamily: widget.fontFamily,
-              boldText: widget.boldText,
-              highlightLineIndex: _highlightLineIndex,
-              scrollController: _scrollController,
-              padding: EdgeInsets.fromLTRB(
-                32,
-                _controlsVisible ? 80 : 48,
-                32,
-                110,
+    return PrompterKeyboardScope(
+      settings: _keyboardSettings,
+      enablePlaybackShortcuts: false,
+      onSettingsChanged: _applyKeyboardSettings,
+      onClose: () => Navigator.pop(context),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: GestureDetector(
+          onTap: _toggleControls,
+          child: Stack(
+            children: [
+              PrompterLyricsView(
+                lyricsText: widget.song.lyricsText,
+                displayMode: _displayMode,
+                fontSize: _fontSize,
+                lineHeight: _lineHeight,
+                fontFamily: widget.fontFamily,
+                boldText: widget.boldText,
+                highlightLineIndex: _highlightLineIndex,
+                scrollController: _scrollController,
+                padding: EdgeInsets.fromLTRB(
+                  32,
+                  _controlsVisible ? 80 : 48,
+                  32,
+                  110,
+                ),
+                textColor: Colors.white,
+                mutedColor: Colors.white70,
               ),
-              textColor: Colors.white,
-              mutedColor: Colors.white70,
-            ),
-            if (_controlsVisible) _buildTopBar(),
-            _buildBottomBar(),
-          ],
+              if (_controlsVisible) _buildTopBar(),
+              _buildBottomBar(),
+            ],
+          ),
         ),
       ),
     );
@@ -464,24 +465,28 @@ class _InlineSlider extends StatelessWidget {
                       onChanged((value - _step).clamp(min, max).toDouble()),
                 ),
                 Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 4,
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 10,
+                  child: Focus(
+                    canRequestFocus: false,
+                    skipTraversal: true,
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 10,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 16,
+                        ),
                       ),
-                      overlayShape: const RoundSliderOverlayShape(
-                        overlayRadius: 16,
+                      child: Slider(
+                        min: min,
+                        max: max,
+                        divisions: divisions,
+                        value: value.clamp(min, max).toDouble(),
+                        semanticFormatterCallback: (_) =>
+                            semanticValue ?? '$label ${value.toStringAsFixed(1)}',
+                        onChanged: onChanged,
                       ),
-                    ),
-                    child: Slider(
-                      min: min,
-                      max: max,
-                      divisions: divisions,
-                      value: value.clamp(min, max).toDouble(),
-                      semanticFormatterCallback: (_) =>
-                          semanticValue ?? '$label ${value.toStringAsFixed(1)}',
-                      onChanged: onChanged,
                     ),
                   ),
                 ),

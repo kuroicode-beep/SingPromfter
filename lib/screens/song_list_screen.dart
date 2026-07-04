@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/custom_font_size_dialog.dart';
@@ -19,10 +18,10 @@ import '../services/prompter_settings_service.dart';
 import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
-import '../services/song_list_shortcut_service.dart';
 import '../services/song_filter_service.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../widgets/snack_message.dart';
+import '../widgets/prompter_keyboard_scope.dart';
 
 class SongListScreen extends StatefulWidget {
   const SongListScreen({super.key});
@@ -76,14 +75,12 @@ class _SongListScreenState extends State<SongListScreen> {
       if (!mounted) return;
       setState(() => _highlightLineIndex = _autoScroll.lineIndex);
     };
-    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     _bindPlayerStreams();
     _bootstrap();
   }
 
   @override
   void dispose() {
-    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _autoScroll.dispose();
     _noAudioSkipTimer?.cancel();
     for (final timer in _pendingDeleteTimers.values) {
@@ -93,18 +90,6 @@ class _SongListScreenState extends State<SongListScreen> {
     _audio.dispose();
     _lyricsScrollController.dispose();
     super.dispose();
-  }
-
-  bool _handleKeyEvent(KeyEvent event) {
-    if (!mounted) return false;
-    return SongListShortcutService.handle(
-      event: event,
-      selectedSong: _selectedSong,
-      settings: _settings,
-      onTogglePlayPause: _togglePlayPause,
-      onOpenPrompter: _openPrompter,
-      onSettingsChanged: _updateSettings,
-    );
   }
 
   Future<void> _bootstrap() async {
@@ -607,7 +592,15 @@ class _SongListScreenState extends State<SongListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SongListScreenContent(
+    return PrompterKeyboardScope(
+      settings: _settings,
+      onSettingsChanged: _updateSettings,
+      onTogglePlayPause: _togglePlayPause,
+      onOpenPrompter: () {
+        final song = _selectedSong;
+        if (song != null) _openPrompter(song);
+      },
+      child: SongListScreenContent(
       loading: _loading,
       destination: _destination,
       onDestinationChanged: (next) => setState(() => _destination = next),
@@ -652,6 +645,7 @@ class _SongListScreenState extends State<SongListScreen> {
       onClearQueue: _clearQueue,
       onReorderQueue: _reorderQueue,
       onRemoveQueueItem: _removeQueueItem,
+      ),
     );
   }
 }
