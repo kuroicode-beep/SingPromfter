@@ -34,7 +34,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        theme: AppTheme.dark,
+        theme: AppTheme.dark(),
         home: StatefulBuilder(
           builder: (context, setState) {
             return Scaffold(

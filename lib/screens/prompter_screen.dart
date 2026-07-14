@@ -111,15 +111,15 @@ class _PrompterScreenState extends State<PrompterScreen> {
   }
 
   PrompterSettings get _keyboardSettings => PrompterSettings(
-        fontSizeLevel: _fontSizeLevel,
-        lineHeightLevel: _lineHeightLevel,
-        speedLevel: _speedLevel,
-        volume: widget.volume,
-        fontFamily: widget.fontFamily ?? '기본',
-        boldText: widget.boldText,
-        customFontSizePt: _customFontSizePt,
-        displayMode: _displayMode,
-      );
+    fontSizeLevel: _fontSizeLevel,
+    lineHeightLevel: _lineHeightLevel,
+    speedLevel: _speedLevel,
+    volume: widget.volume,
+    fontFamily: widget.fontFamily ?? '기본',
+    boldText: widget.boldText,
+    customFontSizePt: _customFontSizePt,
+    displayMode: _displayMode,
+  );
 
   void _applyKeyboardSettings(PrompterSettings next) {
     if (next.volume != widget.volume) {
@@ -162,7 +162,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
     }
 
     if (_displayMode == PrompterDisplayMode.highlight) {
-      final lineCount = LyricsLineUtils.splitLines(widget.song.lyricsText).length;
+      final lineCount = LyricsLineUtils.splitLines(
+        widget.song.lyricsText,
+      ).length;
       if (lineCount <= 1) return;
 
       _autoScrollTimer = Timer.periodic(AppConstants.autoScrollInterval, (_) {
@@ -222,38 +224,43 @@ class _PrompterScreenState extends State<PrompterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PrompterKeyboardScope(
-      settings: _keyboardSettings,
-      enablePlaybackShortcuts: false,
-      onSettingsChanged: _applyKeyboardSettings,
-      onClose: () => Navigator.pop(context),
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: GestureDetector(
-          onTap: _toggleControls,
-          child: Stack(
-            children: [
-              PrompterLyricsView(
-                lyricsText: widget.song.lyricsText,
-                displayMode: _displayMode,
-                fontSize: _fontSize,
-                lineHeight: _lineHeight,
-                fontFamily: widget.fontFamily,
-                boldText: widget.boldText,
-                highlightLineIndex: _highlightLineIndex,
-                scrollController: _scrollController,
-                padding: EdgeInsets.fromLTRB(
-                  32,
-                  _controlsVisible ? 80 : 48,
-                  32,
-                  110,
+    // 무대 가사는 자체 글자 크기(레벨)를 쓰므로 앱 전역 배율을 초기화해
+    // 배율 중첩으로 인한 오버플로를 방지한다.
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+      child: PrompterKeyboardScope(
+        settings: _keyboardSettings,
+        enablePlaybackShortcuts: false,
+        onSettingsChanged: _applyKeyboardSettings,
+        onClose: () => Navigator.pop(context),
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: GestureDetector(
+            onTap: _toggleControls,
+            child: Stack(
+              children: [
+                PrompterLyricsView(
+                  lyricsText: widget.song.lyricsText,
+                  displayMode: _displayMode,
+                  fontSize: _fontSize,
+                  lineHeight: _lineHeight,
+                  fontFamily: widget.fontFamily,
+                  boldText: widget.boldText,
+                  highlightLineIndex: _highlightLineIndex,
+                  scrollController: _scrollController,
+                  padding: EdgeInsets.fromLTRB(
+                    32,
+                    _controlsVisible ? 80 : 48,
+                    32,
+                    110,
+                  ),
+                  textColor: Colors.white,
+                  mutedColor: Colors.white70,
                 ),
-                textColor: Colors.white,
-                mutedColor: Colors.white70,
-              ),
-              if (_controlsVisible) _buildTopBar(),
-              _buildBottomBar(),
-            ],
+                if (_controlsVisible) _buildTopBar(),
+                _buildBottomBar(),
+              ],
+            ),
           ),
         ),
       ),
@@ -353,7 +360,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
                             : '자동 스크롤 켜기',
                         toggled: _autoScrollEnabled,
                         onTap: () {
-                          setState(() => _autoScrollEnabled = !_autoScrollEnabled);
+                          setState(
+                            () => _autoScrollEnabled = !_autoScrollEnabled,
+                          );
                           _syncAutoScroll();
                         },
                       ),
@@ -364,8 +373,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
                             : Icons.view_headline,
                         semanticsLabel:
                             _displayMode == PrompterDisplayMode.highlight
-                                ? '전체 가사 모드'
-                                : '줄 하이라이트 모드',
+                            ? '전체 가사 모드'
+                            : '줄 하이라이트 모드',
                         toggled: _displayMode == PrompterDisplayMode.highlight,
                         onTap: _toggleDisplayMode,
                       ),
@@ -484,7 +493,8 @@ class _InlineSlider extends StatelessWidget {
                         divisions: divisions,
                         value: value.clamp(min, max).toDouble(),
                         semanticFormatterCallback: (_) =>
-                            semanticValue ?? '$label ${value.toStringAsFixed(1)}',
+                            semanticValue ??
+                            '$label ${value.toStringAsFixed(1)}',
                         onChanged: onChanged,
                       ),
                     ),

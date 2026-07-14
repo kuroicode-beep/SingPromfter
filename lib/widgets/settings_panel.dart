@@ -1,8 +1,10 @@
 // file: lib/widgets/settings_panel.dart
 //
-// 백업·일괄 등록·프롬프터 기본값·저작권 정보 설정 화면.
+// 백업·일괄 등록·프롬프터 기본값·표시(글꼴·글자 크기)·앱 정보 설정 화면.
 import 'package:flutter/material.dart';
 
+import '../constants/app_version.dart';
+import '../services/app_display_controller.dart';
 import '../theme/app_theme.dart';
 import 'preset_btn.dart';
 
@@ -67,10 +69,7 @@ class SettingsPanel extends StatelessWidget {
               label: '추천',
               onTap: () => onAccessibilityPreset('recommended'),
             ),
-            PresetBtn(
-              label: '무대',
-              onTap: () => onAccessibilityPreset('stage'),
-            ),
+            PresetBtn(label: '무대', onTap: () => onAccessibilityPreset('stage')),
             PresetBtn(
               label: '글자 크기',
               semanticsLabel: '사용자 지정 글자 크기',
@@ -78,14 +77,201 @@ class SettingsPanel extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 24),
+        const _DisplaySettingsSection(),
         const SizedBox(height: 32),
         Text('앱 정보', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('버전 ', style: AppTypography.bodyMuted),
+            Text('v${AppVersion.current}', style: AppTypography.mono),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(bottom: 8),
+            title: Text('업데이트 히스토리', style: AppTypography.body),
+            iconColor: AppColors.primary,
+            collapsedIconColor: AppColors.onSurfaceVariant,
+            children: AppVersion.history
+                .map((e) => _HistoryRow(entry: e))
+                .toList(growable: false),
+          ),
+        ),
         const SizedBox(height: 8),
         Text(
           'Copyright SVIL. Powered by 디또 2026/03/10',
           style: AppTypography.bodyMuted.copyWith(height: 1.4),
         ),
       ],
+    );
+  }
+}
+
+/// SVIL 설정 표준: 앱 글꼴 선택 + 글자 크기 3단계.
+class _DisplaySettingsSection extends StatelessWidget {
+  const _DisplaySettingsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AppDisplaySettings>(
+      valueListenable: AppDisplayController.notifier,
+      builder: (context, display, _) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('표시', style: AppTypography.listTitle),
+            const SizedBox(height: 8),
+            Text('앱 글꼴', style: AppTypography.bodyMuted),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: AppDisplayController.fontFamilies.entries
+                  .map((entry) {
+                    final selected = display.fontKey == entry.key;
+                    return _SelectChip(
+                      label: entry.key,
+                      selected: selected,
+                      // 각 옵션은 해당 글꼴로 미리보기.
+                      labelStyle: TextStyle(
+                        fontFamily: entry.value,
+                        fontSize: 16,
+                        color: selected
+                            ? AppColors.onPrimaryContainer
+                            : AppColors.onSurface,
+                      ),
+                      onTap: () => AppDisplayController.setFont(entry.key),
+                    );
+                  })
+                  .toList(growable: false),
+            ),
+            const SizedBox(height: 16),
+            Text('글자 크기', style: AppTypography.bodyMuted),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: AppDisplayController.sizeSteps.entries
+                  .map((entry) {
+                    final selected =
+                        (display.textScale - entry.value).abs() < 0.001;
+                    return _SelectChip(
+                      label: entry.key,
+                      selected: selected,
+                      onTap: () => AppDisplayController.setScale(entry.value),
+                    );
+                  })
+                  .toList(growable: false),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _SelectChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final TextStyle? labelStyle;
+  final VoidCallback onTap;
+
+  const _SelectChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.labelStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: label,
+      button: true,
+      selected: selected,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: AppShapes.controlRadius,
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 50, minWidth: 72),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.primaryContainer : AppColors.elevated,
+              borderRadius: AppShapes.controlRadius,
+              border: Border.all(
+                color: selected
+                    ? AppColors.primaryContainer
+                    : AppColors.borderStrong,
+                width: 2,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (selected)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 6),
+                    child: Icon(
+                      Icons.check,
+                      size: 18,
+                      color: AppColors.onPrimaryContainer,
+                    ),
+                  ),
+                Text(
+                  label,
+                  style:
+                      labelStyle ??
+                      AppTypography.body.copyWith(
+                        color: selected
+                            ? AppColors.onPrimaryContainer
+                            : AppColors.onSurface,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryRow extends StatelessWidget {
+  final AppVersionEntry entry;
+
+  const _HistoryRow({required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 64,
+            child: Text('v${entry.version}', style: AppTypography.monoMuted),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(entry.summary, style: AppTypography.body),
+                Text(entry.date, style: AppTypography.monoMuted),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -112,10 +298,7 @@ class _SettingsTile extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         minVerticalPadding: 12,
         leading: Icon(icon, color: AppColors.primary, size: 26),
-        title: Text(
-          title,
-          style: AppTypography.body,
-        ),
+        title: Text(title, style: AppTypography.body),
         subtitle: Text(subtitle, style: AppTypography.bodyMuted),
         trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
         onTap: onTap,

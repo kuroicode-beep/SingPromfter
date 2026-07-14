@@ -131,11 +131,11 @@ class AppTypography {
 }
 
 class AppTheme {
-  static ThemeData get dark {
+  static ThemeData dark({String fontFamily = AppFonts.brand}) {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      fontFamily: AppFonts.brand,
+      fontFamily: fontFamily,
       scaffoldBackgroundColor: AppColors.background,
       colorScheme: const ColorScheme.dark(
         surface: AppColors.surface,
