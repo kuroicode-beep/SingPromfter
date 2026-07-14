@@ -118,11 +118,13 @@ class PrompterLyricsView extends StatelessWidget {
   }
 
   TextStyle _baseStyle(double size) {
+    // 무대 가사는 고가독이 최우선. 글꼴 미지정 시 손글씨(브랜드) 대신
+    // 고딕(Malgun)으로 폴백해 저시력 가독성을 지킨다.
     return TextStyle(
       color: textColor,
       fontSize: size,
       height: lineHeight,
-      fontFamily: fontFamily,
+      fontFamily: fontFamily ?? AppFonts.legible,
       fontWeight: boldText ? FontWeight.w800 : FontWeight.w500,
     );
   }

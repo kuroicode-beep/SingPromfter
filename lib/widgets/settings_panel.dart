@@ -114,7 +114,7 @@ class _SettingsTile extends StatelessWidget {
         leading: Icon(icon, color: AppColors.primary, size: 26),
         title: Text(
           title,
-          style: AppTypography.body.copyWith(fontWeight: FontWeight.w600),
+          style: AppTypography.body,
         ),
         subtitle: Text(subtitle, style: AppTypography.bodyMuted),
         trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),

@@ -52,9 +52,7 @@ class HomeNowPlayingBar extends StatelessWidget {
                           : '선택된 곡: ${current.title}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTypography.body.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: AppTypography.body,
                 ),
                 if (trackLabel != null)
                   Text(trackLabel, style: AppTypography.bodyMuted),

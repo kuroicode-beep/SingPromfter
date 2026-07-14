@@ -87,7 +87,6 @@ class SongTile extends StatelessWidget {
                               '선택됨',
                               style: AppTypography.bodyMuted.copyWith(
                                 color: AppColors.primary,
-                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ),

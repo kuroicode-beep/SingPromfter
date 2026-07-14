@@ -119,7 +119,7 @@ class _TopNavTab extends StatelessWidget {
           child: Text(
             label,
             style: AppTypography.body.copyWith(
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? AppColors.primary : AppColors.onSurfaceVariant,
             ),
           ),
         ),

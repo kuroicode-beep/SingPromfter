@@ -130,7 +130,7 @@ class SongListScreenView extends StatelessWidget {
           Material(
             color: AppColors.surfaceContainer,
             child: TabBar(
-              labelStyle: AppTypography.body.copyWith(fontWeight: FontWeight.w700),
+              labelStyle: AppTypography.body.copyWith(color: AppColors.primary),
               unselectedLabelStyle: AppTypography.body,
               indicatorColor: AppColors.primaryContainer,
               tabs: const [

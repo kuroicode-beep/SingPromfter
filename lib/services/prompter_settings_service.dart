@@ -10,6 +10,7 @@ class PrompterSettingsService {
     'System Default': null,
     'Malgun Gothic': 'MalgunGothic',
     'Segoe UI': 'SegoeUI',
+    '교보손글씨2019': 'KyoboHandwriting2019',
     'Monospace': 'monospace',
   };
 

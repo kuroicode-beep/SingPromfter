@@ -143,9 +143,7 @@ class _QueueTile extends StatelessWidget {
                 ),
                 Text(
                   (index + 1).toString().padLeft(2, '0'),
-                  style: AppTypography.bodyMuted.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: AppTypography.monoMuted,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -177,7 +175,6 @@ class _QueueTile extends StatelessWidget {
                                 'NOW',
                                 style: AppTypography.body.copyWith(
                                   color: AppColors.onPrimaryContainer,
-                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),

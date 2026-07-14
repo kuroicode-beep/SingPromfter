@@ -57,7 +57,6 @@ class SongListPanel extends StatelessWidget {
                     style: TextStyle(
                       color: AppColors.textMuted,
                       fontSize: 18,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   SizedBox(height: 8),

@@ -202,9 +202,7 @@ class _SongSearchPanelState extends State<SongSearchPanel> {
                           ),
                           child: Text(
                             '검색 결과 전체 예약 (${results.length}곡)',
-                            style: AppTypography.body.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: AppTypography.body,
                           ),
                         ),
                       ),
@@ -267,7 +265,7 @@ class _SongSearchResultRow extends StatelessWidget {
             width: 36,
             child: Text(
               index.toString().padLeft(2, '0'),
-              style: AppTypography.bodyMuted.copyWith(fontWeight: FontWeight.w600),
+              style: AppTypography.bodyMuted,
             ),
           ),
           Expanded(

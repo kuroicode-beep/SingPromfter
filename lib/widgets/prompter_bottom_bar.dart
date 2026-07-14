@@ -168,7 +168,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
-                    Text('표시 설정', style: AppTypography.body.copyWith(fontWeight: FontWeight.w600)),
+                    Text('표시 설정', style: AppTypography.body),
                     const Spacer(),
                     Icon(
                       _displaySettingsExpanded

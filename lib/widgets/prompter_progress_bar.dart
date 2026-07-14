@@ -66,11 +66,11 @@ class PrompterProgressBar extends StatelessWidget {
             children: [
               Text(
                 formatPrompterDuration(position),
-                style: AppTypography.body.copyWith(color: labelColor),
+                style: AppTypography.mono.copyWith(color: labelColor),
               ),
               Text(
                 formatPrompterDuration(duration),
-                style: AppTypography.body.copyWith(color: labelColor),
+                style: AppTypography.mono.copyWith(color: labelColor),
               ),
             ],
           ),
