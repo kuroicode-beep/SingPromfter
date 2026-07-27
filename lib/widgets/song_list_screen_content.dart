@@ -8,6 +8,7 @@ import '../controllers/import_job_controller.dart';
 import '../models/mr_source_mode.dart';
 import '../models/practice_session.dart';
 import '../models/recording_take.dart';
+import '../models/vocal_routine.dart';
 
 import '../models/app_destination.dart';
 import '../models/prompter_settings.dart';
@@ -23,6 +24,7 @@ import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
 import 'song_search_panel.dart';
 import 'recordings_panel.dart';
+import 'training_panel.dart';
 import 'youtube_import_panel.dart';
 
 class SongListScreenContent extends StatelessWidget {
@@ -66,6 +68,11 @@ class SongListScreenContent extends StatelessWidget {
   final void Function(RecordingTake take, int rating) onRateTake;
   final ValueChanged<RecordingTake> onToggleTakeKeep;
   final ValueChanged<RecordingTake> onDeleteTake;
+  final DailyGoalLog todayGoal;
+  final int trainingStreak;
+  final int trainingCompletedThisWeek;
+  final ValueChanged<String> onRoutineChanged;
+  final ValueChanged<String> onToggleRoutineStep;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
@@ -144,6 +151,11 @@ class SongListScreenContent extends StatelessWidget {
     required this.onRateTake,
     required this.onToggleTakeKeep,
     required this.onDeleteTake,
+    required this.todayGoal,
+    required this.trainingStreak,
+    required this.trainingCompletedThisWeek,
+    required this.onRoutineChanged,
+    required this.onToggleRoutineStep,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
@@ -316,6 +328,14 @@ class SongListScreenContent extends StatelessWidget {
           );
           onReserveAllSongs(results);
         },
+      ),
+      trainingPanel: TrainingPanel(
+        todayLog: todayGoal,
+        streak: trainingStreak,
+        completedThisWeek: trainingCompletedThisWeek,
+        summaries: practiceSummaries,
+        onRoutineChanged: onRoutineChanged,
+        onToggleStep: onToggleRoutineStep,
       ),
       recordingsPanel: RecordingsPanel(
         takes: recordingTakes,

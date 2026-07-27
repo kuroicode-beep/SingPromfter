@@ -26,6 +26,7 @@ class SongListScreenView extends StatelessWidget {
   final Widget prompterPanel;
   final Widget queuePanel;
   final Widget searchPanel;
+  final Widget trainingPanel;
   final Widget recordingsPanel;
   final Widget importPanel;
   final Widget settingsPanel;
@@ -46,6 +47,7 @@ class SongListScreenView extends StatelessWidget {
     required this.prompterPanel,
     required this.queuePanel,
     required this.searchPanel,
+    required this.trainingPanel,
     required this.recordingsPanel,
     required this.importPanel,
     required this.settingsPanel,
@@ -84,6 +86,8 @@ class SongListScreenView extends StatelessWidget {
     switch (destination) {
       case AppDestination.search:
         return searchPanel;
+      case AppDestination.training:
+        return trainingPanel;
       case AppDestination.recordings:
         return recordingsPanel;
       case AppDestination.jobs:

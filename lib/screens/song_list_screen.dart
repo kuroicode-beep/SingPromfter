@@ -16,6 +16,7 @@ import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/recording_take.dart';
+import '../models/vocal_routine.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../utils/key_label.dart';
@@ -27,6 +28,7 @@ import '../services/batch_registration_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/pitch_variant_service.dart';
 import '../services/practice_log_service.dart';
+import '../services/daily_goal_service.dart';
 import '../services/recording_library_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/tool_progress_parsers.dart';
@@ -69,6 +71,7 @@ class _SongListScreenState extends State<SongListScreen> {
   );
   late final ImportJobController _importJobs;
   final _recordingLibrary = RecordingLibraryService();
+  final _dailyGoals = DailyGoalService();
   late final RecordingController _recording;
   late final _takePlayer = PrompterAudioService(_repo);
 
@@ -121,7 +124,7 @@ class _SongListScreenState extends State<SongListScreen> {
       timedLyricsLoader: _lyricsSync.loadFor,
       pitchVariantResolver: _resolvePitchVariant,
       onPracticeSessionEnded: (snapshot, played) {
-        _practiceLog.record(snapshot: snapshot, played: played);
+        unawaited(_recordPractice(snapshot, played));
       },
     )..init();
     // 재생 상태(저빈도)만 화면 재빌드에 연결한다. 위치(60Hz)는 구독 위젯이 직접 받는다.
@@ -161,6 +164,7 @@ class _SongListScreenState extends State<SongListScreen> {
     final initial = await _bootstrapService.load();
     await _practiceLog.load();
     await _recordingLibrary.load();
+    await _dailyGoals.load();
 
     if (!mounted) return;
     setState(() {
@@ -215,6 +219,36 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!song.availableTrackSlots.contains(slot)) return;
     await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
     await _playback.selectTrackSlot(slot);
+  }
+
+  // ── 트레이닝 ────────────────────────────────────────────
+
+  /// 연습을 기록하고, 목표곡·루틴곡 단계를 자동으로 체크한다.
+  Future<void> _recordPractice(
+    PlaybackSnapshot snapshot,
+    Duration played,
+  ) async {
+    await _practiceLog.record(snapshot: snapshot, played: played);
+    if (!PracticeSessionRules.shouldRecord(played)) return;
+
+    // 실제로 부른 곡만 인정되도록 재생 기록에서 자동 체크한다.
+    await _dailyGoals.autoCompleteSongStep(
+      kind: RoutineStepKind.routineSong,
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _changeRoutine(String routineId) async {
+    await _dailyGoals.changeRoutine(_dailyGoals.today(), routineId);
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _toggleRoutineStep(String stepId) async {
+    await _dailyGoals.toggleStep(_dailyGoals.today(), stepId);
+    if (!mounted) return;
+    setState(() {});
   }
 
   // ── 녹음 ────────────────────────────────────────────────
@@ -948,6 +982,11 @@ class _SongListScreenState extends State<SongListScreen> {
         onRateTake: _rateTake,
         onToggleTakeKeep: _toggleTakeKeep,
         onDeleteTake: _deleteTake,
+        todayGoal: _dailyGoals.today(),
+        trainingStreak: _dailyGoals.streak(),
+        trainingCompletedThisWeek: _dailyGoals.completedInLast(7),
+        onRoutineChanged: _changeRoutine,
+        onToggleRoutineStep: _toggleRoutineStep,
         lyricsScrollController: _lyricsScrollController,
         highlightLineIndex: _playback.lineIndex.value,
         searchQuery: _searchQuery,
