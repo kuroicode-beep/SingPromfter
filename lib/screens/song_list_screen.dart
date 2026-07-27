@@ -38,7 +38,9 @@ import '../services/prompter_settings_service.dart';
 import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
+import '../services/library_maintenance_service.dart';
 import '../services/song_filter_service.dart';
+import '../services/song_sort_service.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
@@ -102,6 +104,7 @@ class _SongListScreenState extends State<SongListScreen> {
   // 좌측 목록 자체의 검색·필터 (검색 화면과 독립)
   String _listQuery = '';
   SongListFilterMode _listFilterMode = SongListFilterMode.all;
+  SongSortMode _listSortMode = SongSortMode.title;
 
   Song? get _selectedSong => _playback.snapshot.song;
   int? get _selectedTrackSlot => _playback.snapshot.trackSlot;
@@ -219,6 +222,65 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!song.availableTrackSlots.contains(slot)) return;
     await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
     await _playback.selectTrackSlot(slot);
+  }
+
+  // ── 라이브러리 정리 ─────────────────────────────────────
+
+  Future<void> _runMaintenance() async {
+    final maintenance = LibraryMaintenanceService(_repo);
+    final audit = await maintenance.audit(_songs);
+    if (!mounted) return;
+
+    if (audit.isClean) {
+      _showSnack('정리할 항목이 없습니다.');
+      return;
+    }
+
+    final lines = <String>[
+      if (audit.orphanCount > 0) '사용하지 않는 파일 ${audit.orphanCount}개',
+      if (audit.songsWithMissingTracks.isNotEmpty)
+        '파일이 없는 곡 ${audit.songsWithMissingTracks.length}개',
+      if (audit.duplicateTitleGroups.isNotEmpty)
+        '제목이 겹치는 묶음 ${audit.duplicateTitleGroups.length}개',
+    ];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('라이브러리 정리'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ...lines.map((l) => Text(l, style: AppTypography.body)),
+            const SizedBox(height: 12),
+            Text(
+              audit.orphanCount > 0
+                  ? '사용하지 않는 파일만 삭제합니다. 곡 목록은 그대로 둡니다.'
+                  : '삭제할 파일은 없습니다. 위 항목은 직접 확인해 주세요.',
+              style: AppTypography.bodyMuted,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('닫기'),
+          ),
+          if (audit.orphanCount > 0)
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('정리'),
+            ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final deleted = await maintenance.deleteOrphans(audit);
+    final temp = await maintenance.clearTempFiles();
+    if (!mounted) return;
+    _showSnack('파일 $deleted개, 임시 항목 $temp개를 정리했습니다.');
   }
 
   // ── 트레이닝 ────────────────────────────────────────────
@@ -996,6 +1058,10 @@ class _SongListScreenState extends State<SongListScreen> {
         onListQueryChanged: (value) => setState(() => _listQuery = value),
         onListFilterModeChanged: (value) =>
             setState(() => _listFilterMode = value),
+        listSortMode: _listSortMode,
+        onListSortModeChanged: (value) =>
+            setState(() => _listSortMode = value),
+        onRunMaintenance: _runMaintenance,
         onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),

@@ -1,4 +1,4 @@
-// file: lib/widgets/settings_panel.dart
+﻿// file: lib/widgets/settings_panel.dart
 //
 // 백업·일괄 등록·프롬프터 기본값·표시(글꼴·글자 크기)·앱 정보 설정 화면.
 import 'package:flutter/material.dart';
@@ -15,6 +15,7 @@ class SettingsPanel extends StatelessWidget {
   final VoidCallback onBatchRegister;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
+  final VoidCallback onRunMaintenance;
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
 
@@ -24,6 +25,7 @@ class SettingsPanel extends StatelessWidget {
     required this.onBatchRegister,
     required this.onExportBackup,
     required this.onImportBackup,
+    required this.onRunMaintenance,
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
   });
@@ -52,6 +54,12 @@ class SettingsPanel extends StatelessWidget {
           title: '백업 가져오기',
           subtitle: '저장한 zip 백업 복원',
           onTap: onImportBackup,
+        ),
+        _SettingsTile(
+          icon: Icons.cleaning_services_outlined,
+          title: '라이브러리 정리',
+          subtitle: '사용하지 않는 파일·임시 항목 정리, 중복 제목 확인',
+          onTap: onRunMaintenance,
         ),
         const SizedBox(height: 24),
         Text('프롬프터 기본값', style: AppTypography.listTitle),

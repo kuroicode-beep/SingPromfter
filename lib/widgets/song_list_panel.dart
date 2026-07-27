@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../models/song.dart';
 import '../services/song_filter_service.dart';
+import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
 import 'song_tile.dart';
 
@@ -25,6 +26,9 @@ class SongListPanel extends StatelessWidget {
   final String query;
   final ValueChanged<String>? onQueryChanged;
   final ValueChanged<SongListFilterMode>? onFilterModeChanged;
+  final SongSortMode sortMode;
+  final Map<String, int> practiceCounts;
+  final ValueChanged<SongSortMode>? onSortModeChanged;
   final String? listTitle;
   final void Function(Song song, int slot) onSelectTrack;
   final ValueChanged<Song> onSelect;
@@ -45,6 +49,9 @@ class SongListPanel extends StatelessWidget {
     this.query = '',
     this.onQueryChanged,
     this.onFilterModeChanged,
+    this.sortMode = SongSortMode.title,
+    this.practiceCounts = const {},
+    this.onSortModeChanged,
     this.listTitle,
     required this.onSelectTrack,
     required this.onSelect,
@@ -91,10 +98,14 @@ class SongListPanel extends StatelessWidget {
       );
     }
 
-    final filteredSongs = SongFilterService.filter(
-      songs,
-      query: showSearchControls ? query : '',
-      mode: filterMode,
+    final filteredSongs = SongSortService.sort(
+      SongFilterService.filter(
+        songs,
+        query: showSearchControls ? query : '',
+        mode: filterMode,
+      ),
+      mode: sortMode,
+      practiceCounts: practiceCounts,
     );
 
     return Column(
@@ -116,6 +127,8 @@ class SongListPanel extends StatelessWidget {
           ),
         if (showSearchControls) _buildSearchField(),
         if (showSearchControls && showFilterChips) _buildFilterChips(),
+        if (showSearchControls && onSortModeChanged != null)
+          _buildSortRow(),
         Expanded(
           child: filteredSongs.isEmpty
               ? Center(
@@ -169,6 +182,41 @@ class SongListPanel extends StatelessWidget {
       child: _SongSearchField(
         query: query,
         onQueryChanged: onQueryChanged,
+      ),
+    );
+  }
+
+
+  Widget _buildSortRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Row(
+        children: [
+          Text('정렬', style: AppTypography.bodyMuted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Semantics(
+              label: '정렬 방식',
+              child: DropdownButton<SongSortMode>(
+                isExpanded: true,
+                value: sortMode,
+                dropdownColor: AppColors.surface,
+                style: AppTypography.body,
+                items: SongSortMode.values
+                    .map(
+                      (mode) => DropdownMenuItem(
+                        value: mode,
+                        child: Text(mode.label),
+                      ),
+                    )
+                    .toList(growable: false),
+                onChanged: (mode) {
+                  if (mode != null) onSortModeChanged?.call(mode);
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

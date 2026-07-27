@@ -16,6 +16,7 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../services/prompter_settings_service.dart';
 import '../services/song_filter_service.dart';
+import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
 import 'prompter_panel.dart';
 import 'queue_panel.dart';
@@ -80,6 +81,8 @@ class SongListScreenContent extends StatelessWidget {
   final SongListFilterMode listFilterMode;
   final ValueChanged<String> onListQueryChanged;
   final ValueChanged<SongListFilterMode> onListFilterModeChanged;
+  final SongSortMode listSortMode;
+  final ValueChanged<SongSortMode> onListSortModeChanged;
   final SongListFilterMode searchFilterMode;
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
@@ -87,6 +90,7 @@ class SongListScreenContent extends StatelessWidget {
   final VoidCallback onBatchRegister;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
+  final VoidCallback onRunMaintenance;
   final void Function(Song song, int slot) onSelectTrack;
   final ValueChanged<Song> onSelectSong;
   final ValueChanged<Song> onStart;
@@ -163,6 +167,8 @@ class SongListScreenContent extends StatelessWidget {
     required this.listFilterMode,
     required this.onListQueryChanged,
     required this.onListFilterModeChanged,
+    required this.listSortMode,
+    required this.onListSortModeChanged,
     required this.searchFilterMode,
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
@@ -170,6 +176,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onBatchRegister,
     required this.onExportBackup,
     required this.onImportBackup,
+    required this.onRunMaintenance,
     required this.onSelectTrack,
     required this.onSelectSong,
     required this.onStart,
@@ -209,6 +216,11 @@ class SongListScreenContent extends StatelessWidget {
       query: listQuery,
       onQueryChanged: onListQueryChanged,
       onFilterModeChanged: onListFilterModeChanged,
+      sortMode: listSortMode,
+      onSortModeChanged: onListSortModeChanged,
+      practiceCounts: SongSortService.practiceCountsFrom(
+        practiceSummaries,
+      ),
       onSelectTrack: onSelectTrack,
       onSelect: onSelectSong,
       onStart: onStart,
@@ -365,6 +377,7 @@ class SongListScreenContent extends StatelessWidget {
         onBatchRegister: onBatchRegister,
         onExportBackup: onExportBackup,
         onImportBackup: onImportBackup,
+        onRunMaintenance: onRunMaintenance,
         onCustomFontSize: onCustomFontSize,
         onAccessibilityPreset: onAccessibilityPreset,
       ),
