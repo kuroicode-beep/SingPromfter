@@ -34,6 +34,10 @@ class PrompterAudioService {
 
   Future<void> dispose() => _player.dispose();
 
+  /// 현재 재생 위치를 직접 조회한다.
+  /// Windows 위치 이벤트가 약 4Hz라 보간 시계의 보조 재동기화에 쓴다.
+  Future<Duration?> currentPosition() => _player.getCurrentPosition();
+
   Future<void> setVolume(double volume) => _player.setVolume(volume);
 
   Future<void> setPlaybackRate(double rate) => _player.setPlaybackRate(rate);

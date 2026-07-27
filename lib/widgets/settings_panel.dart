@@ -4,11 +4,14 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_version.dart';
+import '../models/practice_session.dart';
 import '../services/app_display_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/key_label.dart';
 import 'preset_btn.dart';
 
 class SettingsPanel extends StatelessWidget {
+  final List<PracticeSummary> practiceSummaries;
   final VoidCallback onBatchRegister;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
@@ -17,6 +20,7 @@ class SettingsPanel extends StatelessWidget {
 
   const SettingsPanel({
     super.key,
+    this.practiceSummaries = const [],
     required this.onBatchRegister,
     required this.onExportBackup,
     required this.onImportBackup,
@@ -79,6 +83,8 @@ class SettingsPanel extends StatelessWidget {
         ),
         const SizedBox(height: 24),
         const _DisplaySettingsSection(),
+        const SizedBox(height: 24),
+        _PracticeLogSection(summaries: practiceSummaries),
         const SizedBox(height: 32),
         Text('앱 정보', style: AppTypography.listTitle),
         const SizedBox(height: 8),
@@ -302,6 +308,100 @@ class _SettingsTile extends StatelessWidget {
         subtitle: Text(subtitle, style: AppTypography.bodyMuted),
         trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+/// 연습 기록 — 곡별 누적 횟수·총 시간·최근 연습일·주 사용 키.
+/// (기간별 추이 등 본격 분석 화면은 이후 버전에서 별도 제공)
+class _PracticeLogSection extends StatelessWidget {
+  final List<PracticeSummary> summaries;
+
+  const _PracticeLogSection({required this.summaries});
+
+  static String _formatDuration(Duration d) {
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60);
+    if (hours > 0) return '$hours시간 $minutes분';
+    if (minutes > 0) return '$minutes분';
+    return '${d.inSeconds}초';
+  }
+
+  static String _formatDate(DateTime at) {
+    final y = at.year.toString().padLeft(4, '0');
+    final m = at.month.toString().padLeft(2, '0');
+    final d = at.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('연습 기록', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        if (summaries.isEmpty)
+          Text(
+            '아직 기록이 없습니다. 곡을 30초 이상 연습하면 자동으로 기록됩니다.',
+            style: AppTypography.bodyMuted,
+          )
+        else ...[
+          Text(
+            '곡을 30초 이상 재생하면 한 번의 연습으로 기록됩니다.',
+            style: AppTypography.bodyMuted,
+          ),
+          const SizedBox(height: 12),
+          ...summaries.map((s) => _PracticeRow(summary: s)),
+        ],
+      ],
+    );
+  }
+}
+
+class _PracticeRow extends StatelessWidget {
+  final PracticeSummary summary;
+
+  const _PracticeRow({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    // 상태를 색이 아니라 텍스트 라벨로 함께 드러낸다.
+    final detail =
+        '${summary.sessionCount}회 · '
+        '${_PracticeLogSection._formatDuration(summary.totalDuration)} · '
+        '${formatKeyLabel(summary.dominantPitchSemitones)}';
+
+    return Semantics(
+      label:
+          '${summary.songTitle}, $detail, '
+          '최근 연습 ${_PracticeLogSection._formatDate(summary.lastPracticedAt)}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              summary.songTitle,
+              style: AppTypography.body,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(detail, style: AppTypography.monoMuted),
+                ),
+                Text(
+                  _PracticeLogSection._formatDate(summary.lastPracticedAt),
+                  style: AppTypography.monoMuted,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

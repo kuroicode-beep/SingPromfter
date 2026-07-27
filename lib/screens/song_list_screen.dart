@@ -1,7 +1,8 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../controllers/playback_controller.dart';
 import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../models/app_destination.dart';
@@ -12,7 +13,7 @@ import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
 import '../services/batch_registration_service.dart';
-import '../services/prompter_auto_scroll_service.dart';
+import '../services/practice_log_service.dart';
 import '../services/prompter_audio_service.dart';
 import '../services/prompter_settings_service.dart';
 import '../services/song_library_service.dart';
@@ -40,53 +41,66 @@ class _SongListScreenState extends State<SongListScreen> {
   late final _songActions = SongActionCoordinator(_repo, _libraryService);
   late final _audio = PrompterAudioService(_repo);
   final _lyricsScrollController = ScrollController();
-  late final _autoScroll = PrompterAutoScrollService(_lyricsScrollController);
+  final _practiceLog = PracticeLogService();
 
-  AudioBindings? _audioBindings;
-  Timer? _noAudioSkipTimer;
+  late final PlaybackController _playback;
+
   final _pendingDeleteTimers = <String, Timer>{};
 
   List<Song> _songs = [];
   List<QueueItem> _queue = [];
-  Song? _selectedSong;
   PrompterSettings _settings = const PrompterSettings();
 
   bool _loading = true;
-  bool _playing = false;
-  bool _audioReady = false;
-  bool _processingQueue = false;
-
-  int? _selectedTrackSlot;
-  int? _selectedTrackStartMs;
-  int? _selectedTrackEndMs;
-
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
 
   AppDestination _destination = AppDestination.home;
   String _searchQuery = '';
   SongListFilterMode _searchFilterMode = SongListFilterMode.all;
-  int _highlightLineIndex = 0;
+
+  // 좌측 목록 자체의 검색·필터 (검색 화면과 독립)
+  String _listQuery = '';
+  SongListFilterMode _listFilterMode = SongListFilterMode.all;
+
+  Song? get _selectedSong => _playback.snapshot.song;
+  int? get _selectedTrackSlot => _playback.snapshot.trackSlot;
 
   @override
   void initState() {
     super.initState();
-    _autoScroll.onLineIndexChanged = () {
-      if (!mounted) return;
-      setState(() => _highlightLineIndex = _autoScroll.lineIndex);
-    };
-    _bindPlayerStreams();
+    _playback = PlaybackController(
+      audio: _audio,
+      queueService: _queueService,
+      repo: _repo,
+      lyricsScrollController: _lyricsScrollController,
+      songsProvider: () => _songs,
+      queueProvider: () => _queue,
+      settingsProvider: () => _settings,
+      onQueueChanged: (queue) {
+        if (mounted) setState(() => _queue = queue);
+      },
+      onMessage: _showSnack,
+      onPracticeSessionEnded: (snapshot, played) {
+        _practiceLog.record(snapshot: snapshot, played: played);
+      },
+    )..init();
+    // 재생 상태(저빈도)만 화면 재빌드에 연결한다. 위치(60Hz)는 구독 위젯이 직접 받는다.
+    _playback.state.addListener(_onPlaybackStateChanged);
+    _playback.lineIndex.addListener(_onPlaybackStateChanged);
     _bootstrap();
+  }
+
+  void _onPlaybackStateChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _autoScroll.dispose();
-    _noAudioSkipTimer?.cancel();
     for (final timer in _pendingDeleteTimers.values) {
       timer.cancel();
     }
-    _audioBindings?.cancel();
+    _playback.state.removeListener(_onPlaybackStateChanged);
+    _playback.lineIndex.removeListener(_onPlaybackStateChanged);
+    _playback.dispose();
     _audio.dispose();
     _lyricsScrollController.dispose();
     super.dispose();
@@ -94,182 +108,37 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Future<void> _bootstrap() async {
     final initial = await _bootstrapService.load();
+    await _practiceLog.load();
 
     if (!mounted) return;
     setState(() {
       _songs = initial.songs;
       _queue = initial.queue;
       _settings = initial.settings;
-      _selectedSong = initial.initialSong;
       _loading = false;
     });
 
     await _audio.setVolume(_settings.volume);
     await _audio.setPlaybackRate(_settings.playbackRate);
-    if (_selectedSong != null) {
-      await _loadSong(
-        _selectedSong!,
+    final initialSong = initial.initialSong;
+    if (initialSong != null) {
+      await _playback.loadSong(
+        initialSong,
         preferredSlot:
-            _settings.trackSlotForSong(_selectedSong!.id) ??
+            _settings.trackSlotForSong(initialSong.id) ??
             _settings.lastSelectedTrackSlot,
       );
     }
   }
 
-  void _bindPlayerStreams() {
-    _audioBindings = _audio.bind(
-      onPlayingChanged: (playing) {
-        if (!mounted) return;
-        setState(() => _playing = playing);
-        _syncAutoScroll();
-      },
-      onPositionChanged: (pos) {
-        if (!mounted) return;
-        setState(() => _position = pos);
-        final endMs = _selectedTrackEndMs;
-        if (_playing && endMs != null && pos.inMilliseconds >= endMs) {
-          _onSongCompleted();
-        }
-      },
-      onDurationChanged: (dur) {
-        if (!mounted) return;
-        setState(() => _duration = dur);
-      },
-      onCompleted: _onSongCompleted,
-    );
-  }
+  Future<void> _loadSong(Song song, {int? preferredSlot}) =>
+      _playback.loadSong(song, preferredSlot: preferredSlot);
 
-  Future<void> _onSongCompleted() async {
-    if (_processingQueue) return;
-    _processingQueue = true;
-    try {
-      await _playNextFromQueue();
-    } finally {
-      _processingQueue = false;
-    }
-  }
+  Future<void> _togglePlayPause() => _playback.togglePlayPause();
 
-  Future<void> _playNextFromQueue() async {
-    final next = await _queueService.popNextPlayable(
-      queue: _queue,
-      songs: _songs,
-    );
-    if (!mounted) return;
-    setState(() => _queue = next?.queue ?? const []);
-    if (next == null) return;
+  Future<void> _stopPlayback() => _playback.stop();
 
-    await _loadSong(
-      next.song,
-      preferredSlot: next.selectedTrackSlot,
-      autoPlay: true,
-    );
-  }
-
-  Future<void> _loadSong(
-    Song song, {
-    int? preferredSlot,
-    bool autoPlay = false,
-  }) async {
-    _noAudioSkipTimer?.cancel();
-    final available = song.availableTrackSlots;
-    int? resolvedSlot;
-
-    if (preferredSlot != null && available.contains(preferredSlot)) {
-      resolvedSlot = preferredSlot;
-    } else {
-      final savedForSong = _settings.trackSlotForSong(song.id);
-      if (savedForSong != null && available.contains(savedForSong)) {
-        resolvedSlot = savedForSong;
-      } else if (_settings.lastSelectedTrackSlot != null &&
-          available.contains(_settings.lastSelectedTrackSlot)) {
-        resolvedSlot = _settings.lastSelectedTrackSlot;
-      } else if (available.isNotEmpty) {
-        resolvedSlot = available.first;
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _selectedSong = song;
-        _selectedTrackSlot = resolvedSlot;
-        final track = song.trackForSlot(resolvedSlot ?? -1);
-        _selectedTrackStartMs = track?.startMs;
-        _selectedTrackEndMs = track?.endMs;
-        _position = Duration.zero;
-        _highlightLineIndex = 0;
-      });
-      _autoScroll.resetLineIndex();
-    }
-
-    await _repo.saveLastSongId(song.id);
-    await _prepareAudioForSelection();
-
-    if (autoPlay && available.isEmpty && _queue.isNotEmpty) {
-      _noAudioSkipTimer = Timer(const Duration(seconds: 5), () {
-        if (mounted) {
-          _onSongCompleted();
-        }
-      });
-    }
-
-    if (autoPlay && _audioReady) {
-      await _audio.resumeFromStart(startMs: _selectedTrackStartMs);
-    }
-    _syncAutoScroll();
-  }
-
-  Future<void> _prepareAudioForSelection() async {
-    final result = await _audio.prepareSelection(
-      song: _selectedSong,
-      selectedTrackSlot: _selectedTrackSlot,
-      volume: _settings.volume,
-      playbackRate: _settings.playbackRate,
-      startMs: _selectedTrackStartMs,
-    );
-    if (!mounted) return;
-    setState(() {
-      _audioReady = result.ready;
-      _duration = Duration.zero;
-      _position = Duration.zero;
-    });
-    if (result.message != null) {
-      _showSnack(result.message!);
-    }
-  }
-
-  Future<void> _togglePlayPause() async {
-    final message = await _audio.togglePlayPause(
-      song: _selectedSong,
-      audioReady: _audioReady,
-      playing: _playing,
-    );
-    if (message != null) _showSnack(message);
-  }
-
-  Future<void> _stopPlayback() async {
-    await _audio.stop();
-    if (mounted) setState(() => _position = Duration.zero);
-  }
-
-  Future<void> _restartPlayback() async {
-    final message = await _audio.restart(
-      audioReady: _audioReady,
-      startMs: _selectedTrackStartMs,
-    );
-    if (message != null) _showSnack(message);
-  }
-
-  void _syncAutoScroll() {
-    _autoScroll.sync(
-      selectedSong: _selectedSong,
-      playing: _playing,
-      speedLevel: _settings.speedLevel,
-      displayMode: _settings.displayMode,
-    );
-    if (mounted) {
-      setState(() => _highlightLineIndex = _autoScroll.lineIndex);
-    }
-  }
+  Future<void> _restartPlayback() => _playback.restart();
 
   Future<void> _applyAccessibilityPreset(String preset) =>
       _updateSettings(PrompterSettingsService.preset(_settings, preset));
@@ -277,9 +146,7 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _updateSettings(PrompterSettings next) async {
     if (mounted) setState(() => _settings = next);
     await _repo.saveSettings(next);
-    await _audio.setVolume(next.volume);
-    await _audio.setPlaybackRate(next.playbackRate);
-    _syncAutoScroll();
+    await _playback.applySettings(next);
   }
 
   Future<void> _showCustomFontSizeDialog() async {
@@ -292,17 +159,8 @@ class _SongListScreenState extends State<SongListScreen> {
     final song = _selectedSong;
     if (song == null) return;
     if (!song.availableTrackSlots.contains(slot)) return;
-    final track = song.trackForSlot(slot);
-
-    if (mounted) {
-      setState(() {
-        _selectedTrackSlot = slot;
-        _selectedTrackStartMs = track?.startMs;
-        _selectedTrackEndMs = track?.endMs;
-      });
-    }
     await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
-    await _prepareAudioForSelection();
+    await _playback.selectTrackSlot(slot);
   }
 
   Future<void> _addSong() async => _applySongActionOutcome(
@@ -337,12 +195,14 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     setState(() {
       _songs = result.songs;
-      if (_selectedSong?.id == song.id) _selectedSong = result.song;
     });
+    if (_selectedSong?.id == song.id) {
+      await _playback.loadSong(result.song, preferredSlot: _selectedTrackSlot);
+    }
   }
 
   Future<void> _exportBackup() async {
-    final result = await _backupService.exportAll(appVersion: '0.8.0');
+    final result = await _backupService.exportAll();
     if (result == null) return;
     _showSnack(
       result.success
@@ -361,9 +221,9 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     setState(() {
       _songs = result.songs ?? _songs;
-      _selectedSong ??= _songs.isNotEmpty ? _songs.first : null;
     });
-    if (_selectedSong != null) await _loadSong(_selectedSong!);
+    final next = _selectedSong ?? (_songs.isNotEmpty ? _songs.first : null);
+    if (next != null) await _loadSong(next);
     _showSnack(
       '${result.importedCount}곡 가져오기 완료, 이름변경 ${result.renamedCount}곡',
     );
@@ -387,9 +247,9 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     setState(() {
       _songs = result.songs;
-      _selectedSong ??= _songs.isNotEmpty ? _songs.first : null;
     });
-    if (_selectedSong != null) await _loadSong(_selectedSong!);
+    final next = _selectedSong ?? (_songs.isNotEmpty ? _songs.first : null);
+    if (next != null) await _loadSong(next);
     _showSnack(
       '${result.importedCount}곡 일괄 등록, 중복 건너뜀 ${result.skippedCount}곡',
     );
@@ -453,15 +313,10 @@ class _SongListScreenState extends State<SongListScreen> {
     setState(() {
       if (outcome.songs != null) _songs = outcome.songs!;
       if (outcome.queue != null) _queue = outcome.queue!;
-      if (outcome.selectedSong != null || outcome.clearSelectedTrackSlot) {
-        _selectedSong = outcome.selectedSong;
-      }
-      if (outcome.clearSelectedTrackSlot) {
-        _selectedTrackSlot = null;
-        _selectedTrackStartMs = null;
-        _selectedTrackEndMs = null;
-      }
     });
+    if (outcome.clearSelectedTrackSlot) {
+      _playback.clearSelection();
+    }
 
     if (outcome.loadSong != null) {
       await _loadSong(outcome.loadSong!, preferredSlot: preferredSlot);
@@ -500,9 +355,10 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     setState(() {
       _songs = result.songs;
-      _selectedSong ??= result.song;
     });
-    if (_selectedSong?.id == result.song.id) await _loadSong(result.song);
+    if (_selectedSong == null || _selectedSong!.id == result.song.id) {
+      await _loadSong(result.song);
+    }
     _showSnack('"${song.title}" 복원 완료');
   }
 
@@ -533,7 +389,8 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Future<void> _startSong(Song song) async {
     await _loadSong(song);
-    if (_audioReady && !_playing) {
+    final snapshot = _playback.snapshot;
+    if (snapshot.audioReady && !snapshot.playing) {
       await _togglePlayPause();
     }
     if (!mounted) return;
@@ -571,18 +428,15 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   void _openPrompter(Song song) {
+    // 컨트롤러를 넘겨 전체화면도 살아 있는 재생 위치를 구독하게 한다.
     PrompterNavigation.open(
       context: context,
       song: song,
       settings: _settings,
+      playback: _playback,
       fontSize: _settings.effectiveFontSizePt,
       lineHeight: _settings.effectiveLineHeight,
       fontFamily: PrompterSettingsService.resolvedFontFamily(_settings),
-      autoScrollEnabled: _playing || !_audioReady,
-      audioReady: _audioReady,
-      position: _position,
-      duration: _duration,
-      onSeek: _audio.seek,
       onSettingsChanged: _updateSettings,
     );
   }
@@ -592,6 +446,7 @@ class _SongListScreenState extends State<SongListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final snapshot = _playback.snapshot;
     return PrompterKeyboardScope(
       settings: _settings,
       onSettingsChanged: _updateSettings,
@@ -601,50 +456,56 @@ class _SongListScreenState extends State<SongListScreen> {
         if (song != null) _openPrompter(song);
       },
       child: SongListScreenContent(
-      loading: _loading,
-      destination: _destination,
-      onDestinationChanged: (next) => setState(() => _destination = next),
-      songs: _songs,
-      queue: _queue,
-      selectedSong: _selectedSong,
-      settings: _settings,
-      selectedTrackSlot: _selectedTrackSlot,
-      playing: _playing,
-      audioReady: _audioReady,
-      position: _position,
-      duration: _duration,
-      lyricsScrollController: _lyricsScrollController,
-      highlightLineIndex: _highlightLineIndex,
-      searchQuery: _searchQuery,
-      searchFilterMode: _searchFilterMode,
-      onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
-      onSearchFilterModeChanged: (value) =>
-          setState(() => _searchFilterMode = value),
-      onAddSong: _addSong,
-      onBatchRegister: _batchRegister,
-      onExportBackup: _exportBackup,
-      onImportBackup: _importBackup,
-      onSelectTrack: (_, slot) => _selectTrackSlot(slot),
-      onSelectSong: _loadSong,
-      onStart: _startSong,
-      onReserveSong: _reserveSong,
-      onReserveAllSongs: _reserveAllSongs,
-      onEditSong: _editSong,
-      onDeleteSong: _deleteSong,
-      onToggleFavorite: _toggleFavorite,
-      onStop: _stopPlayback,
-      onTogglePlayPause: _togglePlayPause,
-      onRestart: _restartPlayback,
-      onSkipNext: _onSongCompleted,
-      onOpenPrompter: _openPrompter,
-      onSeek: _audio.seek,
-      onSettingsChanged: _updateSettings,
-      onCustomFontSize: _showCustomFontSizeDialog,
-      onAccessibilityPreset: _applyAccessibilityPreset,
-      onMessage: _showSnack,
-      onClearQueue: _clearQueue,
-      onReorderQueue: _reorderQueue,
-      onRemoveQueueItem: _removeQueueItem,
+        loading: _loading,
+        destination: _destination,
+        onDestinationChanged: (next) => setState(() => _destination = next),
+        songs: _songs,
+        queue: _queue,
+        selectedSong: snapshot.song,
+        settings: _settings,
+        selectedTrackSlot: snapshot.trackSlot,
+        playing: snapshot.playing,
+        audioReady: snapshot.audioReady,
+        duration: snapshot.duration,
+        playback: _playback,
+        practiceSummaries: _practiceLog.summaries,
+        lyricsScrollController: _lyricsScrollController,
+        highlightLineIndex: _playback.lineIndex.value,
+        searchQuery: _searchQuery,
+        searchFilterMode: _searchFilterMode,
+        listQuery: _listQuery,
+        listFilterMode: _listFilterMode,
+        onListQueryChanged: (value) => setState(() => _listQuery = value),
+        onListFilterModeChanged: (value) =>
+            setState(() => _listFilterMode = value),
+        onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
+        onSearchFilterModeChanged: (value) =>
+            setState(() => _searchFilterMode = value),
+        onAddSong: _addSong,
+        onBatchRegister: _batchRegister,
+        onExportBackup: _exportBackup,
+        onImportBackup: _importBackup,
+        onSelectTrack: (_, slot) => _selectTrackSlot(slot),
+        onSelectSong: _loadSong,
+        onStart: _startSong,
+        onReserveSong: _reserveSong,
+        onReserveAllSongs: _reserveAllSongs,
+        onEditSong: _editSong,
+        onDeleteSong: _deleteSong,
+        onToggleFavorite: _toggleFavorite,
+        onStop: _stopPlayback,
+        onTogglePlayPause: _togglePlayPause,
+        onRestart: _restartPlayback,
+        onSkipNext: _playback.onSongCompleted,
+        onOpenPrompter: _openPrompter,
+        onSeek: _playback.seek,
+        onSettingsChanged: _updateSettings,
+        onCustomFontSize: _showCustomFontSizeDialog,
+        onAccessibilityPreset: _applyAccessibilityPreset,
+        onMessage: _showSnack,
+        onClearQueue: _clearQueue,
+        onReorderQueue: _reorderQueue,
+        onRemoveQueueItem: _removeQueueItem,
       ),
     );
   }

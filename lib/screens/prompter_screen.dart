@@ -1,21 +1,23 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../constants/app_constants.dart';
+import '../controllers/playback_controller.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
-import '../utils/lyrics_line_utils.dart';
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_progress_bar.dart';
 import '../widgets/prompter_keyboard_scope.dart';
 
 class PrompterScreen extends StatefulWidget {
   final Song song;
+
+  /// 재생 위치·하이라이트 줄을 이 컨트롤러에서 직접 구독한다.
+  /// (값으로 넘기면 라우트가 리빌드되지 않아 위치가 멈춘다)
+  final PlaybackController playback;
+
   final double fontSize;
   final double lineHeight;
   final double? fontSizeLevel;
@@ -25,12 +27,7 @@ class PrompterScreen extends StatefulWidget {
   final double volume;
   final String? fontFamily;
   final bool boldText;
-  final bool autoScrollEnabled;
   final PrompterDisplayMode displayMode;
-  final bool audioReady;
-  final Duration position;
-  final Duration duration;
-  final ValueChanged<Duration>? onSeek;
   final ValueChanged<PrompterDisplayMode>? onDisplayModeChanged;
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
@@ -40,6 +37,7 @@ class PrompterScreen extends StatefulWidget {
   const PrompterScreen({
     super.key,
     required this.song,
+    required this.playback,
     required this.fontSize,
     required this.lineHeight,
     this.fontSizeLevel,
@@ -49,12 +47,7 @@ class PrompterScreen extends StatefulWidget {
     this.volume = 1,
     this.fontFamily,
     this.boldText = false,
-    this.autoScrollEnabled = false,
     this.displayMode = PrompterDisplayMode.full,
-    this.audioReady = false,
-    this.position = Duration.zero,
-    this.duration = Duration.zero,
-    this.onSeek,
     this.onDisplayModeChanged,
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
@@ -68,16 +61,13 @@ class PrompterScreen extends StatefulWidget {
 
 class _PrompterScreenState extends State<PrompterScreen> {
   final _scrollController = ScrollController();
-  Timer? _autoScrollTimer;
 
   bool _controlsVisible = true;
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
   late double _speedLevel;
-  late bool _autoScrollEnabled;
   late PrompterDisplayMode _displayMode;
-  int _highlightLineIndex = 0;
 
   @override
   void initState() {
@@ -87,24 +77,15 @@ class _PrompterScreenState extends State<PrompterScreen> {
         widget.lineHeightLevel ?? _lineHeightToLevel(widget.lineHeight);
     _customFontSizePt = widget.customFontSizePt;
     _speedLevel = widget.speedLevel;
-    _autoScrollEnabled = widget.autoScrollEnabled;
     _displayMode = widget.displayMode;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncAutoScroll());
-  }
-
-  @override
-  void didUpdateWidget(covariant PrompterScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.speedLevel != oldWidget.speedLevel) {
-      _speedLevel = widget.speedLevel;
-      _syncAutoScroll();
-    }
+    // 전체화면이 열려 있는 동안에는 이쪽 스크롤을 자동 스크롤 대상으로 삼는다.
+    widget.playback.attachScrollController(_scrollController);
   }
 
   @override
   void dispose() {
-    _autoScrollTimer?.cancel();
+    widget.playback.detachScrollController(_scrollController);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _scrollController.dispose();
     super.dispose();
@@ -155,49 +136,13 @@ class _PrompterScreenState extends State<PrompterScreen> {
     );
   }
 
-  void _syncAutoScroll() {
-    _autoScrollTimer?.cancel();
-    if (!_autoScrollEnabled || _speedLevel <= 0) {
-      return;
-    }
-
-    if (_displayMode == PrompterDisplayMode.highlight) {
-      final lineCount = LyricsLineUtils.splitLines(
-        widget.song.lyricsText,
-      ).length;
-      if (lineCount <= 1) return;
-
-      _autoScrollTimer = Timer.periodic(AppConstants.autoScrollInterval, (_) {
-        if (!_autoScrollEnabled || _speedLevel <= 0) return;
-        if (_highlightLineIndex < lineCount - 1) {
-          setState(() => _highlightLineIndex += 1);
-        }
-      });
-      return;
-    }
-
-    if (!_scrollController.hasClients) return;
-
-    _autoScrollTimer = Timer.periodic(AppConstants.autoScrollInterval, (_) {
-      if (!_autoScrollEnabled || !_scrollController.hasClients) return;
-      final delta = PrompterLevels.scrollDeltaForSpeed(_speedLevel);
-      final next = (_scrollController.offset + delta).clamp(
-        0.0,
-        _scrollController.position.maxScrollExtent,
-      );
-      _scrollController.jumpTo(next);
-    });
-  }
-
   void _toggleDisplayMode() {
     setState(() {
       _displayMode = _displayMode == PrompterDisplayMode.full
           ? PrompterDisplayMode.highlight
           : PrompterDisplayMode.full;
-      _highlightLineIndex = 0;
     });
     widget.onDisplayModeChanged?.call(_displayMode);
-    _syncAutoScroll();
   }
 
   void _updateFontSizeLevel(double value) {
@@ -216,7 +161,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
   void _updateSpeedLevel(double value) {
     setState(() => _speedLevel = value);
     widget.onSpeedLevelChanged?.call(value);
-    _syncAutoScroll();
   }
 
   void _toggleControls() =>
@@ -239,23 +183,27 @@ class _PrompterScreenState extends State<PrompterScreen> {
             onTap: _toggleControls,
             child: Stack(
               children: [
-                PrompterLyricsView(
-                  lyricsText: widget.song.lyricsText,
-                  displayMode: _displayMode,
-                  fontSize: _fontSize,
-                  lineHeight: _lineHeight,
-                  fontFamily: widget.fontFamily,
-                  boldText: widget.boldText,
-                  highlightLineIndex: _highlightLineIndex,
-                  scrollController: _scrollController,
-                  padding: EdgeInsets.fromLTRB(
-                    32,
-                    _controlsVisible ? 80 : 48,
-                    32,
-                    110,
+                // 하이라이트 줄만 구독해 갱신한다. 위치(60Hz)는 진행바가 따로 받는다.
+                ValueListenableBuilder<int>(
+                  valueListenable: widget.playback.lineIndex,
+                  builder: (context, lineIndex, _) => PrompterLyricsView(
+                    lyricsText: widget.song.lyricsText,
+                    displayMode: _displayMode,
+                    fontSize: _fontSize,
+                    lineHeight: _lineHeight,
+                    fontFamily: widget.fontFamily,
+                    boldText: widget.boldText,
+                    highlightLineIndex: lineIndex,
+                    scrollController: _scrollController,
+                    padding: EdgeInsets.fromLTRB(
+                      32,
+                      _controlsVisible ? 80 : 48,
+                      32,
+                      110,
+                    ),
+                    textColor: Colors.white,
+                    mutedColor: Colors.white70,
                   ),
-                  textColor: Colors.white,
-                  mutedColor: Colors.white70,
                 ),
                 if (_controlsVisible) _buildTopBar(),
                 _buildBottomBar(),
@@ -338,33 +286,37 @@ class _PrompterScreenState extends State<PrompterScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (widget.audioReady && widget.onSeek != null)
-                  PrompterProgressBar(
-                    position: widget.position,
-                    duration: widget.duration,
-                    enabled: widget.audioReady,
-                    onSeek: widget.onSeek!,
-                    activeColor: AppColors.primary,
-                    labelColor: Colors.white70,
-                  ),
+                // 재생 위치는 컨트롤러를 직접 구독한다 — 전체화면 진행바가
+                // 멈춰 있던 문제(값 스냅샷 전달)를 여기서 해소한다.
+                ValueListenableBuilder<PlaybackSnapshot>(
+                  valueListenable: widget.playback.state,
+                  builder: (context, snapshot, _) {
+                    if (!snapshot.audioReady) return const SizedBox.shrink();
+                    return ValueListenableBuilder<Duration>(
+                      valueListenable: widget.playback.position,
+                      builder: (context, position, _) => PrompterProgressBar(
+                        position: position,
+                        duration: snapshot.duration,
+                        enabled: snapshot.audioReady,
+                        onSeek: widget.playback.seek,
+                        activeColor: AppColors.primary,
+                        labelColor: Colors.white70,
+                      ),
+                    );
+                  },
+                ),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      _BarIconButton(
-                        icon: _autoScrollEnabled
-                            ? Icons.pause_circle
-                            : Icons.play_circle,
-                        semanticsLabel: _autoScrollEnabled
-                            ? '자동 스크롤 끄기'
-                            : '자동 스크롤 켜기',
-                        toggled: _autoScrollEnabled,
-                        onTap: () {
-                          setState(
-                            () => _autoScrollEnabled = !_autoScrollEnabled,
-                          );
-                          _syncAutoScroll();
-                        },
+                      ValueListenableBuilder<bool>(
+                        valueListenable: widget.playback.autoScrollPaused,
+                        builder: (context, paused, _) => _BarIconButton(
+                          icon: paused ? Icons.play_circle : Icons.pause_circle,
+                          semanticsLabel: paused ? '자동 스크롤 켜기' : '자동 스크롤 끄기',
+                          toggled: !paused,
+                          onTap: widget.playback.toggleAutoScrollPaused,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       _BarIconButton(

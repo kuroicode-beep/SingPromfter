@@ -1,9 +1,10 @@
-// file: lib/widgets/prompter_bottom_bar.dart
+﻿// file: lib/widgets/prompter_bottom_bar.dart
 //
 // 메인 화면 하단 재생 바(항상 표시) + 표시 설정(접이식).
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
+import '../controllers/playback_controller.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
@@ -18,8 +19,8 @@ class PrompterBottomBar extends StatefulWidget {
   final bool playing;
   final bool audioReady;
   final bool hasQueuedSongs;
-  final Duration position;
   final Duration duration;
+  final PlaybackController playback;
   final PrompterSettings settings;
   final Map<String, String?> fontOptions;
   final VoidCallback onStop;
@@ -39,8 +40,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.playing,
     required this.audioReady,
     required this.hasQueuedSongs,
-    required this.position,
     required this.duration,
+    required this.playback,
     required this.settings,
     required this.fontOptions,
     required this.onStop,
@@ -114,11 +115,15 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
             ],
           ),
           const SizedBox(height: 8),
-          PrompterProgressBar(
-            position: widget.position,
-            duration: widget.duration,
-            enabled: widget.audioReady,
-            onSeek: widget.onSeek,
+          // 위치만 별도 구독해, 60Hz 갱신이 화면 전체를 리빌드하지 않게 한다.
+          ValueListenableBuilder<Duration>(
+            valueListenable: widget.playback.position,
+            builder: (context, position, _) => PrompterProgressBar(
+              position: position,
+              duration: widget.duration,
+              enabled: widget.audioReady,
+              onSeek: widget.onSeek,
+            ),
           ),
           const SizedBox(height: 8),
           Row(

@@ -1,7 +1,10 @@
-// file: lib/widgets/song_list_screen_content.dart
+﻿// file: lib/widgets/song_list_screen_content.dart
 //
 // SongListScreen의 도메인 상태를 화면 패널 위젯들로 연결한다.
 import 'package:flutter/material.dart';
+
+import '../controllers/playback_controller.dart';
+import '../models/practice_session.dart';
 
 import '../models/app_destination.dart';
 import '../models/prompter_settings.dart';
@@ -28,11 +31,16 @@ class SongListScreenContent extends StatelessWidget {
   final int? selectedTrackSlot;
   final bool playing;
   final bool audioReady;
-  final Duration position;
   final Duration duration;
+  final PlaybackController playback;
+  final List<PracticeSummary> practiceSummaries;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
+  final String listQuery;
+  final SongListFilterMode listFilterMode;
+  final ValueChanged<String> onListQueryChanged;
+  final ValueChanged<SongListFilterMode> onListFilterModeChanged;
   final SongListFilterMode searchFilterMode;
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
@@ -74,11 +82,16 @@ class SongListScreenContent extends StatelessWidget {
     required this.selectedTrackSlot,
     required this.playing,
     required this.audioReady,
-    required this.position,
     required this.duration,
+    required this.playback,
+    required this.practiceSummaries,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
+    required this.listQuery,
+    required this.listFilterMode,
+    required this.onListQueryChanged,
+    required this.onListFilterModeChanged,
     required this.searchFilterMode,
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
@@ -112,6 +125,7 @@ class SongListScreenContent extends StatelessWidget {
   SongListPanel _buildSongListPanel({
     required SongListFilterMode filterMode,
     String? listTitle,
+    bool showFilterChips = false,
   }) {
     return SongListPanel(
       songs: songs,
@@ -119,6 +133,11 @@ class SongListScreenContent extends StatelessWidget {
       selectedTrackSlot: selectedTrackSlot,
       filterMode: filterMode,
       listTitle: listTitle,
+      showSearchControls: true,
+      showFilterChips: showFilterChips,
+      query: listQuery,
+      onQueryChanged: onListQueryChanged,
+      onFilterModeChanged: onListFilterModeChanged,
       onSelectTrack: onSelectTrack,
       onSelect: onSelectSong,
       onStart: onStart,
@@ -141,8 +160,8 @@ class SongListScreenContent extends StatelessWidget {
       fontFamily: PrompterSettingsService.resolvedFontFamily(settings),
       playing: playing,
       audioReady: audioReady,
-      position: position,
       duration: duration,
+      playback: playback,
       settings: settings,
       fontOptions: PrompterSettingsService.fontOptions,
       showQueue: showQueue,
@@ -201,8 +220,10 @@ class SongListScreenContent extends StatelessWidget {
       onStartPrompter:
           selected == null ? null : () => onOpenPrompter(selected),
       homeSongListPanel: _buildSongListPanel(
-        filterMode: SongListFilterMode.all,
+        // 홈에서는 사용자가 고른 필터를 그대로 쓴다.
+        filterMode: listFilterMode,
         listTitle: '곡 목록',
+        showFilterChips: true,
       ),
       favoritesSongListPanel: _buildSongListPanel(
         filterMode: SongListFilterMode.favorites,
@@ -228,6 +249,7 @@ class SongListScreenContent extends StatelessWidget {
         },
       ),
       settingsPanel: SettingsPanel(
+        practiceSummaries: practiceSummaries,
         onBatchRegister: onBatchRegister,
         onExportBackup: onExportBackup,
         onImportBackup: onImportBackup,

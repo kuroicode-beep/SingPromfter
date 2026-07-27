@@ -1,7 +1,9 @@
-// file: lib/widgets/prompter_panel.dart
+﻿// file: lib/widgets/prompter_panel.dart
 //
 // 선택된 곡의 가사, 재생 컨트롤, 예약 큐를 함께 표시하는 패널.
 import 'package:flutter/material.dart';
+
+import '../controllers/playback_controller.dart';
 
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
@@ -22,8 +24,8 @@ class PrompterPanel extends StatelessWidget {
   final String? fontFamily;
   final bool playing;
   final bool audioReady;
-  final Duration position;
   final Duration duration;
+  final PlaybackController playback;
   final PrompterSettings settings;
   final Map<String, String?> fontOptions;
   final VoidCallback onStop;
@@ -53,8 +55,8 @@ class PrompterPanel extends StatelessWidget {
     required this.fontFamily,
     required this.playing,
     required this.audioReady,
-    required this.position,
     required this.duration,
+    required this.playback,
     required this.settings,
     required this.fontOptions,
     required this.onStop,
@@ -111,8 +113,8 @@ class PrompterPanel extends StatelessWidget {
             playing: playing,
             audioReady: audioReady,
             hasQueuedSongs: queue.isNotEmpty,
-            position: position,
             duration: duration,
+            playback: playback,
             settings: settings,
             fontOptions: fontOptions,
             onStop: onStop,
