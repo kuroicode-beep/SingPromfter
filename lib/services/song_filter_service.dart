@@ -2,6 +2,7 @@
 //
 // 곡 목록 검색·필터 로직을 한곳에서 제공한다.
 import '../models/song.dart';
+import '../utils/korean_text.dart';
 
 enum SongListFilterMode {
   all,
@@ -41,49 +42,9 @@ class SongFilterService {
               break;
           }
           if (trimmed.isEmpty) return true;
-          return _matchesText(song.title, trimmed) ||
-              _matchesText(song.artist, trimmed);
+          return KoreanText.matches(song.title, trimmed) ||
+              KoreanText.matches(song.artist, trimmed);
         })
         .toList(growable: false);
-  }
-
-  static bool _matchesText(String value, String query) {
-    final normalizedTitle = value.toLowerCase();
-    final normalizedQuery = query.toLowerCase();
-    return normalizedTitle.contains(normalizedQuery) ||
-        _koreanInitials(value).contains(normalizedQuery);
-  }
-
-  static String _koreanInitials(String value) {
-    const initials = [
-      'ㄱ',
-      'ㄲ',
-      'ㄴ',
-      'ㄷ',
-      'ㄸ',
-      'ㄹ',
-      'ㅁ',
-      'ㅂ',
-      'ㅃ',
-      'ㅅ',
-      'ㅆ',
-      'ㅇ',
-      'ㅈ',
-      'ㅉ',
-      'ㅊ',
-      'ㅋ',
-      'ㅌ',
-      'ㅍ',
-      'ㅎ',
-    ];
-    final buffer = StringBuffer();
-    for (final codeUnit in value.runes) {
-      if (codeUnit >= 0xAC00 && codeUnit <= 0xD7A3) {
-        buffer.write(initials[(codeUnit - 0xAC00) ~/ 588]);
-      } else {
-        buffer.write(String.fromCharCode(codeUnit).toLowerCase());
-      }
-    }
-    return buffer.toString();
   }
 }

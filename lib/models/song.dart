@@ -65,18 +65,13 @@ class Song {
     );
   }
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'artist': artist,
-    'lyricsPath': lyricsPath,
-    'lyricsText': lyricsText,
-    'backingTracks': backingTracks.map((e) => e.toJson()).toList(),
-    'createdAt': createdAt.toIso8601String(),
-    'updatedAt': updatedAt.toIso8601String(),
-    'isFavorite': isFavorite,
-  };
+  /// 가사 본문까지 포함한 전체 직렬화.
+  ///
+  /// [toMetaJson]을 그대로 확장하므로 새 필드는 [toMetaJson]에만 추가하면 된다.
+  /// (두 직렬화기가 갈려 필드가 조용히 누락되던 문제를 구조적으로 차단)
+  Map<String, dynamic> toJson() => {...toMetaJson(), 'lyricsText': lyricsText};
 
+  /// songs.json·백업에 저장되는 메타데이터. 가사 본문은 별도 txt 파일에 둔다.
   Map<String, dynamic> toMetaJson() => {
     'id': id,
     'title': title,

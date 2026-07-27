@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 
+import '../constants/app_version.dart';
 import '../models/backing_track.dart';
 import '../models/song.dart';
 import '../repository/song_repository.dart';
@@ -14,9 +15,12 @@ import '../repository/song_repository.dart';
 class BackupService {
   final SongRepository _repo;
 
+  /// 이 빌드가 읽고 쓸 수 있는 백업 포맷 버전.
+  static const int backupFormatVersion = 2;
+
   const BackupService(this._repo);
 
-  Future<BackupResult?> exportAll({String appVersion = '0.8.0'}) async {
+  Future<BackupResult?> exportAll({String appVersion = AppVersion.current}) async {
     final songs = await _repo.loadSongs();
     final savePath = await FilePicker.platform.saveFile(
       dialogTitle: 'SingPromfter 백업 저장',
@@ -29,7 +33,7 @@ class BackupService {
 
     final archive = Archive();
     final manifest = {
-      'version': 1,
+      'version': backupFormatVersion,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
       'appVersion': appVersion,
       'songCount': songs.length,
@@ -92,6 +96,13 @@ class BackupService {
       final archive = ZipDecoder().decodeBytes(
         await File(zipPath).readAsBytes(),
       );
+      // 매니페스트를 실제로 검증한다. 상위 버전 백업을 구버전 앱이 잘못
+      // 해석해 데이터를 잃는 상황을 막는다. (매니페스트가 없으면 구버전 백업으로 간주)
+      final manifestError = _validateManifest(archive);
+      if (manifestError != null) {
+        return ImportResult.failure(manifestError);
+      }
+
       final songsFile = archive.findFile('songs.json');
       if (songsFile == null) {
         return const ImportResult.failure('백업 파일에 songs.json이 없습니다.');
@@ -124,13 +135,8 @@ class BackupService {
             '${(await _repo.getBackingTrackDir()).path}/$fileName',
           );
           await target.writeAsBytes(file.content as List<int>);
-          tracks.add(
-            BackingTrack(
-              slot: track.slot,
-              fileName: fileName,
-              label: track.label,
-            ),
-          );
+          // copyWith로 복사해 startMs/endMs 같은 트림 값이 유실되지 않게 한다.
+          tracks.add(track.copyWith(fileName: fileName));
         }
 
         nextSongs.add(
@@ -152,6 +158,28 @@ class BackupService {
       );
     } catch (e) {
       return ImportResult.failure('백업 가져오기 중 오류가 발생했습니다: $e');
+    }
+  }
+
+  /// 백업 매니페스트 버전을 확인한다. 문제가 없으면 null을 반환한다.
+  String? _validateManifest(Archive archive) {
+    final manifestFile = archive.findFile('backup_manifest.json');
+    if (manifestFile == null) return null; // 매니페스트 이전 버전 백업 — 허용
+
+    try {
+      final decoded = jsonDecode(
+        utf8.decode(manifestFile.content as List<int>),
+      );
+      if (decoded is! Map) return null;
+      final version = (decoded['version'] as num?)?.toInt();
+      if (version != null && version > backupFormatVersion) {
+        return '백업 파일 버전이 $version이라 이 앱 버전(최대 $backupFormatVersion)에서는 '
+            '가져올 수 없습니다. 앱을 최신 버전으로 업데이트해 주세요.';
+      }
+      return null;
+    } catch (_) {
+      // 매니페스트가 깨져 있어도 songs.json이 읽히면 복원을 시도한다.
+      return null;
     }
   }
 
