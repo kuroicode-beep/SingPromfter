@@ -1,9 +1,13 @@
-class BackingTrack {
+﻿class BackingTrack {
   final int slot;
   final String fileName;
   final String label;
   final int? startMs;
   final int? endMs;
+
+  /// 이 반주에 맞춘 가사 오프셋(밀리초).
+  /// 음수면 가사를 먼저 띄운다(읽을 시간 확보 — 프롬프터 기본 방향).
+  final int lyricsOffsetMs;
 
   const BackingTrack({
     required this.slot,
@@ -11,6 +15,7 @@ class BackingTrack {
     required this.label,
     this.startMs,
     this.endMs,
+    this.lyricsOffsetMs = 0,
   });
 
   /// 일부 값만 바꾼 사본을 만든다.
@@ -23,6 +28,7 @@ class BackingTrack {
     String? label,
     int? startMs,
     int? endMs,
+    int? lyricsOffsetMs,
     bool clearStartMs = false,
     bool clearEndMs = false,
   }) {
@@ -32,6 +38,7 @@ class BackingTrack {
       label: label ?? this.label,
       startMs: clearStartMs ? null : (startMs ?? this.startMs),
       endMs: clearEndMs ? null : (endMs ?? this.endMs),
+      lyricsOffsetMs: lyricsOffsetMs ?? this.lyricsOffsetMs,
     );
   }
 
@@ -41,6 +48,7 @@ class BackingTrack {
     'label': label,
     'startMs': startMs,
     'endMs': endMs,
+    'lyricsOffsetMs': lyricsOffsetMs,
   };
 
   factory BackingTrack.fromJson(Map<String, dynamic> json) => BackingTrack(
@@ -49,5 +57,6 @@ class BackingTrack {
     label: json['label'] as String? ?? 'MR',
     startMs: (json['startMs'] as num?)?.toInt(),
     endMs: (json['endMs'] as num?)?.toInt(),
+    lyricsOffsetMs: (json['lyricsOffsetMs'] as num?)?.toInt() ?? 0,
   );
 }

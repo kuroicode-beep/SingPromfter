@@ -1,4 +1,4 @@
-// file: lib/controllers/playback_controller.dart
+﻿// file: lib/controllers/playback_controller.dart
 //
 // 재생 상태를 한곳에서 소유한다. 메인 패널과 전체화면 프롬프터가 같은
 // 컨트롤러를 구독하므로 두 화면의 위치·하이라이트가 어긋나지 않는다.
@@ -12,6 +12,7 @@ import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
+import '../models/timed_lyrics.dart';
 import '../repository/song_repository.dart';
 import '../services/lyrics_progress_service.dart';
 import '../services/prompter_audio_service.dart';
@@ -30,6 +31,9 @@ class PlaybackSnapshot {
   final bool audioReady;
   final Duration duration;
 
+  /// 현재 반주에 맞춘 가사 오프셋(ms). 음수면 가사를 먼저 띄운다.
+  final int lyricsOffsetMs;
+
   const PlaybackSnapshot({
     this.song,
     this.trackSlot,
@@ -38,6 +42,7 @@ class PlaybackSnapshot {
     this.playing = false,
     this.audioReady = false,
     this.duration = Duration.zero,
+    this.lyricsOffsetMs = 0,
   });
 
   PlaybackSnapshot copyWith({
@@ -48,6 +53,7 @@ class PlaybackSnapshot {
     bool? playing,
     bool? audioReady,
     Duration? duration,
+    int? lyricsOffsetMs,
     bool clearSong = false,
     bool clearTrack = false,
   }) {
@@ -59,6 +65,7 @@ class PlaybackSnapshot {
       playing: playing ?? this.playing,
       audioReady: audioReady ?? this.audioReady,
       duration: duration ?? this.duration,
+      lyricsOffsetMs: clearTrack ? 0 : (lyricsOffsetMs ?? this.lyricsOffsetMs),
     );
   }
 
@@ -80,6 +87,9 @@ class PlaybackController {
   final void Function(List<QueueItem> queue) onQueueChanged;
   final void Function(String message) onMessage;
 
+  /// 곡의 싱크 가사를 읽어온다. 없으면 null.
+  final Future<TimedLyrics?> Function(Song song)? timedLyricsLoader;
+
   /// 30초 이상 재생하면 연습 1회로 집계한다. (세션 적재 연결점)
   final void Function(PlaybackSnapshot snapshot, Duration played)?
   onPracticeSessionEnded;
@@ -92,6 +102,9 @@ class PlaybackController {
 
   /// 사용자가 가사 자동 진행을 잠시 멈춘 상태. (전체화면의 자동 스크롤 토글)
   final ValueNotifier<bool> autoScrollPaused = ValueNotifier(false);
+
+  /// 현재 곡의 싱크 가사. 없으면 null이고 timed 모드는 추정으로 되돌아간다.
+  final ValueNotifier<TimedLyrics?> timedLyrics = ValueNotifier(null);
 
   final PositionClock _clock = PositionClock();
   Ticker? _ticker;
@@ -116,6 +129,7 @@ class PlaybackController {
     required this.settingsProvider,
     required this.onQueueChanged,
     required this.onMessage,
+    this.timedLyricsLoader,
     this.onPracticeSessionEnded,
   });
 
@@ -147,6 +161,12 @@ class PlaybackController {
     position.dispose();
     lineIndex.dispose();
     autoScrollPaused.dispose();
+    timedLyrics.dispose();
+  }
+
+  /// 가사 오프셋 변경을 즉시 반영한다.
+  void applyLyricsOffset(int offsetMs) {
+    _update(state.value.copyWith(lyricsOffsetMs: offsetMs));
   }
 
   /// 가사 자동 진행을 멈추거나 다시 시작한다.
@@ -220,14 +240,28 @@ class PlaybackController {
     if (song == null) return;
     final settings = settingsProvider();
 
-    // 하이라이트 줄 — 위치에서 계산하므로 별도 타이머가 필요 없다.
-    final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
-    final nextIndex = LyricsProgressService.estimatedLineIndex(
-      position: current,
-      duration: state.value.duration,
-      lineCount: lines,
-      speedLevel: settings.speedLevel,
-    );
+    // 줄 번호 — 싱크 가사가 있으면 실제 타임스탬프를, 없으면 추정을 쓴다.
+    final synced = timedLyrics.value;
+    final int nextIndex;
+    if (settings.displayMode == PrompterDisplayMode.timed &&
+        synced != null &&
+        !synced.isEmpty) {
+      // 트림 시작점을 빼고 곡별 오프셋을 더해 실제 노래 시각으로 환산한다.
+      final startMs = state.value.trackStartMs ?? 0;
+      final songTime = Duration(
+        milliseconds:
+            current.inMilliseconds - startMs + state.value.lyricsOffsetMs,
+      );
+      nextIndex = synced.indexAt(songTime);
+    } else {
+      final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
+      nextIndex = LyricsProgressService.estimatedLineIndex(
+        position: current,
+        duration: state.value.duration,
+        lineCount: lines,
+        speedLevel: settings.speedLevel,
+      );
+    }
     if (nextIndex != lineIndex.value) lineIndex.value = nextIndex;
 
     // 전체 모드 자동 스크롤 — 프레임 간격 기준이라 주사율에 좌우되지 않는다.
@@ -334,9 +368,13 @@ class PlaybackController {
         trackSlot: resolvedSlot,
         trackStartMs: track?.startMs,
         trackEndMs: track?.endMs,
+        lyricsOffsetMs: track?.lyricsOffsetMs ?? 0,
         clearTrack: resolvedSlot == null,
       ),
     );
+
+    // 싱크 가사는 곡 단위라 슬롯 전환 때는 다시 읽지 않는다.
+    timedLyrics.value = await timedLyricsLoader?.call(song);
 
     await repo.saveLastSongId(song.id);
     await prepareAudioForSelection();
@@ -386,6 +424,7 @@ class PlaybackController {
         trackSlot: slot,
         trackStartMs: track?.startMs,
         trackEndMs: track?.endMs,
+        lyricsOffsetMs: track?.lyricsOffsetMs ?? 0,
       ),
     );
     await prepareAudioForSelection();

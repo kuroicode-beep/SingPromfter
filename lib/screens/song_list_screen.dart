@@ -11,6 +11,7 @@ import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/mr_source_mode.dart';
+import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
@@ -19,6 +20,7 @@ import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
 import '../services/batch_registration_service.dart';
+import '../services/lyrics_sync_service.dart';
 import '../services/practice_log_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/tool_progress_parsers.dart';
@@ -51,6 +53,7 @@ class _SongListScreenState extends State<SongListScreen> {
   late final _audio = PrompterAudioService(_repo);
   final _lyricsScrollController = ScrollController();
   final _practiceLog = PracticeLogService();
+  final _lyricsSync = LyricsSyncService();
   final _toolLocator = ExternalToolLocator();
   late final _youtubeImport = YoutubeImportService(
     tmpDirProvider: _repo.getTmpDir,
@@ -97,6 +100,7 @@ class _SongListScreenState extends State<SongListScreen> {
         if (mounted) setState(() => _queue = queue);
       },
       onMessage: _showSnack,
+      timedLyricsLoader: _lyricsSync.loadFor,
       onPracticeSessionEnded: (snapshot, played) {
         _practiceLog.record(snapshot: snapshot, played: played);
       },
@@ -184,6 +188,64 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!song.availableTrackSlots.contains(slot)) return;
     await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
     await _playback.selectTrackSlot(slot);
+  }
+
+  // ── 싱크 가사 ───────────────────────────────────────────
+
+  Future<void> _fetchSyncedLyrics() async {
+    final song = _selectedSong;
+    if (song == null) {
+      _showSnack('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    _showSnack('싱크 가사를 찾는 중...');
+    final outcome = await _lyricsSync.fetchFor(
+      song,
+      duration: _playback.snapshot.duration,
+    );
+    if (!mounted) return;
+    if (outcome.success && outcome.song != null) {
+      final updated = outcome.song!;
+      setState(() {
+        _songs = _songs
+            .map((s) => s.id == updated.id ? updated : s)
+            .toList(growable: false);
+      });
+      await _repo.saveSongs(_songs);
+      // 새로 받은 가사를 즉시 반영하고 싱크 모드로 전환한다.
+      _playback.timedLyrics.value = await _lyricsSync.loadFor(updated);
+      await _updateSettings(
+        _settings.copyWith(displayMode: PrompterDisplayMode.timed),
+      );
+    }
+    if (!mounted) return;
+    _showSnack(outcome.message);
+  }
+
+  /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
+  Future<void> _adjustLyricsOffset(int deltaMs) async {
+    final song = _selectedSong;
+    final slot = _selectedTrackSlot;
+    if (song == null || slot == null) return;
+    final track = song.trackForSlot(slot);
+    if (track == null) return;
+
+    final next = (track.lyricsOffsetMs + deltaMs).clamp(-3000, 3000);
+    final updatedTracks = song.backingTracks
+        .map((t) => t.slot == slot ? t.copyWith(lyricsOffsetMs: next) : t)
+        .toList(growable: false);
+    final updatedSong = song.copyWith(
+      backingTracks: updatedTracks,
+      updatedAt: DateTime.now(),
+    );
+
+    setState(() {
+      _songs = _songs
+          .map((s) => s.id == updatedSong.id ? updatedSong : s)
+          .toList(growable: false);
+    });
+    await _repo.saveSongs(_songs);
+    _playback.applyLyricsOffset(next);
   }
 
   // ── 유튜브 가져오기 ─────────────────────────────────────
@@ -630,6 +692,8 @@ class _SongListScreenState extends State<SongListScreen> {
         onCancelImportJob: _importJobs.cancel,
         onClearFinishedImports: _importJobs.clearFinished,
         onLocateYtDlp: _locateYtDlp,
+        onFetchSyncedLyrics: _fetchSyncedLyrics,
+        onAdjustLyricsOffset: _adjustLyricsOffset,
         lyricsScrollController: _lyricsScrollController,
         highlightLineIndex: _playback.lineIndex.value,
         searchQuery: _searchQuery,

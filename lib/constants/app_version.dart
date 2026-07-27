@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '1.4.0';
+  static const String current = '1.5.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '1.5.0',
+      '2026-07-28',
+      '싱크 가사 가져오기(LRCLIB)·타임스탬프 표시·가사 선행 시점 조절',
+    ),
     AppVersionEntry(
       '1.4.0',
       '2026-07-28',

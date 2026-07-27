@@ -13,6 +13,9 @@ class Song {
   final DateTime updatedAt;
   final bool isFavorite;
 
+  /// 싱크 가사 파일명(data/lrc 안). 없으면 null.
+  final String? lrcFileName;
+
   const Song({
     required this.id,
     required this.title,
@@ -23,6 +26,7 @@ class Song {
     required this.createdAt,
     required this.updatedAt,
     this.isFavorite = false,
+    this.lrcFileName,
   });
 
   String get lyrics => lyricsText;
@@ -51,6 +55,8 @@ class Song {
     DateTime? createdAt,
     DateTime? updatedAt,
     bool? isFavorite,
+    String? lrcFileName,
+    bool clearLrcFileName = false,
   }) {
     return Song(
       id: id ?? this.id,
@@ -62,6 +68,9 @@ class Song {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isFavorite: isFavorite ?? this.isFavorite,
+      lrcFileName: clearLrcFileName
+          ? null
+          : (lrcFileName ?? this.lrcFileName),
     );
   }
 
@@ -81,6 +90,7 @@ class Song {
     'createdAt': createdAt.toIso8601String(),
     'updatedAt': updatedAt.toIso8601String(),
     'isFavorite': isFavorite,
+    'lrcFileName': lrcFileName,
   };
 
   factory Song.fromJson(Map<String, dynamic> json) {
@@ -108,6 +118,7 @@ class Song {
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? now,
       updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ?? now,
       isFavorite: json['isFavorite'] as bool? ?? false,
+      lrcFileName: json['lrcFileName'] as String?,
     );
   }
 

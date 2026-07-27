@@ -1,4 +1,4 @@
-// file: lib/services/backup_service.dart
+﻿// file: lib/services/backup_service.dart
 //
 // 곡 메타데이터, 가사, 반주 파일을 zip으로 백업/복원한다.
 import 'dart:convert';
@@ -10,15 +10,18 @@ import 'package:file_picker/file_picker.dart';
 import '../constants/app_version.dart';
 import '../models/backing_track.dart';
 import '../models/song.dart';
+import '../repository/lrc_store.dart';
 import '../repository/song_repository.dart';
 
 class BackupService {
   final SongRepository _repo;
+  final LrcStore _lrcStore;
 
   /// 이 빌드가 읽고 쓸 수 있는 백업 포맷 버전.
   static const int backupFormatVersion = 2;
 
-  const BackupService(this._repo);
+  BackupService(this._repo, {LrcStore? lrcStore})
+    : _lrcStore = lrcStore ?? LrcStore();
 
   Future<BackupResult?> exportAll({String appVersion = AppVersion.current}) async {
     final songs = await _repo.loadSongs();
@@ -41,6 +44,7 @@ class BackupService {
         'meta': 'songs.json',
         'lyricsDir': 'txt/',
         'tracksDir': 'mp3/',
+        'lrcDir': 'lrc/',
       },
     };
     _addText(archive, 'backup_manifest.json', jsonEncode(manifest));
@@ -52,6 +56,14 @@ class BackupService {
       meta['lyricsPath'] = 'txt/$lyricsName';
       backupSongs.add(meta);
       _addText(archive, 'txt/$lyricsName', song.lyricsText);
+
+      // 싱크 가사도 함께 담는다. 백업은 모델을 훑으므로 여기 없으면 빠진다.
+      if ((song.lrcFileName ?? '').isNotEmpty) {
+        final lrc = await _lrcStore.read(song.id);
+        if (lrc != null) {
+          _addText(archive, 'lrc/${song.lrcFileName}', lrc);
+        }
+      }
 
       for (final track in song.backingTracks) {
         final path = await _repo.getBackingTrackPath(track.fileName);
@@ -139,8 +151,19 @@ class BackupService {
           tracks.add(track.copyWith(fileName: fileName));
         }
 
+        // 싱크 가사 복원. 곡 id 기준 파일이라 그대로 되살린다.
+        String? restoredLrc;
+        if ((sourceSong.lrcFileName ?? '').isNotEmpty) {
+          final lrcText = _readText(archive, 'lrc/${sourceSong.lrcFileName}');
+          if (lrcText.isNotEmpty) {
+            restoredLrc = await _lrcStore.write(sourceSong.id, lrcText);
+          }
+        }
+
         nextSongs.add(
           sourceSong.copyWith(
+            lrcFileName: restoredLrc,
+            clearLrcFileName: restoredLrc == null,
             title: title,
             lyricsPath: lyricsPath,
             lyricsText: lyricsText,

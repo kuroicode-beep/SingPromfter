@@ -1,14 +1,18 @@
-// file: lib/widgets/prompter_lyrics_view.dart
+﻿// file: lib/widgets/prompter_lyrics_view.dart
 //
 // 전체 스크롤·하이라이트 3줄 모드 가사 표시.
 import 'package:flutter/material.dart';
 
 import '../models/prompter_display_mode.dart';
+import '../models/timed_lyrics.dart';
 import '../theme/app_theme.dart';
 import '../utils/lyrics_line_utils.dart';
 
 class PrompterLyricsView extends StatelessWidget {
   final String lyricsText;
+
+  /// 싱크 가사. timed 모드일 때 이 줄 목록을 그린다.
+  final TimedLyrics? timedLyrics;
   final PrompterDisplayMode displayMode;
   final double fontSize;
   final double lineHeight;
@@ -23,6 +27,7 @@ class PrompterLyricsView extends StatelessWidget {
   const PrompterLyricsView({
     super.key,
     required this.lyricsText,
+    this.timedLyrics,
     required this.displayMode,
     required this.fontSize,
     required this.lineHeight,
@@ -37,7 +42,7 @@ class PrompterLyricsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (displayMode == PrompterDisplayMode.highlight) {
+    if (displayMode.usesWindowedLayout) {
       return _buildHighlightView();
     }
     return _buildFullView();
@@ -58,7 +63,22 @@ class PrompterLyricsView extends StatelessWidget {
   }
 
   Widget _buildHighlightView() {
-    final lines = LyricsLineUtils.splitLines(lyricsText);
+    // timed 모드에서는 LRC가 자기 줄 목록을 들고 있으므로 그대로 쓴다.
+    // (splitLines는 빈 줄을 버려 인덱스가 어긋날 수 있어 섞지 않는다)
+    final synced = timedLyrics;
+    final lines = displayMode == PrompterDisplayMode.timed &&
+            synced != null &&
+            !synced.isEmpty
+        ? synced.plainLines
+        : LyricsLineUtils.splitLines(lyricsText);
+    if (lines.isEmpty) {
+      return Center(
+        child: Text(
+          LyricsLineUtils.emptyPlaceholder,
+          style: _baseStyle(fontSize),
+        ),
+      );
+    }
     final current = highlightLineIndex.clamp(0, lines.length - 1);
 
     return Padding(

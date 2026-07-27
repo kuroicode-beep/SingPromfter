@@ -33,6 +33,10 @@ class PrompterBottomBar extends StatefulWidget {
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
   final ValueChanged<String> onMessage;
+  final bool hasSyncedLyrics;
+  final int lyricsOffsetMs;
+  final VoidCallback onFetchSyncedLyrics;
+  final ValueChanged<int> onAdjustLyricsOffset;
 
   const PrompterBottomBar({
     super.key,
@@ -54,6 +58,10 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
     required this.onMessage,
+    required this.hasSyncedLyrics,
+    required this.lyricsOffsetMs,
+    required this.onFetchSyncedLyrics,
+    required this.onAdjustLyricsOffset,
   });
 
   @override
@@ -311,16 +319,14 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                     value: widget.settings.displayMode,
                     dropdownColor: AppColors.surface,
                     style: AppTypography.body,
-                    items: const [
-                      DropdownMenuItem(
-                        value: PrompterDisplayMode.full,
-                        child: Text('전체 가사'),
-                      ),
-                      DropdownMenuItem(
-                        value: PrompterDisplayMode.highlight,
-                        child: Text('줄 하이라이트'),
-                      ),
-                    ],
+                    items: PrompterDisplayMode.values
+                        .map(
+                          (mode) => DropdownMenuItem(
+                            value: mode,
+                            child: Text(mode.label),
+                          ),
+                        )
+                        .toList(growable: false),
                     onChanged: (mode) {
                       if (mode == null) return;
                       widget.onSettingsChanged(
@@ -331,7 +337,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 ),
                 const SizedBox(width: 4),
                 const Tooltip(
-                  message: '줄 하이라이트는 자동 스크롤 속도 기준으로 이동합니다.',
+                  message: '줄 하이라이트는 재생 위치 기준 추정, 싱크 가사는 실제 타임스탬프로 이동합니다.',
                   child: Icon(
                     Icons.info_outline,
                     size: 20,
@@ -340,8 +346,119 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            _SyncedLyricsRow(
+              hasSyncedLyrics: widget.hasSyncedLyrics,
+              offsetMs: widget.lyricsOffsetMs,
+              onFetch: widget.onFetchSyncedLyrics,
+              onAdjust: widget.onAdjustLyricsOffset,
+            ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+
+/// 싱크 가사 가져오기 + 선행/지연 오프셋 조절.
+/// 슬라이더 대신 큰 -/+ 버튼을 쓰고 현재 값을 모노 숫자로 함께 보여준다.
+class _SyncedLyricsRow extends StatelessWidget {
+  final bool hasSyncedLyrics;
+  final int offsetMs;
+  final VoidCallback onFetch;
+  final ValueChanged<int> onAdjust;
+
+  const _SyncedLyricsRow({
+    required this.hasSyncedLyrics,
+    required this.offsetMs,
+    required this.onFetch,
+    required this.onAdjust,
+  });
+
+  /// 음수는 가사를 먼저 띄운다는 뜻이라 사용자 표현도 '먼저'로 쓴다.
+  static String formatOffset(int ms) {
+    if (ms == 0) return '동시';
+    final seconds = (ms.abs() / 1000).toStringAsFixed(1);
+    return ms < 0 ? '$seconds초 먼저' : '$seconds초 늦게';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                hasSyncedLyrics ? '싱크 가사 있음' : '싱크 가사 없음',
+                style: AppTypography.bodyMuted,
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: onFetch,
+              icon: const Icon(Icons.lyrics_outlined, size: 20),
+              label: const Text('가사 가져오기'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(150, AppConstants.minTouchTarget),
+                side: const BorderSide(
+                  color: AppColors.borderStrong,
+                  width: 2,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('가사 표시 시점', style: AppTypography.bodyMuted),
+            const SizedBox(width: 10),
+            _OffsetButton(
+              icon: Icons.remove,
+              semanticsLabel: '가사를 0.2초 더 먼저 띄우기',
+              onTap: () => onAdjust(-200),
+            ),
+            const SizedBox(width: 8),
+            Text(formatOffset(offsetMs), style: AppTypography.mono),
+            const SizedBox(width: 8),
+            _OffsetButton(
+              icon: Icons.add,
+              semanticsLabel: '가사를 0.2초 더 늦게 띄우기',
+              onTap: () => onAdjust(200),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _OffsetButton extends StatelessWidget {
+  final IconData icon;
+  final String semanticsLabel;
+  final VoidCallback onTap;
+
+  const _OffsetButton({
+    required this.icon,
+    required this.semanticsLabel,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: semanticsLabel,
+      button: true,
+      child: IconButton(
+        icon: Icon(icon),
+        tooltip: semanticsLabel,
+        onPressed: onTap,
+        constraints: const BoxConstraints(
+          minWidth: AppConstants.minTouchTarget,
+          minHeight: AppConstants.minTouchTarget,
+        ),
       ),
     );
   }

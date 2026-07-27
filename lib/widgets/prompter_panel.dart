@@ -26,6 +26,10 @@ class PrompterPanel extends StatelessWidget {
   final bool audioReady;
   final Duration duration;
   final PlaybackController playback;
+  final bool hasSyncedLyrics;
+  final int lyricsOffsetMs;
+  final VoidCallback onFetchSyncedLyrics;
+  final ValueChanged<int> onAdjustLyricsOffset;
   final PrompterSettings settings;
   final Map<String, String?> fontOptions;
   final VoidCallback onStop;
@@ -57,6 +61,10 @@ class PrompterPanel extends StatelessWidget {
     required this.audioReady,
     required this.duration,
     required this.playback,
+    required this.hasSyncedLyrics,
+    required this.lyricsOffsetMs,
+    required this.onFetchSyncedLyrics,
+    required this.onAdjustLyricsOffset,
     required this.settings,
     required this.fontOptions,
     required this.onStop,
@@ -97,6 +105,7 @@ class PrompterPanel extends StatelessWidget {
               decoration: AppShapes.panel(),
               child: PrompterLyricsView(
                 lyricsText: currentSong.lyricsText,
+                timedLyrics: playback.timedLyrics.value,
                 displayMode: settings.displayMode,
                 fontSize: fontSize,
                 lineHeight: lineHeight,
@@ -115,6 +124,10 @@ class PrompterPanel extends StatelessWidget {
             hasQueuedSongs: queue.isNotEmpty,
             duration: duration,
             playback: playback,
+            hasSyncedLyrics: hasSyncedLyrics,
+            lyricsOffsetMs: lyricsOffsetMs,
+            onFetchSyncedLyrics: onFetchSyncedLyrics,
+            onAdjustLyricsOffset: onAdjustLyricsOffset,
             settings: settings,
             fontOptions: fontOptions,
             onStop: onStop,

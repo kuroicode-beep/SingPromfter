@@ -188,6 +188,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   valueListenable: widget.playback.lineIndex,
                   builder: (context, lineIndex, _) => PrompterLyricsView(
                     lyricsText: widget.song.lyricsText,
+                    timedLyrics: widget.playback.timedLyrics.value,
                     displayMode: _displayMode,
                     fontSize: _fontSize,
                     lineHeight: _lineHeight,
