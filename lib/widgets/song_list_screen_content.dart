@@ -46,6 +46,8 @@ class SongListScreenContent extends StatelessWidget {
   final VoidCallback onLocateYtDlp;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
+  final int pitchSemitones;
+  final ValueChanged<int> onAdjustPitch;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
@@ -106,6 +108,8 @@ class SongListScreenContent extends StatelessWidget {
     required this.onLocateYtDlp,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
+    required this.pitchSemitones,
+    required this.onAdjustPitch,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
@@ -187,6 +191,8 @@ class SongListScreenContent extends StatelessWidget {
       lyricsOffsetMs: playback.snapshot.lyricsOffsetMs,
       onFetchSyncedLyrics: onFetchSyncedLyrics,
       onAdjustLyricsOffset: onAdjustLyricsOffset,
+      pitchSemitones: pitchSemitones,
+      onAdjustPitch: onAdjustPitch,
       settings: settings,
       fontOptions: PrompterSettingsService.fontOptions,
       showQueue: showQueue,

@@ -1,4 +1,4 @@
-// file: lib/services/prompter_audio_service.dart
+﻿// file: lib/services/prompter_audio_service.dart
 //
 // 오디오 플레이어 제어와 반주 파일 준비를 담당한다.
 import 'dart:async';
@@ -48,6 +48,8 @@ class PrompterAudioService {
     required double volume,
     required double playbackRate,
     int? startMs,
+    /// 키를 바꾼 변형본 경로. 주면 원본 대신 이 파일을 재생한다.
+    String? overridePath,
   }) async {
     if (song == null || selectedTrackSlot == null) {
       return const AudioPrepareResult.notReady();
@@ -58,7 +60,7 @@ class PrompterAudioService {
       return const AudioPrepareResult.notReady();
     }
 
-    final path = await _repo.getBackingTrackPath(track.fileName);
+    final path = overridePath ?? await _repo.getBackingTrackPath(track.fileName);
     if (path == null) {
       return const AudioPrepareResult.notReady(
         message: '반주 파일을 찾을 수 없습니다. 곡을 다시 등록해 주세요.',

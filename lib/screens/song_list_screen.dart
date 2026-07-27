@@ -16,11 +16,14 @@ import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
+import '../utils/key_label.dart';
+import '../utils/pitch_math.dart';
 import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
 import '../services/batch_registration_service.dart';
 import '../services/lyrics_sync_service.dart';
+import '../services/pitch_variant_service.dart';
 import '../services/practice_log_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/tool_progress_parsers.dart';
@@ -54,6 +57,7 @@ class _SongListScreenState extends State<SongListScreen> {
   final _lyricsScrollController = ScrollController();
   final _practiceLog = PracticeLogService();
   final _lyricsSync = LyricsSyncService();
+  late final _pitchVariants = PitchVariantService(locator: _toolLocator);
   final _toolLocator = ExternalToolLocator();
   late final _youtubeImport = YoutubeImportService(
     tmpDirProvider: _repo.getTmpDir,
@@ -101,6 +105,7 @@ class _SongListScreenState extends State<SongListScreen> {
       },
       onMessage: _showSnack,
       timedLyricsLoader: _lyricsSync.loadFor,
+      pitchVariantResolver: _resolvePitchVariant,
       onPracticeSessionEnded: (snapshot, played) {
         _practiceLog.record(snapshot: snapshot, played: played);
       },
@@ -188,6 +193,53 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!song.availableTrackSlots.contains(slot)) return;
     await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
     await _playback.selectTrackSlot(slot);
+  }
+
+  // ── 키(피치) 조절 ───────────────────────────────────────
+
+  /// 키를 바꾼 반주를 준비한다. 처음 쓰는 키는 여기서 렌더링된다.
+  Future<String?> _resolvePitchVariant(Song song, int slot, int semitones) async {
+    final track = song.trackForSlot(slot);
+    if (track == null) return null;
+    final sourcePath = await _repo.getBackingTrackPath(track.fileName);
+    if (sourcePath == null) return null;
+
+    final cached = await _pitchVariants.cachedPath(
+      sourceFileName: track.fileName,
+      semitones: semitones,
+    );
+    if (cached != null) return cached;
+
+    if (mounted) _showSnack('${formatKeyLabel(semitones)} 반주를 준비하는 중...');
+    final result = await _pitchVariants.render(
+      sourcePath: sourcePath,
+      sourceFileName: track.fileName,
+      semitones: semitones,
+      total: _playback.snapshot.duration,
+    );
+    if (!result.success) {
+      if (mounted) _showSnack(result.message ?? '키 변경에 실패했습니다.');
+      return null;
+    }
+    return result.path;
+  }
+
+  Future<void> _adjustPitch(int delta) async {
+    final song = _selectedSong;
+    final slot = _selectedTrackSlot;
+    if (song == null || slot == null) {
+      _showSnack('먼저 곡과 반주를 선택해 주세요.');
+      return;
+    }
+    final current = _settings.pitchForSong(song.id, slot);
+    final next = clampSemitones(current + delta);
+    if (next == current) return;
+
+    await _updateSettings(_settings.withSongPitch(song.id, slot, next));
+    // 새 키로 다시 준비한다(필요하면 렌더링이 일어난다).
+    await _playback.prepareAudioForSelection();
+    if (!mounted) return;
+    _showSnack('키: ${formatKeyLabel(next)}');
   }
 
   // ── 싱크 가사 ───────────────────────────────────────────
@@ -694,6 +746,10 @@ class _SongListScreenState extends State<SongListScreen> {
         onLocateYtDlp: _locateYtDlp,
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
+        pitchSemitones: _selectedSong == null
+            ? 0
+            : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),
+        onAdjustPitch: _adjustPitch,
         lyricsScrollController: _lyricsScrollController,
         highlightLineIndex: _playback.lineIndex.value,
         searchQuery: _searchQuery,

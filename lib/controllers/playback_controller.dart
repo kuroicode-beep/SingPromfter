@@ -90,6 +90,10 @@ class PlaybackController {
   /// 곡의 싱크 가사를 읽어온다. 없으면 null.
   final Future<TimedLyrics?> Function(Song song)? timedLyricsLoader;
 
+  /// 키를 바꾼 반주 경로를 준비한다. 0이거나 실패하면 null(원본 사용).
+  final Future<String?> Function(Song song, int slot, int semitones)?
+  pitchVariantResolver;
+
   /// 30초 이상 재생하면 연습 1회로 집계한다. (세션 적재 연결점)
   final void Function(PlaybackSnapshot snapshot, Duration played)?
   onPracticeSessionEnded;
@@ -130,6 +134,7 @@ class PlaybackController {
     required this.onQueueChanged,
     required this.onMessage,
     this.timedLyricsLoader,
+    this.pitchVariantResolver,
     this.onPracticeSessionEnded,
   });
 
@@ -394,7 +399,18 @@ class PlaybackController {
 
   Future<void> prepareAudioForSelection() async {
     final settings = settingsProvider();
+
+    // 키가 지정돼 있으면 미리 렌더한 변형본을 재생한다.
+    String? overridePath;
+    final song = state.value.song;
+    final slot = state.value.trackSlot;
+    final semitones = song == null ? 0 : settings.pitchForSong(song.id, slot);
+    if (song != null && slot != null && semitones != 0) {
+      overridePath = await pitchVariantResolver?.call(song, slot, semitones);
+    }
+
     final result = await audio.prepareSelection(
+      overridePath: overridePath,
       song: state.value.song,
       selectedTrackSlot: state.value.trackSlot,
       volume: settings.volume,

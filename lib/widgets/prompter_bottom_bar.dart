@@ -9,6 +9,7 @@ import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
+import '../utils/key_label.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
 import 'preset_btn.dart';
@@ -37,6 +38,8 @@ class PrompterBottomBar extends StatefulWidget {
   final int lyricsOffsetMs;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
+  final int pitchSemitones;
+  final ValueChanged<int> onAdjustPitch;
 
   const PrompterBottomBar({
     super.key,
@@ -62,6 +65,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.lyricsOffsetMs,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
+    required this.pitchSemitones,
+    required this.onAdjustPitch,
   });
 
   @override
@@ -347,6 +352,11 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               ],
             ),
             const SizedBox(height: 8),
+            _PitchRow(
+              semitones: widget.pitchSemitones,
+              onAdjust: widget.onAdjustPitch,
+            ),
+            const SizedBox(height: 8),
             _SyncedLyricsRow(
               hasSyncedLyrics: widget.hasSyncedLyrics,
               offsetMs: widget.lyricsOffsetMs,
@@ -460,6 +470,47 @@ class _OffsetButton extends StatelessWidget {
           minHeight: AppConstants.minTouchTarget,
         ),
       ),
+    );
+  }
+}
+
+/// 원곡 대비 키 조절. 슬라이더가 아니라 큰 -/+ 버튼을 쓰고
+/// 현재 값을 '원키 / 2키 낮춤' 처럼 말로 함께 보여준다.
+class _PitchRow extends StatelessWidget {
+  final int semitones;
+  final ValueChanged<int> onAdjust;
+
+  const _PitchRow({required this.semitones, required this.onAdjust});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text('키', style: AppTypography.bodyMuted),
+        const SizedBox(width: 10),
+        _OffsetButton(
+          icon: Icons.remove,
+          semanticsLabel: '키 한 음 내리기',
+          onTap: () => onAdjust(-1),
+        ),
+        const SizedBox(width: 8),
+        Text(formatKeyLabel(semitones), style: AppTypography.mono),
+        const SizedBox(width: 8),
+        _OffsetButton(
+          icon: Icons.add,
+          semanticsLabel: '키 한 음 올리기',
+          onTap: () => onAdjust(1),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            semitones == 0 ? '' : '처음 재생 시 변환에 잠시 걸립니다',
+            style: AppTypography.bodyMuted,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
     );
   }
 }

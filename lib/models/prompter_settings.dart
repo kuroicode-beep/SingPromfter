@@ -14,6 +14,10 @@ class PrompterSettings {
   final bool boldText;
   final double? customFontSizePt;
   final Map<String, int> lastSelectedTrackSlotBySong;
+
+  /// 곡·슬롯별 키(원곡 대비 반음). 키는 '<songId>:<slot>'.
+  /// 재생 취향이라 songs.json이 아니라 설정에 둔다(제목을 바꿔도 유지된다).
+  final Map<String, int> pitchSemitonesBySong;
   final PrompterDisplayMode displayMode;
 
   const PrompterSettings({
@@ -27,6 +31,7 @@ class PrompterSettings {
     this.boldText = false,
     this.customFontSizePt,
     this.lastSelectedTrackSlotBySong = const {},
+    this.pitchSemitonesBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
   });
 
@@ -47,6 +52,7 @@ class PrompterSettings {
     bool? boldText,
     double? customFontSizePt,
     Map<String, int>? lastSelectedTrackSlotBySong,
+    Map<String, int>? pitchSemitonesBySong,
     PrompterDisplayMode? displayMode,
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
@@ -67,11 +73,30 @@ class PrompterSettings {
           : (customFontSizePt ?? this.customFontSizePt),
       lastSelectedTrackSlotBySong:
           lastSelectedTrackSlotBySong ?? this.lastSelectedTrackSlotBySong,
+      pitchSemitonesBySong:
+          pitchSemitonesBySong ?? this.pitchSemitonesBySong,
       displayMode: displayMode ?? this.displayMode,
     );
   }
 
   int? trackSlotForSong(String songId) => lastSelectedTrackSlotBySong[songId];
+
+  static String pitchKey(String songId, int slot) => '$songId:$slot';
+
+  int pitchForSong(String songId, int? slot) {
+    if (slot == null) return 0;
+    return pitchSemitonesBySong[pitchKey(songId, slot)] ?? 0;
+  }
+
+  PrompterSettings withSongPitch(String songId, int slot, int semitones) {
+    final next = Map<String, int>.from(pitchSemitonesBySong);
+    if (semitones == 0) {
+      next.remove(pitchKey(songId, slot));
+    } else {
+      next[pitchKey(songId, slot)] = semitones;
+    }
+    return copyWith(pitchSemitonesBySong: next);
+  }
 
   PrompterSettings withSongTrackSlot(String songId, int slot) {
     final next = Map<String, int>.from(lastSelectedTrackSlotBySong);
@@ -93,20 +118,24 @@ class PrompterSettings {
     'boldText': boldText,
     'customFontSizePt': customFontSizePt,
     'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
+    'pitchSemitonesBySong': pitchSemitonesBySong,
     'displayMode': displayMode.storageValue,
   };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
-    final rawMap = json['lastSelectedTrackSlotBySong'];
-    final bySong = <String, int>{};
-    if (rawMap is Map) {
-      rawMap.forEach((key, value) {
-        final parsed = (value as num?)?.toInt();
-        if (parsed != null) {
-          bySong['$key'] = parsed;
-        }
-      });
+    Map<String, int> readIntMap(Object? raw) {
+      final result = <String, int>{};
+      if (raw is Map) {
+        raw.forEach((key, value) {
+          final parsed = (value as num?)?.toInt();
+          if (parsed != null) result['$key'] = parsed;
+        });
+      }
+      return result;
     }
+
+    final bySong = readIntMap(json['lastSelectedTrackSlotBySong']);
+    final pitchBySong = readIntMap(json['pitchSemitonesBySong']);
 
     return PrompterSettings(
       fontSizeLevel: (json['fontSizeLevel'] as num?)?.toDouble() ?? 3,
@@ -119,6 +148,7 @@ class PrompterSettings {
       boldText: json['boldText'] as bool? ?? false,
       customFontSizePt: (json['customFontSizePt'] as num?)?.toDouble(),
       lastSelectedTrackSlotBySong: bySong,
+      pitchSemitonesBySong: pitchBySong,
       displayMode: PrompterDisplayModeCodec.fromStorage(
         json['displayMode'] as String?,
       ),
