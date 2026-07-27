@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '1.9.1';
+  static const String current = '2.0.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.0.0',
+      '2026-07-28',
+      'AI 보컬 분리(SVIL 서버)·서버 상태 표시·믹스다운·수동 lrc 등 보완',
+    ),
     AppVersionEntry(
       '1.9.1',
       '2026-07-28',

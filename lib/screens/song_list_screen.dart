@@ -1,6 +1,8 @@
 ﻿import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:flutter/material.dart';
@@ -30,6 +32,7 @@ import '../services/practice_log_service.dart';
 import '../services/daily_goal_service.dart';
 import '../services/recording_library_service.dart';
 import '../services/process/external_tool_locator.dart';
+import '../services/process/process_runner.dart';
 import '../services/process/tool_progress_parsers.dart';
 import '../services/youtube_import_service.dart';
 import '../services/prompter_audio_service.dart';
@@ -40,6 +43,8 @@ import '../services/song_queue_service.dart';
 import '../services/library_maintenance_service.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
+import '../services/take_mix_service.dart';
+import '../services/vocal_separation_client.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
@@ -83,9 +88,14 @@ class _SongListScreenState extends State<SongListScreen> {
   Song? _recordingSong;
   int? _recordingSlot;
   int _recordingPitch = 0;
+  int _recordingAlignMs = 0;
 
   bool _ytDlpAvailable = false;
   String? _ytDlpMissingReason;
+  String? _ytDlpVersion;
+  final _separation = VocalSeparationClient();
+  String _separatorStatusLabel = '분리 서버: 확인 중';
+  static const _kYtNoticeAckKey = 'yt_notice_ack';
 
   late final PlaybackController _playback;
 
@@ -239,6 +249,105 @@ class _SongListScreenState extends State<SongListScreen> {
     await _playback.selectTrackSlot(slot);
   }
 
+  // ── 녹음 믹스다운 ───────────────────────────────────────
+
+  Future<void> _mixTake(RecordingTake take) async {
+    final songMatches = _songs.where((s) => s.id == take.songId).toList();
+    final song = songMatches.isEmpty ? null : songMatches.first;
+    final slot = take.backingTrackSlot;
+    final track = (song != null && slot != null)
+        ? song.trackForSlot(slot)
+        : null;
+    if (track == null) {
+      _showSnack('이 녹음의 반주를 찾을 수 없어 합칠 수 없습니다.');
+      return;
+    }
+    final backingPath = await _repo.getBackingTrackPath(track.fileName);
+    if (backingPath == null) {
+      _showSnack('반주 파일이 없습니다.');
+      return;
+    }
+
+    _showSnack('반주와 합치는 중...');
+    final vocalPath = await _recordingLibrary.pathFor(take);
+    final mixedName = '${take.id}_mix.m4a';
+    final outputPath =
+        '${(await _recordingLibrary.directory()).path}/$mixedName';
+    final result = await TakeMixService().mix(
+      backingPath: backingPath,
+      vocalPath: vocalPath,
+      outputPath: outputPath,
+      alignMs: take.alignOffsetMs,
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      _showSnack(result.message ?? '합치기에 실패했습니다.');
+      return;
+    }
+    await _recordingLibrary.update(take.copyWith(mixedFileName: mixedName));
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('합쳤습니다. "합친 곡 듣기"로 확인해 보세요.');
+  }
+
+  Future<void> _playTakeMix(RecordingTake take) async {
+    final mixed = take.mixedFileName;
+    if (mixed == null || mixed.isEmpty) return;
+    final path =
+        '${(await _recordingLibrary.directory()).path}/$mixed';
+    final ok = await _takePlayer.playFile(path);
+    if (!mounted) return;
+    if (!ok) {
+      _showSnack('합친 파일을 재생할 수 없습니다.');
+      return;
+    }
+    setState(() => _playingTakeId = take.id);
+  }
+
+  // ── 수동 .lrc 가져오기 ──────────────────────────────────
+
+  Future<void> _importLrcFile() async {
+    final song = _selectedSong;
+    if (song == null) {
+      _showSnack('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle: '.lrc 싱크 가사 파일 선택',
+      type: FileType.custom,
+      allowedExtensions: ['lrc', 'txt'],
+    );
+    final path = picked?.files.firstOrNull?.path;
+    if (path == null) return;
+
+    final String content;
+    try {
+      content = await File(path).readAsString();
+    } catch (e) {
+      _showSnack('파일을 읽을 수 없습니다: $e');
+      return;
+    }
+
+    final updated = await _lyricsSync.save(song, content);
+    if (!mounted) return;
+    if (updated == null) {
+      _showSnack('싱크 가사를 해석하지 못했습니다. [mm:ss.xx] 형식인지 확인해 주세요.');
+      return;
+    }
+    setState(() {
+      _songs = _songs
+          .map((s) => s.id == updated.id ? updated : s)
+          .toList(growable: false);
+    });
+    await _repo.saveSongs(_songs);
+    _playback.timedLyrics.value = await _lyricsSync.loadFor(updated);
+    await _updateSettings(
+      _settings.copyWith(displayMode: PrompterDisplayMode.timed),
+    );
+    if (!mounted) return;
+    _showSnack('싱크 가사를 등록했습니다.');
+  }
+
   // ── 라이브러리 정리 ─────────────────────────────────────
 
   Future<void> _runMaintenance() async {
@@ -294,8 +403,9 @@ class _SongListScreenState extends State<SongListScreen> {
 
     final deleted = await maintenance.deleteOrphans(audit);
     final temp = await maintenance.clearTempFiles();
+    final cache = await maintenance.clearPitchCache();
     if (!mounted) return;
-    _showSnack('파일 $deleted개, 임시 항목 $temp개를 정리했습니다.');
+    _showSnack('파일 $deleted개, 임시 항목 $temp개, 변환 캐시 $cache개를 정리했습니다.');
   }
 
   // ── 트레이닝 ────────────────────────────────────────────
@@ -369,6 +479,8 @@ class _SongListScreenState extends State<SongListScreen> {
     _recordingSong = song;
     _recordingSlot = _selectedTrackSlot;
     _recordingPitch = _settings.pitchForSong(song.id, _selectedTrackSlot);
+    // 반주와 합칠 때 쓸 정렬점 — 녹음 시작 순간의 재생 위치.
+    _recordingAlignMs = _playback.position.value.inMilliseconds;
     if (!mounted) return;
     _showSnack('녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.');
   }
@@ -396,6 +508,7 @@ class _SongListScreenState extends State<SongListScreen> {
         durationMs: result.duration.inMilliseconds,
         backingTrackSlot: _recordingSlot,
         pitchSemitones: _recordingPitch,
+        alignOffsetMs: _recordingAlignMs,
       ),
     );
     if (!mounted) return;
@@ -613,13 +726,33 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Future<void> _refreshToolAvailability() async {
     final tool = await _toolLocator.locate(ExternalTool.ytDlp, refresh: true);
+    final separator = await _separation.status();
     if (!mounted) return;
     setState(() {
       _ytDlpAvailable = tool.found;
+      _ytDlpVersion = tool.version;
       _ytDlpMissingReason = tool.found
           ? null
           : 'yt-dlp를 찾을 수 없습니다. 설치했다면 실행 파일 경로를 직접 지정해 주세요.';
+      _separatorStatusLabel = separator.label;
     });
+  }
+
+  Future<void> _updateYtDlp() async {
+    final tool = await _toolLocator.locate(ExternalTool.ytDlp);
+    if (!tool.found) {
+      _showSnack('yt-dlp를 찾을 수 없습니다.');
+      return;
+    }
+    _showSnack('yt-dlp 업데이트를 확인하는 중...');
+    final result = await const SystemProcessRunner().run(tool.path!, ['-U']);
+    if (!mounted) return;
+    final output = (result.stdout + result.stderr).trim();
+    final lastLine = output.isEmpty
+        ? (result.ok ? '완료' : '실패')
+        : output.split(RegExp(r'\r?\n')).last;
+    _showSnack('yt-dlp: $lastLine');
+    await _refreshToolAvailability();
   }
 
   Future<void> _locateYtDlp() async {
@@ -635,12 +768,54 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack(_ytDlpAvailable ? 'yt-dlp 경로를 저장했습니다.' : '해당 파일을 실행할 수 없습니다.');
   }
 
-  void _startYoutubeImport(String url, MrSourceMode mode) {
+  Future<void> _startYoutubeImport(String url, MrSourceMode mode) async {
     if (!looksLikeYoutubeUrl(url)) {
       _showSnack('유튜브 주소가 아닙니다. 링크를 다시 확인해 주세요.');
       return;
     }
+    if (!await _confirmYoutubeNotice()) return;
     _importJobs.enqueue(url: url, mode: mode, id: const Uuid().v4());
+  }
+
+  /// 저작권 방침: 최초 사용 시 1회 확인을 받는다. 이후에는 상시 문구만 보인다.
+  Future<bool> _confirmYoutubeNotice() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_kYtNoticeAckKey) ?? false) return true;
+    if (!mounted) return false;
+
+    final agreed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('사용 전 확인'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('개인이 저작권을 소유한 링크만 사용해야 합니다.',
+                style: AppTypography.body),
+            const SizedBox(height: 8),
+            Text('개인적 용도의 사용에 대한 책임은 사용자 본인에게 있습니다.',
+                style: AppTypography.body),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('확인했습니다'),
+          ),
+        ],
+      ),
+    );
+    if (agreed == true) {
+      await prefs.setBool(_kYtNoticeAckKey, true);
+      return true;
+    }
+    return false;
   }
 
   /// 작업 1건 수행: 메타 조회 → 내려받기 → 곡으로 등록.
@@ -681,10 +856,22 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
 
+    var audioPath = result.audioPath!;
+    if (job.mode == MrSourceMode.aiSeparate) {
+      onProgress(const JobProgress(label: 'AI 보컬 분리 중 (수십 초 걸립니다)'));
+      final separated = await _separation.separate(audioPath);
+      if (!separated.success || separated.instrumentalPath == null) {
+        _failJob(job, separated.message ?? 'AI 보컬 분리에 실패했습니다.');
+        await _youtubeImport.cleanupJob(job.id);
+        return;
+      }
+      audioPath = separated.instrumentalPath!;
+    }
+
     onProgress(const JobProgress(ratio: 1, label: '곡으로 등록 중'));
     final registered = await _registerImportedSong(
       metadata: metadata,
-      audioPath: result.audioPath!,
+      audioPath: audioPath,
     );
     await _youtubeImport.cleanupJob(job.id);
 
@@ -1053,6 +1240,12 @@ class _SongListScreenState extends State<SongListScreen> {
         onCancelImportJob: _importJobs.cancel,
         onClearFinishedImports: _importJobs.clearFinished,
         onLocateYtDlp: _locateYtDlp,
+        ytDlpVersion: _ytDlpVersion,
+        onUpdateYtDlp: _updateYtDlp,
+        separatorStatusLabel: _separatorStatusLabel,
+        onImportLrcFile: _importLrcFile,
+        onMixTake: _mixTake,
+        onPlayTakeMix: _playTakeMix,
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
         pitchSemitones: _selectedSong == null

@@ -29,6 +29,7 @@ class PrompterPanel extends StatelessWidget {
   final bool hasSyncedLyrics;
   final int lyricsOffsetMs;
   final VoidCallback onFetchSyncedLyrics;
+  final VoidCallback onImportLrcFile;
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
@@ -70,6 +71,7 @@ class PrompterPanel extends StatelessWidget {
     required this.hasSyncedLyrics,
     required this.lyricsOffsetMs,
     required this.onFetchSyncedLyrics,
+    required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
@@ -139,6 +141,7 @@ class PrompterPanel extends StatelessWidget {
             hasSyncedLyrics: hasSyncedLyrics,
             lyricsOffsetMs: lyricsOffsetMs,
             onFetchSyncedLyrics: onFetchSyncedLyrics,
+            onImportLrcFile: onImportLrcFile,
             onAdjustLyricsOffset: onAdjustLyricsOffset,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,

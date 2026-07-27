@@ -1,4 +1,4 @@
-// file: lib/models/recording_take.dart
+﻿// file: lib/models/recording_take.dart
 //
 // 녹음된 한 번의 연습(테이크).
 //
@@ -34,6 +34,9 @@ class RecordingTake {
   /// 보관 표시. 정리할 때 지우지 않는다.
   final bool isKeep;
 
+  /// 반주와 합친 파일명(있으면). data/recordings 안.
+  final String? mixedFileName;
+
   const RecordingTake({
     required this.id,
     required this.songId,
@@ -47,6 +50,7 @@ class RecordingTake {
     this.comment = '',
     this.rating = 0,
     this.isKeep = false,
+    this.mixedFileName,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -55,7 +59,10 @@ class RecordingTake {
 
   bool get isRated => rating > 0;
 
+  bool get hasMix => (mixedFileName ?? '').isNotEmpty;
+
   RecordingTake copyWith({
+    String? mixedFileName,
     String? songTitle,
     String? comment,
     int? rating,
@@ -76,6 +83,7 @@ class RecordingTake {
       comment: comment ?? this.comment,
       rating: rating ?? this.rating,
       isKeep: isKeep ?? this.isKeep,
+      mixedFileName: mixedFileName ?? this.mixedFileName,
     );
   }
 
@@ -92,6 +100,7 @@ class RecordingTake {
     'comment': comment,
     'rating': rating,
     'isKeep': isKeep,
+    'mixedFileName': mixedFileName,
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -110,6 +119,7 @@ class RecordingTake {
       comment: json['comment'] as String? ?? '',
       rating: ((json['rating'] as num?)?.toInt() ?? 0).clamp(0, 5),
       isKeep: json['isKeep'] as bool? ?? false,
+      mixedFileName: json['mixedFileName'] as String?,
     );
   }
 }

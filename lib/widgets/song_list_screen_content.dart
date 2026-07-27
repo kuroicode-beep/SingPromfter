@@ -49,6 +49,12 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<String> onCancelImportJob;
   final VoidCallback onClearFinishedImports;
   final VoidCallback onLocateYtDlp;
+  final String? ytDlpVersion;
+  final VoidCallback onUpdateYtDlp;
+  final String separatorStatusLabel;
+  final VoidCallback onImportLrcFile;
+  final ValueChanged<RecordingTake> onMixTake;
+  final ValueChanged<RecordingTake> onPlayTakeMix;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
@@ -135,6 +141,12 @@ class SongListScreenContent extends StatelessWidget {
     required this.onCancelImportJob,
     required this.onClearFinishedImports,
     required this.onLocateYtDlp,
+    this.ytDlpVersion,
+    required this.onUpdateYtDlp,
+    required this.separatorStatusLabel,
+    required this.onImportLrcFile,
+    required this.onMixTake,
+    required this.onPlayTakeMix,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
@@ -248,6 +260,7 @@ class SongListScreenContent extends StatelessWidget {
       hasSyncedLyrics: playback.timedLyrics.value != null,
       lyricsOffsetMs: playback.snapshot.lyricsOffsetMs,
       onFetchSyncedLyrics: onFetchSyncedLyrics,
+      onImportLrcFile: onImportLrcFile,
       onAdjustLyricsOffset: onAdjustLyricsOffset,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
@@ -362,6 +375,8 @@ class SongListScreenContent extends StatelessWidget {
         onRate: onRateTake,
         onToggleKeep: onToggleTakeKeep,
         onDelete: onDeleteTake,
+        onMix: onMixTake,
+        onPlayMix: onPlayTakeMix,
       ),
       importPanel: YoutubeImportPanel(
         jobs: importJobs,
@@ -371,6 +386,9 @@ class SongListScreenContent extends StatelessWidget {
         onCancelJob: onCancelImportJob,
         onClearFinished: onClearFinishedImports,
         onLocateTool: onLocateYtDlp,
+        toolVersion: ytDlpVersion,
+        onUpdateTool: onUpdateYtDlp,
+        separatorStatusLabel: separatorStatusLabel,
       ),
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,

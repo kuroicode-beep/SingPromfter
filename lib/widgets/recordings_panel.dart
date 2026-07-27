@@ -1,4 +1,4 @@
-// file: lib/widgets/recordings_panel.dart
+﻿// file: lib/widgets/recordings_panel.dart
 //
 // 녹음 보관함 — 테이크 목록, 코멘트, 별점, 재생/삭제.
 import 'package:flutter/material.dart';
@@ -21,6 +21,8 @@ class RecordingsPanel extends StatelessWidget {
   final void Function(RecordingTake take, int rating) onRate;
   final ValueChanged<RecordingTake> onToggleKeep;
   final ValueChanged<RecordingTake> onDelete;
+  final ValueChanged<RecordingTake> onMix;
+  final ValueChanged<RecordingTake> onPlayMix;
 
   const RecordingsPanel({
     super.key,
@@ -36,6 +38,8 @@ class RecordingsPanel extends StatelessWidget {
     required this.onRate,
     required this.onToggleKeep,
     required this.onDelete,
+    required this.onMix,
+    required this.onPlayMix,
   });
 
   @override
@@ -112,6 +116,8 @@ class RecordingsPanel extends StatelessWidget {
                       onRate: (rating) => onRate(take, rating),
                       onToggleKeep: () => onToggleKeep(take),
                       onDelete: () => onDelete(take),
+                      onMix: () => onMix(take),
+                      onPlayMix: () => onPlayMix(take),
                     );
                   },
                 ),
@@ -181,6 +187,8 @@ class _TakeRow extends StatelessWidget {
   final ValueChanged<int> onRate;
   final VoidCallback onToggleKeep;
   final VoidCallback onDelete;
+  final VoidCallback onMix;
+  final VoidCallback onPlayMix;
 
   const _TakeRow({
     required this.take,
@@ -191,6 +199,8 @@ class _TakeRow extends StatelessWidget {
     required this.onRate,
     required this.onToggleKeep,
     required this.onDelete,
+    required this.onMix,
+    required this.onPlayMix,
   });
 
   static String _formatDuration(Duration d) {
@@ -283,6 +293,31 @@ class _TakeRow extends StatelessWidget {
                   ),
                   child: Text(take.isKeep ? '보관 해제' : '보관'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: onMix,
+                  icon: const Icon(Icons.merge_type),
+                  label: Text(take.hasMix ? '다시 합치기' : '반주와 합치기'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(130, AppConstants.minTouchTarget),
+                    side: const BorderSide(
+                      color: AppColors.borderStrong,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                if (take.hasMix)
+                  OutlinedButton.icon(
+                    onPressed: onPlayMix,
+                    icon: const Icon(Icons.play_circle_outline),
+                    label: const Text('합친 곡 듣기'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(120, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 OutlinedButton(
                   onPressed: onDelete,
                   style: OutlinedButton.styleFrom(

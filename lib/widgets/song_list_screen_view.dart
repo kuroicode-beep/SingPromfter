@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import 'app_top_nav_bar.dart';
 import 'collapsible_queue_sidebar.dart';
 import 'home_now_playing_bar.dart';
+import 'server_status_strip.dart';
 
 class SongListScreenView extends StatelessWidget {
   final bool loading;
@@ -113,6 +114,7 @@ class SongListScreenView extends StatelessWidget {
       return Column(
         children: [
           nowPlayingBar,
+          const ServerStatusStrip(),
           Expanded(
             child: Row(
               children: [
@@ -139,6 +141,7 @@ class SongListScreenView extends StatelessWidget {
       child: Column(
         children: [
           nowPlayingBar,
+          const ServerStatusStrip(),
           Material(
             color: AppColors.surfaceContainer,
             child: TabBar(

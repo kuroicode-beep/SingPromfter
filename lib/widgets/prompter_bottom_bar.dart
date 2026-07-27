@@ -37,6 +37,7 @@ class PrompterBottomBar extends StatefulWidget {
   final bool hasSyncedLyrics;
   final int lyricsOffsetMs;
   final VoidCallback onFetchSyncedLyrics;
+  final VoidCallback onImportLrcFile;
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
@@ -68,6 +69,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.hasSyncedLyrics,
     required this.lyricsOffsetMs,
     required this.onFetchSyncedLyrics,
+    required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
@@ -391,6 +393,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               hasSyncedLyrics: widget.hasSyncedLyrics,
               offsetMs: widget.lyricsOffsetMs,
               onFetch: widget.onFetchSyncedLyrics,
+              onImportFile: widget.onImportLrcFile,
               onAdjust: widget.onAdjustLyricsOffset,
             ),
           ],
@@ -407,12 +410,14 @@ class _SyncedLyricsRow extends StatelessWidget {
   final bool hasSyncedLyrics;
   final int offsetMs;
   final VoidCallback onFetch;
+  final VoidCallback onImportFile;
   final ValueChanged<int> onAdjust;
 
   const _SyncedLyricsRow({
     required this.hasSyncedLyrics,
     required this.offsetMs,
     required this.onFetch,
+    required this.onImportFile,
     required this.onAdjust,
   });
 
@@ -447,6 +452,18 @@ class _SyncedLyricsRow extends StatelessWidget {
                   width: 2,
                 ),
               ),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton(
+              onPressed: onImportFile,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(110, AppConstants.minTouchTarget),
+                side: const BorderSide(
+                  color: AppColors.borderStrong,
+                  width: 2,
+                ),
+              ),
+              child: const Text('.lrc 파일'),
             ),
           ],
         ),

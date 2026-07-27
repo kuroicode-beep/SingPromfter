@@ -1,4 +1,4 @@
-// file: lib/widgets/youtube_import_panel.dart
+﻿// file: lib/widgets/youtube_import_panel.dart
 //
 // 유튜브 링크 가져오기 화면.
 //
@@ -19,6 +19,9 @@ class YoutubeImportPanel extends StatefulWidget {
   final ValueChanged<String> onCancelJob;
   final VoidCallback onClearFinished;
   final VoidCallback onLocateTool;
+  final String? toolVersion;
+  final VoidCallback onUpdateTool;
+  final String separatorStatusLabel;
 
   const YoutubeImportPanel({
     super.key,
@@ -29,6 +32,9 @@ class YoutubeImportPanel extends StatefulWidget {
     required this.onCancelJob,
     required this.onClearFinished,
     required this.onLocateTool,
+    this.toolVersion,
+    required this.onUpdateTool,
+    required this.separatorStatusLabel,
   });
 
   @override
@@ -68,6 +74,28 @@ class _YoutubeImportPanelState extends State<YoutubeImportPanel> {
           ),
           const SizedBox(height: 16),
         ],
+        if (widget.toolAvailable) ...[
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'yt-dlp ${widget.toolVersion ?? ''}',
+                  style: AppTypography.monoMuted,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              TextButton(
+                onPressed: widget.onUpdateTool,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(120, AppConstants.minTouchTarget),
+                ),
+                child: const Text('yt-dlp 업데이트'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
         Text('영상 링크', style: AppTypography.bodyMuted),
         const SizedBox(height: 8),
         TextField(
@@ -89,6 +117,13 @@ class _YoutubeImportPanelState extends State<YoutubeImportPanel> {
             onTap: () => setState(() => _mode = mode),
           ),
         ),
+        if (_mode == MrSourceMode.aiSeparate) ...[
+          const SizedBox(height: 4),
+          Text(
+            widget.separatorStatusLabel,
+            style: AppTypography.bodyMuted,
+          ),
+        ],
         const SizedBox(height: 16),
         FilledButton.icon(
           onPressed: widget.toolAvailable ? _submit : null,
