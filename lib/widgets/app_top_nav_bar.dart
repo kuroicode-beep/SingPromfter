@@ -1,4 +1,4 @@
-// file: lib/widgets/app_top_nav_bar.dart
+﻿// file: lib/widgets/app_top_nav_bar.dart
 //
 // 상단 로고·탭·곡 등록 버튼을 한 줄로 제공하는 메인 네비게이션 바.
 import 'package:flutter/material.dart';
@@ -39,30 +39,16 @@ class AppTopNavBar extends StatelessWidget {
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: [
-                    _TopNavTab(
-                      label: '홈',
-                      selected: destination == AppDestination.home,
-                      onTap: () => onDestinationChanged(AppDestination.home),
-                    ),
-                    _TopNavTab(
-                      label: '곡 검색',
-                      selected: destination == AppDestination.search,
-                      onTap: () => onDestinationChanged(AppDestination.search),
-                    ),
-                    _TopNavTab(
-                      label: '즐겨찾기',
-                      selected: destination == AppDestination.favorites,
-                      onTap: () =>
-                          onDestinationChanged(AppDestination.favorites),
-                    ),
-                    _TopNavTab(
-                      label: '설정',
-                      selected: destination == AppDestination.settings,
-                      onTap: () =>
-                          onDestinationChanged(AppDestination.settings),
-                    ),
-                  ],
+                  // 목적지 목록을 순회해 만든다 — 화면이 늘어도 여기는 그대로다.
+                  children: AppDestination.values
+                      .map(
+                        (d) => _TopNavTab(
+                          label: d.label,
+                          selected: destination == d,
+                          onTap: () => onDestinationChanged(d),
+                        ),
+                      )
+                      .toList(growable: false),
                 ),
               ),
             ),

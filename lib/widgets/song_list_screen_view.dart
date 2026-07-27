@@ -1,4 +1,4 @@
-// file: lib/widgets/song_list_screen_view.dart
+﻿// file: lib/widgets/song_list_screen_view.dart
 //
 // SongListScreen의 상단 탭·반응형 3열 홈·검색/설정 화면을 렌더링한다.
 import 'package:flutter/material.dart';
@@ -26,6 +26,7 @@ class SongListScreenView extends StatelessWidget {
   final Widget prompterPanel;
   final Widget queuePanel;
   final Widget searchPanel;
+  final Widget importPanel;
   final Widget settingsPanel;
 
   const SongListScreenView({
@@ -44,6 +45,7 @@ class SongListScreenView extends StatelessWidget {
     required this.prompterPanel,
     required this.queuePanel,
     required this.searchPanel,
+    required this.importPanel,
     required this.settingsPanel,
   });
 
@@ -80,6 +82,8 @@ class SongListScreenView extends StatelessWidget {
     switch (destination) {
       case AppDestination.search:
         return searchPanel;
+      case AppDestination.jobs:
+        return importPanel;
       case AppDestination.settings:
         return settingsPanel;
       case AppDestination.favorites:

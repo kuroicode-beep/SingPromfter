@@ -28,6 +28,14 @@ class SongRepository {
 
   Future<Directory> getDataDir() => _dataDir;
 
+  /// 가져오기 작업용 임시 폴더. 성공했을 때만 라이브러리로 옮기므로
+  /// 반쯤 받아진 파일이 목록에 노출되지 않는다.
+  Future<Directory> getTmpDir() async {
+    final dir = Directory('${(await _dataDir).path}/tmp');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
   Future<Directory> get _lyricsDir async {
     final dir = Directory('${(await _dataDir).path}/txt');
     if (!await dir.exists()) await dir.create(recursive: true);

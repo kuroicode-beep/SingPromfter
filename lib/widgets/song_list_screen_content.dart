@@ -4,6 +4,8 @@
 import 'package:flutter/material.dart';
 
 import '../controllers/playback_controller.dart';
+import '../controllers/import_job_controller.dart';
+import '../models/mr_source_mode.dart';
 import '../models/practice_session.dart';
 
 import '../models/app_destination.dart';
@@ -19,6 +21,7 @@ import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
 import 'song_search_panel.dart';
+import 'youtube_import_panel.dart';
 
 class SongListScreenContent extends StatelessWidget {
   final bool loading;
@@ -34,6 +37,13 @@ class SongListScreenContent extends StatelessWidget {
   final Duration duration;
   final PlaybackController playback;
   final List<PracticeSummary> practiceSummaries;
+  final List<ImportJob> importJobs;
+  final bool ytDlpAvailable;
+  final String? ytDlpMissingReason;
+  final void Function(String url, MrSourceMode mode) onStartYoutubeImport;
+  final ValueChanged<String> onCancelImportJob;
+  final VoidCallback onClearFinishedImports;
+  final VoidCallback onLocateYtDlp;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
@@ -85,6 +95,13 @@ class SongListScreenContent extends StatelessWidget {
     required this.duration,
     required this.playback,
     required this.practiceSummaries,
+    required this.importJobs,
+    required this.ytDlpAvailable,
+    required this.ytDlpMissingReason,
+    required this.onStartYoutubeImport,
+    required this.onCancelImportJob,
+    required this.onClearFinishedImports,
+    required this.onLocateYtDlp,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
@@ -247,6 +264,15 @@ class SongListScreenContent extends StatelessWidget {
           );
           onReserveAllSongs(results);
         },
+      ),
+      importPanel: YoutubeImportPanel(
+        jobs: importJobs,
+        toolAvailable: ytDlpAvailable,
+        toolMissingReason: ytDlpMissingReason,
+        onSubmit: onStartYoutubeImport,
+        onCancelJob: onCancelImportJob,
+        onClearFinished: onClearFinishedImports,
+        onLocateTool: onLocateYtDlp,
       ),
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,

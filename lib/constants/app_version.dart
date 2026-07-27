@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '1.3.0';
+  static const String current = '1.4.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '1.4.0',
+      '2026-07-28',
+      '유튜브 링크로 곡 가져오기(반주 처리 방식 선택·작업 진행률)',
+    ),
     AppVersionEntry(
       '1.3.0',
       '2026-07-28',
