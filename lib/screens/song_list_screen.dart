@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/import_job_controller.dart';
 import '../controllers/playback_controller.dart';
+import '../controllers/recording_controller.dart';
 import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../models/app_destination.dart';
@@ -14,6 +15,7 @@ import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
+import '../models/recording_take.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../utils/key_label.dart';
@@ -25,6 +27,7 @@ import '../services/batch_registration_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/pitch_variant_service.dart';
 import '../services/practice_log_service.dart';
+import '../services/recording_library_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/tool_progress_parsers.dart';
 import '../services/youtube_import_service.dart';
@@ -35,6 +38,7 @@ import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
 import '../services/song_filter_service.dart';
 import '../widgets/song_list_screen_content.dart';
+import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
 import '../widgets/prompter_keyboard_scope.dart';
 
@@ -64,6 +68,16 @@ class _SongListScreenState extends State<SongListScreen> {
     locator: _toolLocator,
   );
   late final ImportJobController _importJobs;
+  final _recordingLibrary = RecordingLibraryService();
+  late final RecordingController _recording;
+  late final _takePlayer = PrompterAudioService(_repo);
+
+  String _recordingQuery = '';
+  RecordingFilterMode _recordingFilterMode = RecordingFilterMode.all;
+  String? _playingTakeId;
+  Song? _recordingSong;
+  int? _recordingSlot;
+  int _recordingPitch = 0;
 
   bool _ytDlpAvailable = false;
   String? _ytDlpMissingReason;
@@ -115,6 +129,11 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.lineIndex.addListener(_onPlaybackStateChanged);
     _importJobs = ImportJobController(runner: _runImportJob)
       ..addListener(_onPlaybackStateChanged);
+    _recording = RecordingController(
+      pathBuilder: _buildRecordingPath,
+    )..addListener(_onPlaybackStateChanged);
+    // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
+    _playback.isRecordingProvider = () => _recording.isRecording;
     _bootstrap();
   }
 
@@ -130,6 +149,8 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.dispose();
+    _recording.dispose();
+    _takePlayer.dispose();
     _playback.dispose();
     _audio.dispose();
     _lyricsScrollController.dispose();
@@ -139,6 +160,7 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _bootstrap() async {
     final initial = await _bootstrapService.load();
     await _practiceLog.load();
+    await _recordingLibrary.load();
 
     if (!mounted) return;
     setState(() {
@@ -193,6 +215,161 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!song.availableTrackSlots.contains(slot)) return;
     await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
     await _playback.selectTrackSlot(slot);
+  }
+
+  // ── 녹음 ────────────────────────────────────────────────
+
+  Future<String> _buildRecordingPath(String fileName) async {
+    final dir = await _recordingLibrary.directory();
+    return '${dir.path}/$fileName';
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_recording.isRecording) {
+      await _finishRecording();
+      return;
+    }
+
+    final song = _selectedSong;
+    if (song == null) {
+      _showSnack('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    if (!await _recording.isAvailable()) {
+      if (!mounted) return;
+      _showSnack('녹음 장치를 찾지 못했습니다. 마이크 연결과 ffmpeg 설치를 확인해 주세요.');
+      return;
+    }
+
+    final id = const Uuid().v4();
+    final started = await _recording.start('$id.wav');
+    if (started == null) {
+      if (mounted) _showSnack('녹음을 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
+      return;
+    }
+
+    _recordingSong = song;
+    _recordingSlot = _selectedTrackSlot;
+    _recordingPitch = _settings.pitchForSong(song.id, _selectedTrackSlot);
+    if (!mounted) return;
+    _showSnack('녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.');
+  }
+
+  Future<void> _finishRecording() async {
+    final result = await _recording.stop();
+    final song = _recordingSong;
+    _recordingSong = null;
+    if (result == null || song == null) return;
+
+    // 너무 짧으면 실수로 누른 것으로 보고 파일까지 지운다.
+    if (result.duration < const Duration(seconds: 3)) {
+      await RecordingStore().deleteFile(result.fileName);
+      if (mounted) _showSnack('녹음이 너무 짧아 저장하지 않았습니다.');
+      return;
+    }
+
+    await _recordingLibrary.add(
+      RecordingTake(
+        id: const Uuid().v4(),
+        songId: song.id,
+        songTitle: song.title,
+        fileName: result.fileName,
+        recordedAt: DateTime.now(),
+        durationMs: result.duration.inMilliseconds,
+        backingTrackSlot: _recordingSlot,
+        pitchSemitones: _recordingPitch,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('녹음을 저장했습니다. 녹음 탭에서 들어볼 수 있어요.');
+  }
+
+  Future<void> _playTake(RecordingTake take) async {
+    final path = await _recordingLibrary.pathFor(take);
+    final ok = await _takePlayer.playFile(path);
+    if (!mounted) return;
+    if (!ok) {
+      _showSnack('녹음 파일을 재생할 수 없습니다.');
+      return;
+    }
+    setState(() => _playingTakeId = take.id);
+  }
+
+  Future<void> _stopTake(RecordingTake take) async {
+    await _takePlayer.stop();
+    if (!mounted) return;
+    setState(() => _playingTakeId = null);
+  }
+
+  Future<void> _editTakeComment(RecordingTake take) async {
+    final controller = TextEditingController(text: take.comment);
+    final saved = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('코멘트'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 4,
+          style: AppTypography.body,
+          decoration: const InputDecoration(
+            hintText: '이번 녹음에서 느낀 점을 적어 두세요',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (saved == null) return;
+    await _recordingLibrary.update(take.copyWith(comment: saved));
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _rateTake(RecordingTake take, int rating) async {
+    await _recordingLibrary.update(take.copyWith(rating: rating));
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _toggleTakeKeep(RecordingTake take) async {
+    await _recordingLibrary.update(take.copyWith(isKeep: !take.isKeep));
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _deleteTake(RecordingTake take) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('녹음 삭제'),
+        content: Text('${take.songTitle} 녹음을 삭제할까요? 되돌릴 수 없습니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _recordingLibrary.remove(take);
+    if (!mounted) return;
+    setState(() {});
   }
 
   // ── 키(피치) 조절 ───────────────────────────────────────
@@ -750,6 +927,27 @@ class _SongListScreenState extends State<SongListScreen> {
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),
         onAdjustPitch: _adjustPitch,
+        isRecording: _recording.isRecording,
+        recordingLevelLabel: _recording.levelLabel,
+        recordingElapsed: _recording.elapsed,
+        onToggleRecording: _toggleRecording,
+        recordingTakes: RecordingFilter.apply(
+          _recordingLibrary.takes,
+          query: _recordingQuery,
+          mode: _recordingFilterMode,
+        ),
+        recordingQuery: _recordingQuery,
+        recordingFilterMode: _recordingFilterMode,
+        playingTakeId: _playingTakeId,
+        onRecordingQueryChanged: (v) => setState(() => _recordingQuery = v),
+        onRecordingFilterModeChanged: (v) =>
+            setState(() => _recordingFilterMode = v),
+        onPlayTake: _playTake,
+        onStopTake: _stopTake,
+        onEditTakeComment: _editTakeComment,
+        onRateTake: _rateTake,
+        onToggleTakeKeep: _toggleTakeKeep,
+        onDeleteTake: _deleteTake,
         lyricsScrollController: _lyricsScrollController,
         highlightLineIndex: _playback.lineIndex.value,
         searchQuery: _searchQuery,

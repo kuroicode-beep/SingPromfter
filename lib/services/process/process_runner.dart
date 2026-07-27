@@ -1,4 +1,4 @@
-// file: lib/services/process/process_runner.dart
+﻿// file: lib/services/process/process_runner.dart
 //
 // 외부 도구(yt-dlp·ffmpeg) 실행 계층.
 //
@@ -18,14 +18,24 @@ class JobHandle {
   final Future<int> exitCode;
 
   final void Function() _cancel;
+  final void Function(String data)? _writeStdin;
 
   JobHandle({
     required this.lines,
     required this.exitCode,
     required void Function() cancel,
-  }) : _cancel = cancel;
+    void Function(String data)? writeStdin,
+  }) : _cancel = cancel,
+       _writeStdin = writeStdin;
 
   void cancel() => _cancel();
+
+  /// 프로세스 표준입력에 쓴다. ffmpeg에 'q'를 보내 우아하게 끝낼 때 쓴다.
+  bool writeStdin(String data) {
+    if (_writeStdin == null) return false;
+    _writeStdin(data);
+    return true;
+  }
 }
 
 abstract class ProcessRunner {
@@ -109,6 +119,14 @@ class SystemProcessRunner implements ProcessRunner {
       cancel: () {
         cancelled = true;
         process?.kill();
+      },
+      writeStdin: (data) {
+        try {
+          process?.stdin.write(data);
+          process?.stdin.flush();
+        } catch (_) {
+          // 이미 끝난 프로세스면 무시한다.
+        }
       },
     );
   }

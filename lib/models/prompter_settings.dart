@@ -15,7 +15,7 @@ class PrompterSettings {
   final double? customFontSizePt;
   final Map<String, int> lastSelectedTrackSlotBySong;
 
-  /// 곡·슬롯별 키(원곡 대비 반음). 키는 '<songId>:<slot>'.
+  /// 곡·슬롯별 키(원곡 대비 반음). 키는 `songId:slot` 형태다.
   /// 재생 취향이라 songs.json이 아니라 설정에 둔다(제목을 바꿔도 유지된다).
   final Map<String, int> pitchSemitonesBySong;
   final PrompterDisplayMode displayMode;

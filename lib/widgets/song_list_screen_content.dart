@@ -7,6 +7,7 @@ import '../controllers/playback_controller.dart';
 import '../controllers/import_job_controller.dart';
 import '../models/mr_source_mode.dart';
 import '../models/practice_session.dart';
+import '../models/recording_take.dart';
 
 import '../models/app_destination.dart';
 import '../models/prompter_settings.dart';
@@ -21,6 +22,7 @@ import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
 import 'song_search_panel.dart';
+import 'recordings_panel.dart';
 import 'youtube_import_panel.dart';
 
 class SongListScreenContent extends StatelessWidget {
@@ -48,6 +50,22 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+  final bool isRecording;
+  final String recordingLevelLabel;
+  final Duration recordingElapsed;
+  final VoidCallback onToggleRecording;
+  final List<RecordingTake> recordingTakes;
+  final String recordingQuery;
+  final RecordingFilterMode recordingFilterMode;
+  final String? playingTakeId;
+  final ValueChanged<String> onRecordingQueryChanged;
+  final ValueChanged<RecordingFilterMode> onRecordingFilterModeChanged;
+  final ValueChanged<RecordingTake> onPlayTake;
+  final ValueChanged<RecordingTake> onStopTake;
+  final ValueChanged<RecordingTake> onEditTakeComment;
+  final void Function(RecordingTake take, int rating) onRateTake;
+  final ValueChanged<RecordingTake> onToggleTakeKeep;
+  final ValueChanged<RecordingTake> onDeleteTake;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
@@ -110,6 +128,22 @@ class SongListScreenContent extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    required this.isRecording,
+    required this.recordingLevelLabel,
+    required this.recordingElapsed,
+    required this.onToggleRecording,
+    required this.recordingTakes,
+    required this.recordingQuery,
+    required this.recordingFilterMode,
+    required this.playingTakeId,
+    required this.onRecordingQueryChanged,
+    required this.onRecordingFilterModeChanged,
+    required this.onPlayTake,
+    required this.onStopTake,
+    required this.onEditTakeComment,
+    required this.onRateTake,
+    required this.onToggleTakeKeep,
+    required this.onDeleteTake,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
@@ -193,6 +227,10 @@ class SongListScreenContent extends StatelessWidget {
       onAdjustLyricsOffset: onAdjustLyricsOffset,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
+      isRecording: isRecording,
+      recordingLevelLabel: recordingLevelLabel,
+      recordingElapsed: recordingElapsed,
+      onToggleRecording: onToggleRecording,
       settings: settings,
       fontOptions: PrompterSettingsService.fontOptions,
       showQueue: showQueue,
@@ -278,6 +316,20 @@ class SongListScreenContent extends StatelessWidget {
           );
           onReserveAllSongs(results);
         },
+      ),
+      recordingsPanel: RecordingsPanel(
+        takes: recordingTakes,
+        query: recordingQuery,
+        filterMode: recordingFilterMode,
+        playingTakeId: playingTakeId,
+        onQueryChanged: onRecordingQueryChanged,
+        onFilterModeChanged: onRecordingFilterModeChanged,
+        onPlay: onPlayTake,
+        onStopPlay: onStopTake,
+        onEditComment: onEditTakeComment,
+        onRate: onRateTake,
+        onToggleKeep: onToggleTakeKeep,
+        onDelete: onDeleteTake,
       ),
       importPanel: YoutubeImportPanel(
         jobs: importJobs,

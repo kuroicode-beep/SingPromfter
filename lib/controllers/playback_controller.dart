@@ -94,6 +94,9 @@ class PlaybackController {
   final Future<String?> Function(Song song, int slot, int semitones)?
   pitchVariantResolver;
 
+  /// 녹음 중이면 true. 녹음 중에는 자동으로 다음 곡으로 넘어가지 않는다.
+  bool Function()? isRecordingProvider;
+
   /// 30초 이상 재생하면 연습 1회로 집계한다. (세션 적재 연결점)
   final void Function(PlaybackSnapshot snapshot, Duration played)?
   onPracticeSessionEnded;
@@ -493,6 +496,8 @@ class PlaybackController {
 
   Future<void> onSongCompleted() async {
     if (_processingQueue || _disposed) return;
+    // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
+    if (isRecordingProvider?.call() ?? false) return;
     _processingQueue = true;
     try {
       _finishPracticeSession();

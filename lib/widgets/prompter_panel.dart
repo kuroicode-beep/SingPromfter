@@ -32,6 +32,10 @@ class PrompterPanel extends StatelessWidget {
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+  final bool isRecording;
+  final String recordingLevelLabel;
+  final Duration recordingElapsed;
+  final VoidCallback onToggleRecording;
   final PrompterSettings settings;
   final Map<String, String?> fontOptions;
   final VoidCallback onStop;
@@ -69,6 +73,10 @@ class PrompterPanel extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    required this.isRecording,
+    required this.recordingLevelLabel,
+    required this.recordingElapsed,
+    required this.onToggleRecording,
     required this.settings,
     required this.fontOptions,
     required this.onStop,
@@ -134,6 +142,10 @@ class PrompterPanel extends StatelessWidget {
             onAdjustLyricsOffset: onAdjustLyricsOffset,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
+            isRecording: isRecording,
+            recordingLevelLabel: recordingLevelLabel,
+            recordingElapsed: recordingElapsed,
+            onToggleRecording: onToggleRecording,
             settings: settings,
             fontOptions: fontOptions,
             onStop: onStop,

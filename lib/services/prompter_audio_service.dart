@@ -81,6 +81,19 @@ class PrompterAudioService {
     }
   }
 
+  /// 파일 하나를 바로 재생한다. 녹음 미리듣기처럼 곡과 무관한 재생에 쓴다.
+  /// 프롬프터 재생과 섞이지 않도록 별도 인스턴스에서 호출할 것.
+  Future<bool> playFile(String path) async {
+    try {
+      await _player.stop();
+      await _player.setSourceDeviceFile(path);
+      await _player.resume();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<String?> togglePlayPause({
     required Song? song,
     required bool audioReady,

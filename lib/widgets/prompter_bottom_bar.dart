@@ -40,6 +40,10 @@ class PrompterBottomBar extends StatefulWidget {
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+  final bool isRecording;
+  final String recordingLevelLabel;
+  final Duration recordingElapsed;
+  final VoidCallback onToggleRecording;
 
   const PrompterBottomBar({
     super.key,
@@ -67,6 +71,10 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    required this.isRecording,
+    required this.recordingLevelLabel,
+    required this.recordingElapsed,
+    required this.onToggleRecording,
   });
 
   @override
@@ -125,6 +133,28 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 semanticsLabel: '전체화면 프롬프터 열기',
                 onTap: widget.onOpenPrompter,
               ),
+              const SizedBox(width: 6),
+              CompactBtn(
+                icon: widget.isRecording ? Icons.stop_circle : Icons.mic,
+                semanticsLabel: widget.isRecording ? '녹음 정지' : '녹음 시작',
+                toggled: widget.isRecording,
+                onTap: widget.onToggleRecording,
+              ),
+              if (widget.isRecording) ...[
+                const SizedBox(width: 10),
+                // 녹음 상태는 색이 아니라 글자로 알린다.
+                Text('● 녹음 중', style: AppTypography.emphasis),
+                const SizedBox(width: 8),
+                Text(
+                  _formatElapsed(widget.recordingElapsed),
+                  style: AppTypography.mono,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  widget.recordingLevelLabel,
+                  style: AppTypography.bodyMuted,
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -513,4 +543,10 @@ class _PitchRow extends StatelessWidget {
       ],
     );
   }
+}
+
+String _formatElapsed(Duration d) {
+  final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final sec = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$m:$sec';
 }
