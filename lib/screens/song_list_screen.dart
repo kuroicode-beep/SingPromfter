@@ -16,7 +16,6 @@ import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/recording_take.dart';
-import '../models/vocal_routine.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../utils/key_label.dart';
@@ -76,6 +75,7 @@ class _SongListScreenState extends State<SongListScreen> {
   final _dailyGoals = DailyGoalService();
   late final RecordingController _recording;
   late final _takePlayer = PrompterAudioService(_repo);
+  AudioBindings? _takeBindings;
 
   String _recordingQuery = '';
   RecordingFilterMode _recordingFilterMode = RecordingFilterMode.all;
@@ -140,6 +140,17 @@ class _SongListScreenState extends State<SongListScreen> {
     )..addListener(_onPlaybackStateChanged);
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     _playback.isRecordingProvider = () => _recording.isRecording;
+    // 테이크 재생이 끝나면 '정지' 버튼이 '듣기'로 돌아오게 한다.
+    _takeBindings = _takePlayer.bind(
+      onPlayingChanged: (playing) {
+        if (!playing && _playingTakeId != null && mounted) {
+          setState(() => _playingTakeId = null);
+        }
+      },
+      onPositionChanged: (_) {},
+      onDurationChanged: (_) {},
+      onCompleted: () async {},
+    );
     _bootstrap();
   }
 
@@ -156,6 +167,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.dispose();
     _recording.dispose();
+    _takeBindings?.cancel();
     _takePlayer.dispose();
     _playback.dispose();
     _audio.dispose();
@@ -178,6 +190,9 @@ class _SongListScreenState extends State<SongListScreen> {
     });
 
     unawaited(_refreshToolAvailability());
+
+    final schemaError = _repo.schemaLoadError;
+    if (schemaError != null) _showSnack(schemaError);
 
     await _audio.setVolume(_settings.volume);
     await _audio.setPlaybackRate(_settings.playbackRate);
@@ -294,9 +309,8 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!PracticeSessionRules.shouldRecord(played)) return;
 
     // 실제로 부른 곡만 인정되도록 재생 기록에서 자동 체크한다.
-    await _dailyGoals.autoCompleteSongStep(
-      kind: RoutineStepKind.routineSong,
-    );
+    // 루틴곡이 이미 완료면 목표곡을 채운다.
+    await _dailyGoals.autoCompleteNextSongStep();
     if (!mounted) return;
     setState(() {});
   }
@@ -318,6 +332,14 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<String> _buildRecordingPath(String fileName) async {
     final dir = await _recordingLibrary.directory();
     return '${dir.path}/$fileName';
+  }
+
+  Future<void> _skipToNext() async {
+    if (_recording.isRecording) {
+      _showSnack('녹음 중에는 다음 곡으로 넘어가지 않습니다. 녹음을 먼저 정지해 주세요.');
+      return;
+    }
+    await _playback.onSongCompleted();
   }
 
   Future<void> _toggleRecording() async {
@@ -542,6 +564,14 @@ class _SongListScreenState extends State<SongListScreen> {
       await _updateSettings(
         _settings.copyWith(displayMode: PrompterDisplayMode.timed),
       );
+
+      // 결정 사항: 싱크 가사는 기본으로 1초 먼저 띄워 읽을 시간을 준다.
+      // 사용자가 이미 조절해 둔 값(0이 아님)은 건드리지 않는다.
+      final slot = _selectedTrackSlot;
+      final track = slot == null ? null : updated.trackForSlot(slot);
+      if (track != null && track.lyricsOffsetMs == 0) {
+        await _adjustLyricsOffset(-1000);
+      }
     }
     if (!mounted) return;
     _showSnack(outcome.message);
@@ -549,9 +579,15 @@ class _SongListScreenState extends State<SongListScreen> {
 
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
   Future<void> _adjustLyricsOffset(int deltaMs) async {
-    final song = _selectedSong;
+    final snapshotSong = _selectedSong;
     final slot = _selectedTrackSlot;
-    if (song == null || slot == null) return;
+    if (snapshotSong == null || slot == null) return;
+    // 재생 스냅샷의 곡은 오래됐을 수 있다(예: 방금 받은 lrcFileName 누락).
+    // 목록의 최신 인스턴스를 기준으로 수정해 다른 필드를 잃지 않는다.
+    final song = _songs.firstWhere(
+      (s) => s.id == snapshotSong.id,
+      orElse: () => snapshotSong,
+    );
     final track = song.trackForSlot(slot);
     if (track == null) return;
 
@@ -1080,7 +1116,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onStop: _stopPlayback,
         onTogglePlayPause: _togglePlayPause,
         onRestart: _restartPlayback,
-        onSkipNext: _playback.onSongCompleted,
+        onSkipNext: _skipToNext,
         onOpenPrompter: _openPrompter,
         onSeek: _playback.seek,
         onSettingsChanged: _updateSettings,

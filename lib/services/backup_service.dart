@@ -10,18 +10,25 @@ import 'package:file_picker/file_picker.dart';
 import '../constants/app_version.dart';
 import '../models/backing_track.dart';
 import '../models/song.dart';
+import '../models/practice_session.dart';
 import '../repository/lrc_store.dart';
+import '../repository/practice_log_store.dart';
 import '../repository/song_repository.dart';
 
 class BackupService {
   final SongRepository _repo;
   final LrcStore _lrcStore;
+  final PracticeLogStore _practiceStore;
 
   /// 이 빌드가 읽고 쓸 수 있는 백업 포맷 버전.
   static const int backupFormatVersion = 2;
 
-  BackupService(this._repo, {LrcStore? lrcStore})
-    : _lrcStore = lrcStore ?? LrcStore();
+  BackupService(
+    this._repo, {
+    LrcStore? lrcStore,
+    PracticeLogStore? practiceStore,
+  }) : _lrcStore = lrcStore ?? LrcStore(),
+       _practiceStore = practiceStore ?? PracticeLogStore();
 
   Future<BackupResult?> exportAll({String appVersion = AppVersion.current}) async {
     final songs = await _repo.loadSongs();
@@ -45,6 +52,7 @@ class BackupService {
         'lyricsDir': 'txt/',
         'tracksDir': 'mp3/',
         'lrcDir': 'lrc/',
+        'practiceLog': 'practice_log.json',
       },
     };
     _addText(archive, 'backup_manifest.json', jsonEncode(manifest));
@@ -80,6 +88,19 @@ class BackupService {
       'songs.json',
       const JsonEncoder.withIndent('  ').convert(backupSongs),
     );
+
+    // 연습 기록도 함께 담는다. 작은 텍스트지만 이력 가치가 크다.
+    final practiceSessions = await _practiceStore.load();
+    if (practiceSessions.isNotEmpty) {
+      _addText(
+        archive,
+        'practice_log.json',
+        jsonEncode({
+          'schemaVersion': PracticeLogStore.schemaVersion,
+          'sessions': practiceSessions.map((s) => s.toJson()).toList(),
+        }),
+      );
+    }
 
     final bytes = ZipEncoder().encode(archive);
     await File(savePath).writeAsBytes(bytes);
@@ -174,6 +195,7 @@ class BackupService {
       }
 
       await _repo.saveSongs(nextSongs);
+      await _mergePracticeLog(archive);
       return ImportResult.success(
         songs: nextSongs,
         importedCount: list.length,
@@ -181,6 +203,35 @@ class BackupService {
       );
     } catch (e) {
       return ImportResult.failure('백업 가져오기 중 오류가 발생했습니다: $e');
+    }
+  }
+
+  /// 백업의 연습 기록을 현재 기록과 id 기준으로 병합한다.
+  /// 덮어쓰면 백업 이후 쌓인 기록이 사라지므로 합치기만 한다.
+  Future<void> _mergePracticeLog(Archive archive) async {
+    final file = archive.findFile('practice_log.json');
+    if (file == null) return;
+    try {
+      final decoded = jsonDecode(utf8.decode(file.content as List<int>));
+      if (decoded is! Map<String, dynamic>) return;
+      final sessions = decoded['sessions'];
+      if (sessions is! List) return;
+
+      final incoming = sessions
+          .whereType<Map<dynamic, dynamic>>()
+          .map((s) => PracticeSession.fromJson(s.cast<String, dynamic>()))
+          .toList();
+      final current = await _practiceStore.load();
+      final knownIds = current.map((s) => s.id).toSet();
+      final merged = [
+        ...current,
+        ...incoming.where((s) => s.id.isNotEmpty && !knownIds.contains(s.id)),
+      ];
+      if (merged.length != current.length) {
+        await _practiceStore.save(merged);
+      }
+    } catch (_) {
+      // 연습 기록 병합 실패가 백업 복원 전체를 막지 않게 한다.
     }
   }
 

@@ -1,4 +1,4 @@
-// file: lib/services/daily_goal_service.dart
+﻿// file: lib/services/daily_goal_service.dart
 //
 // 일일 루틴 체크 기록의 저장·조회.
 import 'dart:convert';
@@ -119,6 +119,22 @@ class DailyGoalService {
     final next = log.copyWith(routineId: routineId, completedStepIds: {});
     await put(next);
     return next;
+  }
+
+  /// 곡 연습 1회로 아직 남은 곡 단계(루틴곡 → 목표곡 순)를 하나 체크한다.
+  ///
+  /// 루틴곡이 이미 완료면 목표곡을 체크한다 — 두 곡 단계 모두
+  /// 실제 연습으로 채워지도록 한다.
+  Future<DailyGoalLog?> autoCompleteNextSongStep({DateTime? now}) async {
+    final routine = await autoCompleteSongStep(
+      kind: RoutineStepKind.routineSong,
+      now: now,
+    );
+    if (routine != null) return routine;
+    return autoCompleteSongStep(
+      kind: RoutineStepKind.targetSong,
+      now: now,
+    );
   }
 
   /// 곡을 실제로 연습하면 해당 단계를 자동으로 체크한다.

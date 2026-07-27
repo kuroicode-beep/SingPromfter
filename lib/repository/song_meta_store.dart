@@ -1,4 +1,4 @@
-// file: lib/repository/song_meta_store.dart
+﻿// file: lib/repository/song_meta_store.dart
 //
 // 곡 메타데이터를 data/songs.json에 저장하고 가사 파일을 함께 로드한다.
 import 'dart:convert';
@@ -52,7 +52,7 @@ class SongMetaStore {
       final raw = await file.readAsString();
       if (raw.trim().isEmpty) return [];
 
-      final entries = _decodeEntries(raw);
+      final entries = decodeEntries(raw);
       final songs = <Song>[];
       for (final json in entries) {
         final lyricsText = await _readLyricsForMeta(json);
@@ -70,7 +70,8 @@ class SongMetaStore {
   }
 
   /// v1(맨 배열)과 v2(봉투)를 모두 읽는다. 상위 버전은 거부한다.
-  List<Map<String, dynamic>> _decodeEntries(String raw) {
+  @visibleForTesting
+  static List<Map<String, dynamic>> decodeEntries(String raw) {
     final decoded = jsonDecode(raw);
 
     if (decoded is List) {
@@ -97,7 +98,7 @@ class SongMetaStore {
     return const [];
   }
 
-  List<Map<String, dynamic>> _castEntries(List<dynamic> raw) {
+  static List<Map<String, dynamic>> _castEntries(List<dynamic> raw) {
     return raw
         .whereType<Map<dynamic, dynamic>>()
         .map((e) => e.cast<String, dynamic>())

@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -62,6 +62,12 @@ class SongRepository {
     return Directory('${base.path}/mr');
   }
 
+  /// 상위 버전 songs.json을 만나 로드를 거부한 경우의 안내 문구.
+  /// 설정되면 saveSongs가 파일을 덮어쓰지 않는다.
+  String? _schemaError;
+
+  String? get schemaLoadError => _schemaError;
+
   Future<List<Song>> loadSongs() async {
     try {
       if (await _metaStore.exists()) {
@@ -106,6 +112,12 @@ class SongRepository {
       await _metaStore.save(migrated);
       await prefs.remove(_kSongsKey);
       return migrated;
+    } on SongMetaSchemaException catch (e) {
+      // 상위 버전 데이터를 빈 목록으로 착각해 덮어쓰지 않도록
+      // 오류를 기억해 두고 저장을 차단한다.
+      _schemaError = e.message;
+      debugPrint('songs.json 스키마 거부: ${e.message}');
+      return [];
     } catch (e, stack) {
       debugPrint('loadSongs 실패: $e\n$stack');
       return [];
@@ -113,6 +125,10 @@ class SongRepository {
   }
 
   Future<void> saveSongs(List<Song> songs) async {
+    if (_schemaError != null) {
+      debugPrint('상위 버전 songs.json 보호를 위해 저장을 건너뛴다.');
+      return;
+    }
     await _metaStore.save(songs);
   }
 
