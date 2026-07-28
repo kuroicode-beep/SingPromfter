@@ -186,4 +186,119 @@ void main() {
       expect(empty.sampleAt(Duration.zero), isNull);
     });
   });
+
+  group('buildLevelBands', () {
+    test('요청한 개수만큼 만든다', () {
+      expect(buildLevelBands(count: 24), hasLength(24));
+      expect(levelBands, hasLength(levelBandCount));
+    });
+
+    test('첫 밴드는 하한이, 마지막 밴드는 상한이 없다', () {
+      final bands = buildLevelBands();
+      expect(bands.first.lowHz, isNull);
+      expect(bands.last.highHz, isNull);
+    });
+
+    test('경계가 이어진다 — 사이에 빈 구간이 없다', () {
+      final bands = buildLevelBands();
+      for (var i = 0; i < bands.length - 1; i++) {
+        expect(bands[i].highHz, bands[i + 1].lowHz, reason: '밴드 $i');
+      }
+    });
+
+    test('로그 등간격이라 밴드마다 주파수 비가 같다', () {
+      final bands = buildLevelBands();
+      final ratios = <double>[];
+      for (var i = 1; i < bands.length - 1; i++) {
+        ratios.add(bands[i].highHz! / bands[i].lowHz!);
+      }
+      for (final r in ratios) {
+        expect(r, closeTo(ratios.first, 1e-9));
+      }
+    });
+
+    test('요청 범위를 벗어나지 않는다', () {
+      final bands = buildLevelBands();
+      expect(bands[1].lowHz, greaterThan(levelBandLowHz));
+      expect(bands[bands.length - 2].highHz, lessThan(levelBandHighHz + 1));
+    });
+
+    test('개수가 0이면 빈 목록', () {
+      expect(buildLevelBands(count: 0), isEmpty);
+    });
+  });
+
+  group('buildAllBandAnalysisArgs', () {
+    String filterOf(List<String> args) =>
+        args[args.indexOf('-filter_complex') + 1];
+
+    test('asplit·amerge 개수가 밴드 수와 맞는다', () {
+      final filter = filterOf(buildAllBandAnalysisArgs(input: 'a.mp3'));
+      expect(filter, contains('asplit=$levelBandCount'));
+      expect(filter, contains('amerge=inputs=$levelBandCount'));
+    });
+
+    test('라벨이 모두 소비된다 — 필터그래프가 성립해야 한다', () {
+      final filter = filterOf(buildAllBandAnalysisArgs(input: 'a.mp3'));
+      for (var i = 0; i < levelBandCount; i++) {
+        expect('[b$i]'.allMatches(filter).length, 2, reason: 'b$i');
+        expect('[c$i]'.allMatches(filter).length, 2, reason: 'c$i');
+      }
+    });
+
+    test('밴드마다 캐스케이드 단수만큼 필터를 겹친다', () {
+      final filter = filterOf(buildAllBandAnalysisArgs(input: 'a.mp3'));
+      // 첫 밴드는 lowpass만, 마지막은 highpass만, 나머지는 둘 다.
+      final expected = (levelBandCount - 2) * 2 * levelBandCascade +
+          levelBandCascade * 2;
+      final actual = 'highpass='.allMatches(filter).length +
+          'lowpass='.allMatches(filter).length;
+      expect(actual, expected);
+    });
+
+    test('채널별 RMS만 남긴다 — 안 그러면 프레임마다 수백 줄이 쏟아진다', () {
+      final filter = filterOf(buildAllBandAnalysisArgs(input: 'a.mp3'));
+      expect(filter, contains('measure_perchannel=RMS_level'));
+      expect(filter, contains('measure_overall=none'));
+    });
+
+    test('25fps를 유지한다', () {
+      final filter = filterOf(buildAllBandAnalysisArgs(input: 'a.mp3'));
+      expect(filter, contains('asetnsamples=n=1764'));
+    });
+
+    test('입력 경로를 그대로 넘긴다', () {
+      final args = buildAllBandAnalysisArgs(input: r'C:\음악\mr.mp3');
+      expect(args[args.indexOf('-i') + 1], r'C:\음악\mr.mp3');
+    });
+  });
+
+  group('parseBandRmsLevel', () {
+    test('채널 번호를 0-based 밴드로 바꾼다', () {
+      final hit = parseBandRmsLevel('lavfi.astats.1.RMS_level=-31.25');
+      expect(hit!.band, 0);
+      expect(hit.dbfs, closeTo(-31.25, 1e-9));
+    });
+
+    test('24번 채널은 23번 밴드', () {
+      expect(parseBandRmsLevel('lavfi.astats.24.RMS_level=-5')!.band, 23);
+    });
+
+    test('무음(-inf)은 -100으로 본다', () {
+      expect(parseBandRmsLevel('lavfi.astats.3.RMS_level=-inf')!.dbfs, -100.0);
+    });
+
+    test('nan도 -100', () {
+      expect(parseBandRmsLevel('lavfi.astats.3.RMS_level=nan')!.dbfs, -100.0);
+    });
+
+    test('Overall 줄은 무시한다', () {
+      expect(parseBandRmsLevel('lavfi.astats.Overall.RMS_level=-20'), isNull);
+    });
+
+    test('관계없는 줄은 null', () {
+      expect(parseBandRmsLevel('frame:12 pts:1764'), isNull);
+      expect(parseBandRmsLevel(''), isNull);
+    });
+  });
 }
