@@ -48,6 +48,7 @@ class SongListScreenContent extends StatelessWidget {
   final String? ytDlpMissingReason;
   final void Function(String url, MrSourceMode mode) onStartYoutubeImport;
   final ValueChanged<String> onCancelImportJob;
+  final ValueChanged<String> onRetryImportJob;
   final VoidCallback onClearFinishedImports;
   final VoidCallback onLocateYtDlp;
   final String? ytDlpVersion;
@@ -139,6 +140,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.ytDlpMissingReason,
     required this.onStartYoutubeImport,
     required this.onCancelImportJob,
+    required this.onRetryImportJob,
     required this.onClearFinishedImports,
     required this.onLocateYtDlp,
     this.ytDlpVersion,
@@ -380,6 +382,7 @@ class SongListScreenContent extends StatelessWidget {
       importProgress: ImportProgressStrip(
         jobs: importJobs,
         onCancel: onCancelImportJob,
+        onRetry: onRetryImportJob,
         onOpenJobs: () => onDestinationChanged(AppDestination.jobs),
       ),
       importPanel: YoutubeImportPanel(
@@ -388,6 +391,7 @@ class SongListScreenContent extends StatelessWidget {
         toolMissingReason: ytDlpMissingReason,
         onSubmit: onStartYoutubeImport,
         onCancelJob: onCancelImportJob,
+        onRetryJob: onRetryImportJob,
         onClearFinished: onClearFinishedImports,
         onLocateTool: onLocateYtDlp,
         toolVersion: ytDlpVersion,

@@ -66,6 +66,102 @@ void main() {
     });
   });
 
+  group('ImportJobController.retry', () {
+    test('실패한 작업을 대기로 되돌리고 runner를 다시 부른다', () async {
+      var runCount = 0;
+      late ImportJobController controller;
+      controller = ImportJobController(
+        runner: (job, {required onProgress, required onCancel}) async {
+          runCount++;
+          if (runCount == 1) {
+            // 첫 실행은 실패 처리한다.
+            final current = controller.jobById(job.id)!;
+            controller.update(
+              current.copyWith(
+                status: ImportJobStatus.failed,
+                statusDetail: '네트워크 오류',
+              ),
+            );
+          }
+        },
+      );
+
+      final job = controller.enqueue(
+        url: 'https://youtu.be/x',
+        mode: MrSourceMode.asIs,
+        id: 'j1',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.jobById(job.id)!.status, ImportJobStatus.failed);
+      expect(runCount, 1);
+
+      controller.retry(job.id);
+      // retry 직후 statusDetail·ratio가 초기화된다.
+      await Future<void>.delayed(Duration.zero);
+      expect(runCount, 2);
+      final after = controller.jobById(job.id)!;
+      expect(after.status, ImportJobStatus.running);
+      controller.dispose();
+    });
+
+    test('진행 중/완료 작업에는 무동작이다', () async {
+      var runCount = 0;
+      final controller = ImportJobController(
+        runner: (job, {required onProgress, required onCancel}) async {
+          runCount++;
+        },
+      );
+      final job = controller.enqueue(
+        url: 'https://youtu.be/y',
+        mode: MrSourceMode.asIs,
+        id: 'j2',
+      );
+      await Future<void>.delayed(Duration.zero);
+      // 완료 상태로 만든다.
+      controller.update(
+        controller.jobById(job.id)!.copyWith(status: ImportJobStatus.done),
+      );
+      controller.retry(job.id);
+      await Future<void>.delayed(Duration.zero);
+      expect(runCount, 1);
+      expect(controller.jobById(job.id)!.status, ImportJobStatus.done);
+      controller.dispose();
+    });
+
+    test('취소된 작업도 재시도할 수 있다', () async {
+      final controller = ImportJobController(
+        runner: (job, {required onProgress, required onCancel}) async {
+          // 실행을 붙잡아 두지 않는다 — 취소 후 상태만 검증.
+        },
+      );
+      final job = controller.enqueue(
+        url: 'https://youtu.be/z',
+        mode: MrSourceMode.asIs,
+        id: 'j3',
+      );
+      controller.cancel(job.id);
+      expect(controller.jobById(job.id)!.status, ImportJobStatus.cancelled);
+
+      controller.retry(job.id);
+      await Future<void>.delayed(Duration.zero);
+      // queued → running(또는 즉시 완료된 runner 이후 상태) — 최소한 취소는 풀린다.
+      expect(
+        controller.jobById(job.id)!.status,
+        isNot(ImportJobStatus.cancelled),
+      );
+      controller.dispose();
+    });
+  });
+
+  group('ImportJob.copyWith', () {
+    test('clearStatusDetail이 상세 메시지를 지운다', () {
+      final j = job('a', ImportJobStatus.failed)
+          .copyWith(statusDetail: '오류');
+      expect(j.statusDetail, '오류');
+      expect(j.copyWith(clearStatusDetail: true).statusDetail, isNull);
+    });
+  });
+
   group('ImportJobStatus 라벨', () {
     test('모든 상태에 한국어 텍스트 라벨이 있다 (색만으로 구분 금지)', () {
       for (final status in ImportJobStatus.values) {

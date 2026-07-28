@@ -17,6 +17,7 @@ class YoutubeImportPanel extends StatefulWidget {
   final String? toolMissingReason;
   final void Function(String url, MrSourceMode mode) onSubmit;
   final ValueChanged<String> onCancelJob;
+  final ValueChanged<String> onRetryJob;
   final VoidCallback onClearFinished;
   final VoidCallback onLocateTool;
   final String? toolVersion;
@@ -30,6 +31,7 @@ class YoutubeImportPanel extends StatefulWidget {
     required this.toolMissingReason,
     required this.onSubmit,
     required this.onCancelJob,
+    required this.onRetryJob,
     required this.onClearFinished,
     required this.onLocateTool,
     this.toolVersion,
@@ -158,7 +160,11 @@ class _YoutubeImportPanelState extends State<YoutubeImportPanel> {
           Text('아직 가져온 작업이 없습니다.', style: AppTypography.bodyMuted)
         else
           ...widget.jobs.map(
-            (job) => _JobRow(job: job, onCancel: () => widget.onCancelJob(job.id)),
+            (job) => _JobRow(
+              job: job,
+              onCancel: () => widget.onCancelJob(job.id),
+              onRetry: () => widget.onRetryJob(job.id),
+            ),
           ),
       ],
     );
@@ -303,8 +309,13 @@ class _ModeOption extends StatelessWidget {
 class _JobRow extends StatelessWidget {
   final ImportJob job;
   final VoidCallback onCancel;
+  final VoidCallback onRetry;
 
-  const _JobRow({required this.job, required this.onCancel});
+  const _JobRow({
+    required this.job,
+    required this.onCancel,
+    required this.onRetry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -339,6 +350,17 @@ class _JobRow extends StatelessWidget {
                       minHeight: AppConstants.minTouchTarget,
                     ),
                     onPressed: onCancel,
+                  ),
+                ] else if (job.status == ImportJobStatus.failed ||
+                    job.status == ImportJobStatus.cancelled) ...[
+                  const SizedBox(width: 4),
+                  TextButton(
+                    onPressed: onRetry,
+                    style: TextButton.styleFrom(
+                      minimumSize:
+                          const Size(88, AppConstants.minTouchTarget),
+                    ),
+                    child: const Text('다시 시도'),
                   ),
                 ],
               ],

@@ -63,6 +63,7 @@ class ImportJob {
     String? resultAudioPath,
     String? songId,
     bool clearRatio = false,
+    bool clearStatusDetail = false,
   }) {
     return ImportJob(
       id: id,
@@ -71,7 +72,8 @@ class ImportJob {
       status: status ?? this.status,
       title: title ?? this.title,
       ratio: clearRatio ? null : (ratio ?? this.ratio),
-      statusDetail: statusDetail ?? this.statusDetail,
+      statusDetail:
+          clearStatusDetail ? null : (statusDetail ?? this.statusDetail),
       resultAudioPath: resultAudioPath ?? this.resultAudioPath,
       fetchLyrics: fetchLyrics,
       songId: songId ?? this.songId,
@@ -173,6 +175,25 @@ class ImportJobController extends ChangeNotifier {
       ),
     );
     _cancels.remove(id);
+    _pump();
+  }
+
+  /// 실패/취소된 작업을 대기 상태로 되돌려 다시 실행한다.
+  /// url·모드·가사 옵션은 잡에 그대로 남아 있어 재입력이 필요 없다.
+  void retry(String id) {
+    final job = jobById(id);
+    if (job == null) return;
+    if (job.status != ImportJobStatus.failed &&
+        job.status != ImportJobStatus.cancelled) {
+      return;
+    }
+    update(
+      job.copyWith(
+        status: ImportJobStatus.queued,
+        clearRatio: true,
+        clearStatusDetail: true,
+      ),
+    );
     _pump();
   }
 

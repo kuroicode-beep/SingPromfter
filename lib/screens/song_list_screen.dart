@@ -1239,6 +1239,7 @@ class _SongListScreenState extends State<SongListScreen> {
         ytDlpMissingReason: _ytDlpMissingReason,
         onStartYoutubeImport: _startYoutubeImport,
         onCancelImportJob: _importJobs.cancel,
+        onRetryImportJob: _importJobs.retry,
         onClearFinishedImports: _importJobs.clearFinished,
         onLocateYtDlp: _locateYtDlp,
         ytDlpVersion: _ytDlpVersion,
