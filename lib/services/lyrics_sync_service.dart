@@ -1,4 +1,4 @@
-// file: lib/services/lyrics_sync_service.dart
+﻿// file: lib/services/lyrics_sync_service.dart
 //
 // 싱크 가사 가져오기·저장·조회를 한곳에서 다룬다.
 import 'package:flutter/foundation.dart';
@@ -55,6 +55,13 @@ class LyricsSyncService {
       if (candidate == null || !candidate.hasSynced) {
         final query = '${song.title} ${song.artist}'.trim();
         final results = await _client.search(query: query);
+        candidate = _pickBest(results, duration: duration);
+      }
+
+      // 가수가 채널명 등으로 오염됐을 수 있어 제목만으로 한 번 더 찾는다.
+      if ((candidate == null || !candidate.hasSynced) &&
+          song.artist.trim().isNotEmpty) {
+        final results = await _client.search(query: song.title.trim());
         candidate = _pickBest(results, duration: duration);
       }
 

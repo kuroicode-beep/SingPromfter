@@ -23,6 +23,7 @@ import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../utils/key_label.dart';
 import '../utils/pitch_math.dart';
+import '../utils/youtube_title_cleaner.dart';
 import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
@@ -953,12 +954,18 @@ class _SongListScreenState extends State<SongListScreen> {
     required String audioPath,
   }) async {
     try {
-      final title = _libraryService.hasDuplicateTitle(_songs, metadata.title)
-          ? '${metadata.title} (가져오기)'
-          : metadata.title;
+      // 유튜브 제목의 MR/노래방/키 표기를 걷어내고 가수를 분리한다 —
+      // 곡 목록 표기와 가사 검색 적중률 양쪽에 중요하다.
+      final cleaned = cleanYoutubeSongName(
+        metadata.title,
+        uploader: metadata.uploader,
+      );
+      final title = _libraryService.hasDuplicateTitle(_songs, cleaned.title)
+          ? '${cleaned.title} (가져오기)'
+          : cleaned.title;
       final draft = SongDraft(
         title: title.isEmpty ? '제목 없음' : title,
-        artist: metadata.uploader,
+        artist: cleaned.artist ?? metadata.uploader,
         trackPaths: {1: audioPath},
         trackLabels: {1: 'MR1'},
       );
