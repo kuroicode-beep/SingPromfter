@@ -53,7 +53,6 @@ class PrompterNavigation {
           fontSizeLevel: initial.fontSizeLevel,
           lineHeightLevel: initial.lineHeightLevel,
           customFontSizePt: initial.customFontSizePt,
-          speedLevel: initial.speedLevel,
           volume: initial.volume,
           fontFamily: fontFamily,
           boldText: initial.boldText,
@@ -71,8 +70,6 @@ class PrompterNavigation {
           ),
           onLineHeightLevelChanged: (value) =>
               update((s) => s.copyWith(lineHeightLevel: value)),
-          onSpeedLevelChanged: (value) =>
-              update((s) => s.copyWith(speedLevel: value)),
           onVolumeChanged: (value) => update((s) => s.copyWith(volume: value)),
         ),
       ),

@@ -16,8 +16,7 @@ void main() {
       const original = PrompterSettings(
         fontSizeLevel: 5,
         lineHeightLevel: 4,
-        speedLevel: 3,
-        volume: 0.7,
+          volume: 0.7,
         playbackRate: 1.25,
         lastSelectedTrackSlot: 2,
         fontFamily: 'Malgun Gothic',

@@ -283,17 +283,11 @@ class PlaybackController {
       return;
     }
 
-    // 추정 진행은 속도가 0이면 계산 자체가 0을 돌려준다.
-    // 그대로 쓰면 줄이 첫 줄로 튀므로, 이 경우엔 현재 줄을 유지한다.
-    final speedLevel = settingsProvider().speedLevel;
-    if (speedLevel <= 0) return;
-
     final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
     final next = LyricsProgressService.estimatedLineIndex(
       position: current,
       duration: state.value.duration,
       lineCount: lines,
-      speedLevel: speedLevel,
     );
     if (next != lineIndex.value) lineIndex.value = next;
   }
@@ -387,7 +381,6 @@ class PlaybackController {
       index: clamped,
       duration: state.value.duration,
       lineCount: total,
-      speedLevel: settingsProvider().speedLevel,
     );
     if (estimated != null) {
       await seek(estimated + Duration(milliseconds: state.value.trackStartMs ?? 0));
@@ -406,6 +399,10 @@ class PlaybackController {
   /// 곡 처음(트림 시작)으로. Home 단축키.
   Future<void> jumpToStart() =>
       seek(Duration(milliseconds: state.value.trackStartMs ?? 0));
+
+  /// 현재 위치에서 [delta]만큼 건너뛴다. ←/→ 단축키.
+  /// seek이 트림·길이로 클램프하므로 곡 밖으로 나가지 않는다.
+  Future<void> seekRelative(Duration delta) => seek(position.value + delta);
 
   /// 곡 끝(트림 끝)으로. End 단축키.
   /// seek이 트림·길이로 클램프하므로 큰 값을 넘겨도 안전하다.

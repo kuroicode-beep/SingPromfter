@@ -21,6 +21,10 @@ class PrompterKeyboardScope extends StatefulWidget {
   /// End — 곡 끝(트림 끝)으로.
   final VoidCallback? onJumpToEnd;
 
+  /// ←/→ — 5초 뒤로/앞으로. Shift와 함께면 30초.
+  /// v2.8.0 전에는 이 키가 가사 속도 조절이었다.
+  final ValueChanged<Duration>? onSeekRelative;
+
   final bool enablePlaybackShortcuts;
 
   const PrompterKeyboardScope({
@@ -33,6 +37,7 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onClose,
     this.onJumpToStart,
     this.onJumpToEnd,
+    this.onSeekRelative,
     this.enablePlaybackShortcuts = true,
   });
 
@@ -93,6 +98,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       }
     }
 
+    final seek = SongListShortcutService.seekDeltaFor(
+      key,
+      shift: HardwareKeyboard.instance.isShiftPressed,
+    );
+    if (seek != null && widget.onSeekRelative != null) {
+      widget.onSeekRelative!(seek);
+      return KeyEventResult.handled;
+    }
+
     final adjusted = SongListShortcutService.adjustSettings(widget.settings, key);
     if (adjusted != null) {
       widget.onSettingsChanged(adjusted);
@@ -128,10 +142,16 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       const SingleActivator(LogicalKeyboardKey.arrowUp): const _VolumeUpIntent(),
       const SingleActivator(LogicalKeyboardKey.arrowDown):
           const _VolumeDownIntent(),
-      const SingleActivator(LogicalKeyboardKey.arrowLeft):
-          const _SpeedDownIntent(),
-      const SingleActivator(LogicalKeyboardKey.arrowRight):
-          const _SpeedUpIntent(),
+      if (widget.onSeekRelative != null) ...{
+        const SingleActivator(LogicalKeyboardKey.arrowLeft):
+            const _SeekBackIntent(),
+        const SingleActivator(LogicalKeyboardKey.arrowRight):
+            const _SeekForwardIntent(),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true):
+            const _SeekBackIntent(large: true),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true):
+            const _SeekForwardIntent(large: true),
+      },
       if (widget.enablePlaybackShortcuts) ...{
         const SingleActivator(LogicalKeyboardKey.space):
             const _TogglePlayPauseIntent(),
@@ -169,20 +189,30 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
           return null;
         },
       ),
-      _SpeedUpIntent: CallbackAction<_SpeedUpIntent>(
-        onInvoke: (_) {
-          final next = adjust(LogicalKeyboardKey.arrowRight);
-          if (next != null) widget.onSettingsChanged(next);
-          return null;
-        },
-      ),
-      _SpeedDownIntent: CallbackAction<_SpeedDownIntent>(
-        onInvoke: (_) {
-          final next = adjust(LogicalKeyboardKey.arrowLeft);
-          if (next != null) widget.onSettingsChanged(next);
-          return null;
-        },
-      ),
+      if (widget.onSeekRelative != null) ...{
+        _SeekForwardIntent: CallbackAction<_SeekForwardIntent>(
+          onInvoke: (intent) {
+            if (SongListShortcutService.isTextInputFocused()) return null;
+            widget.onSeekRelative!(
+              intent.large
+                  ? SongListShortcutService.seekStepLarge
+                  : SongListShortcutService.seekStep,
+            );
+            return null;
+          },
+        ),
+        _SeekBackIntent: CallbackAction<_SeekBackIntent>(
+          onInvoke: (intent) {
+            if (SongListShortcutService.isTextInputFocused()) return null;
+            widget.onSeekRelative!(
+              -(intent.large
+                  ? SongListShortcutService.seekStepLarge
+                  : SongListShortcutService.seekStep),
+            );
+            return null;
+          },
+        ),
+      },
       if (widget.enablePlaybackShortcuts) ...{
         _TogglePlayPauseIntent: CallbackAction<_TogglePlayPauseIntent>(
           onInvoke: (_) {
@@ -232,12 +262,14 @@ class _VolumeDownIntent extends Intent {
   const _VolumeDownIntent();
 }
 
-class _SpeedUpIntent extends Intent {
-  const _SpeedUpIntent();
+class _SeekForwardIntent extends Intent {
+  final bool large;
+  const _SeekForwardIntent({this.large = false});
 }
 
-class _SpeedDownIntent extends Intent {
-  const _SpeedDownIntent();
+class _SeekBackIntent extends Intent {
+  final bool large;
+  const _SeekBackIntent({this.large = false});
 }
 
 class _TogglePlayPauseIntent extends Intent {

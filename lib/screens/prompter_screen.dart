@@ -32,7 +32,6 @@ class PrompterScreen extends StatefulWidget {
   final double? fontSizeLevel;
   final double? lineHeightLevel;
   final double? customFontSizePt;
-  final double speedLevel;
   final double volume;
   final String? fontFamily;
   final bool boldText;
@@ -56,7 +55,6 @@ class PrompterScreen extends StatefulWidget {
   final ValueChanged<PrompterDisplayMode>? onDisplayModeChanged;
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
-  final ValueChanged<double>? onSpeedLevelChanged;
   final ValueChanged<double>? onVolumeChanged;
 
   const PrompterScreen({
@@ -68,7 +66,6 @@ class PrompterScreen extends StatefulWidget {
     this.fontSizeLevel,
     this.lineHeightLevel,
     this.customFontSizePt,
-    this.speedLevel = 0,
     this.volume = 1,
     this.fontFamily,
     this.boldText = false,
@@ -82,7 +79,6 @@ class PrompterScreen extends StatefulWidget {
     this.onDisplayModeChanged,
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
-    this.onSpeedLevelChanged,
     this.onVolumeChanged,
   });
 
@@ -97,7 +93,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
-  late double _speedLevel;
   late PrompterDisplayMode _displayMode;
 
   @override
@@ -107,7 +102,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _lineHeightLevel =
         widget.lineHeightLevel ?? _lineHeightToLevel(widget.lineHeight);
     _customFontSizePt = widget.customFontSizePt;
-    _speedLevel = widget.speedLevel;
     _displayMode = widget.displayMode;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
@@ -123,7 +117,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
   PrompterSettings get _keyboardSettings => PrompterSettings(
     fontSizeLevel: _fontSizeLevel,
     lineHeightLevel: _lineHeightLevel,
-    speedLevel: _speedLevel,
     volume: widget.volume,
     fontFamily: widget.fontFamily ?? '기본',
     boldText: widget.boldText,
@@ -134,9 +127,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
   void _applyKeyboardSettings(PrompterSettings next) {
     if (next.volume != widget.volume) {
       widget.onVolumeChanged?.call(next.volume);
-    }
-    if (next.speedLevel != _speedLevel) {
-      _updateSpeedLevel(next.speedLevel);
     }
   }
 
@@ -187,11 +177,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
     widget.onLineHeightLevelChanged?.call(value);
   }
 
-  void _updateSpeedLevel(double value) {
-    setState(() => _speedLevel = value);
-    widget.onSpeedLevelChanged?.call(value);
-  }
-
   void _toggleControls() =>
       setState(() => _controlsVisible = !_controlsVisible);
 
@@ -208,6 +193,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
         onClose: () => Navigator.pop(context),
         onJumpToStart: widget.playback.jumpToStart,
         onJumpToEnd: widget.playback.jumpToEnd,
+        onSeekRelative: widget.playback.seekRelative,
         child: PrompterWheelScope(
           onStepLine: widget.playback.stepLine,
           onStepFontSize: _stepFontSize,
@@ -521,15 +507,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
                       max: 7,
                       divisions: 6,
                       onChanged: _updateLineHeightLevel,
-                    ),
-                    const SizedBox(width: 10),
-                    _InlineSlider(
-                      label: '속도',
-                      value: _speedLevel,
-                      min: 0,
-                      max: 10,
-                      divisions: 20,
-                      onChanged: _updateSpeedLevel,
                     ),
                     const SizedBox(width: 10),
                     _BarIconButton(

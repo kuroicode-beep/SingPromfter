@@ -194,7 +194,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               const SizedBox(width: 12),
               Expanded(
                 child: MiniSlider(
-                  label: '재생속도',
+                  label: '속도',
                   value: widget.settings.playbackRate,
                   min: 0.5,
                   max: 1.5,
@@ -271,17 +271,6 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            MiniSlider(
-              label: '속도',
-              value: widget.settings.speedLevel,
-              min: 0,
-              max: 10,
-              divisions: 20,
-              onChanged: (v) => widget.onSettingsChanged(
-                widget.settings.copyWith(speedLevel: v),
-              ),
             ),
             const SizedBox(height: 8),
             Wrap(

@@ -896,6 +896,7 @@ class _SongListScreenState extends State<SongListScreen> {
       },
       onJumpToStart: _playback.jumpToStart,
       onJumpToEnd: _playback.jumpToEnd,
+      onSeekRelative: _playback.seekRelative,
       child: SongListScreenContent(
         loading: _loading,
         destination: _destination,
