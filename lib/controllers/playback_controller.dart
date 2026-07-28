@@ -13,6 +13,7 @@ import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../models/timed_lyrics.dart';
+import '../models/track_levels.dart';
 import '../repository/song_repository.dart';
 import '../services/lyrics_progress_service.dart';
 import '../services/prompter_audio_service.dart';
@@ -94,6 +95,9 @@ class PlaybackController {
   final Future<String?> Function(Song song, int slot, int semitones)?
   pitchVariantResolver;
 
+  /// 반주의 EQ 밴드 레벨을 읽어온다(없으면 백그라운드 분석 후 늦게 도착).
+  final Future<TrackLevels?> Function(Song song, int slot)? levelsLoader;
+
   /// 녹음 중이면 true. 녹음 중에는 자동으로 다음 곡으로 넘어가지 않는다.
   bool Function()? isRecordingProvider;
 
@@ -112,6 +116,9 @@ class PlaybackController {
 
   /// 현재 곡의 싱크 가사. 없으면 null이고 timed 모드는 추정으로 되돌아간다.
   final ValueNotifier<TimedLyrics?> timedLyrics = ValueNotifier(null);
+
+  /// 현재 반주의 EQ 밴드 레벨. 분석 전이거나 없으면 null.
+  final ValueNotifier<TrackLevels?> trackLevels = ValueNotifier(null);
 
   final PositionClock _clock = PositionClock();
   Ticker? _ticker;
@@ -138,6 +145,7 @@ class PlaybackController {
     required this.onMessage,
     this.timedLyricsLoader,
     this.pitchVariantResolver,
+    this.levelsLoader,
     this.onPracticeSessionEnded,
   });
 
@@ -170,6 +178,7 @@ class PlaybackController {
     lineIndex.dispose();
     autoScrollPaused.dispose();
     timedLyrics.dispose();
+    trackLevels.dispose();
   }
 
   /// 가사 오프셋 변경을 즉시 반영한다.
@@ -383,6 +392,7 @@ class PlaybackController {
 
     // 싱크 가사는 곡 단위라 슬롯 전환 때는 다시 읽지 않는다.
     timedLyrics.value = await timedLyricsLoader?.call(song);
+    _reloadTrackLevels(song, resolvedSlot);
 
     await repo.saveLastSongId(song.id);
     await prepareAudioForSelection();
@@ -446,7 +456,23 @@ class PlaybackController {
         lyricsOffsetMs: track?.lyricsOffsetMs ?? 0,
       ),
     );
+    _reloadTrackLevels(song, slot);
     await prepareAudioForSelection();
+  }
+
+  /// 레벨을 비웠다가 로더 완료 시 채운다.
+  /// 로드 중에 곡·슬롯이 바뀌었으면 결과를 버린다(경합 가드).
+  void _reloadTrackLevels(Song song, int? slot) {
+    trackLevels.value = null;
+    if (slot == null || levelsLoader == null) return;
+    unawaited(
+      levelsLoader!(song, slot).then((levels) {
+        if (_disposed) return;
+        if (state.value.song?.id != song.id) return;
+        if (state.value.trackSlot != slot) return;
+        trackLevels.value = levels;
+      }),
+    );
   }
 
   Future<void> togglePlayPause() async {

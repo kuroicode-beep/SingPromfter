@@ -1,4 +1,4 @@
-// file: lib/navigation/prompter_navigation.dart
+﻿// file: lib/navigation/prompter_navigation.dart
 //
 // 전체화면 프롬프터 라우팅 구성을 담당한다.
 //
@@ -41,6 +41,7 @@ class PrompterNavigation {
           fontFamily: fontFamily,
           boldText: settings.boldText,
           displayMode: settings.displayMode,
+          showEqMeter: settings.showEqMeter,
           onDisplayModeChanged: (mode) =>
               onSettingsChanged(settings.copyWith(displayMode: mode)),
           onFontSizeLevelChanged: (value) => onSettingsChanged(

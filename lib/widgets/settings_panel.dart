@@ -13,6 +13,8 @@ import 'preset_btn.dart';
 class SettingsPanel extends StatelessWidget {
   final List<PracticeSummary> practiceSummaries;
   final String? ytDlpVersion;
+  final bool showEqMeter;
+  final ValueChanged<bool> onToggleEqMeter;
   final String separatorStatusLabel;
   final VoidCallback onUpdateYtDlp;
   final VoidCallback onExportBackup;
@@ -25,6 +27,8 @@ class SettingsPanel extends StatelessWidget {
     super.key,
     this.practiceSummaries = const [],
     this.ytDlpVersion,
+    this.showEqMeter = true,
+    required this.onToggleEqMeter,
     this.separatorStatusLabel = '',
     required this.onUpdateYtDlp,
     required this.onExportBackup,
@@ -115,6 +119,25 @@ class SettingsPanel extends StatelessWidget {
               onTap: onCustomFontSize,
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        // 상태를 색·스위치만으로 구분하지 않도록 켜짐/꺼짐 텍스트를 병기한다.
+        Semantics(
+          label: '무대 EQ 애니메이션',
+          toggled: showEqMeter,
+          child: SwitchListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+            title: Text('무대 EQ 애니메이션', style: AppTypography.body),
+            subtitle: Text(
+              showEqMeter
+                  ? '켜짐 — 전체화면 좌측 아래에 음악 반응 미터 표시'
+                  : '꺼짐 — 움직임이 신경 쓰이면 꺼 둘 수 있습니다',
+              style: AppTypography.bodyMuted,
+            ),
+            value: showEqMeter,
+            activeThumbColor: AppColors.primary,
+            onChanged: onToggleEqMeter,
+          ),
         ),
         const SizedBox(height: 24),
         const _DisplaySettingsSection(),

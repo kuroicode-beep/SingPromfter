@@ -7,6 +7,7 @@ import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
+import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_progress_bar.dart';
 import '../widgets/prompter_keyboard_scope.dart';
@@ -28,6 +29,7 @@ class PrompterScreen extends StatefulWidget {
   final String? fontFamily;
   final bool boldText;
   final PrompterDisplayMode displayMode;
+  final bool showEqMeter;
   final ValueChanged<PrompterDisplayMode>? onDisplayModeChanged;
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
@@ -48,6 +50,7 @@ class PrompterScreen extends StatefulWidget {
     this.fontFamily,
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
+    this.showEqMeter = true,
     this.onDisplayModeChanged,
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
@@ -206,6 +209,13 @@ class _PrompterScreenState extends State<PrompterScreen> {
                     mutedColor: Colors.white70,
                   ),
                 ),
+                // 좌하단 EQ — 컨트롤 페이드와 무관한 무대 분위기 요소.
+                if (widget.showEqMeter)
+                  Positioned(
+                    left: 16,
+                    bottom: 118,
+                    child: PrompterEqMeter(playback: widget.playback),
+                  ),
                 if (_controlsVisible) _buildTopBar(),
                 _buildBottomBar(),
               ],

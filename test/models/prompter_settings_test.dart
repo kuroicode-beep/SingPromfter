@@ -44,5 +44,15 @@ void main() {
 
       expect(settings.effectiveFontSizePt, 48);
     });
+
+    test('showEqMeter는 기본 켜짐이고 직렬화 왕복된다', () {
+      const original = PrompterSettings(showEqMeter: false);
+      final restored = PrompterSettings.decode(
+        PrompterSettings.encode(original),
+      );
+      expect(restored.showEqMeter, isFalse);
+      // 기존 저장 데이터(필드 없음)는 기본값 true.
+      expect(PrompterSettings.fromJson(const {}).showEqMeter, isTrue);
+    });
   });
 }

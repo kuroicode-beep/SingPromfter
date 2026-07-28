@@ -21,6 +21,7 @@ import '../models/queue_item.dart';
 import '../models/recording_take.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
+import '../models/track_levels.dart';
 import '../utils/key_label.dart';
 import '../utils/pitch_math.dart';
 import '../utils/youtube_title_cleaner.dart';
@@ -46,6 +47,7 @@ import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../services/take_mix_service.dart';
 import '../services/vocal_separation_client.dart';
+import '../services/level_analysis_service.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
@@ -70,6 +72,7 @@ class _SongListScreenState extends State<SongListScreen> {
   final _practiceLog = PracticeLogService();
   final _lyricsSync = LyricsSyncService();
   late final _pitchVariants = PitchVariantService(locator: _toolLocator);
+  late final _levelAnalysis = LevelAnalysisService(locator: _toolLocator);
   final _toolLocator = ExternalToolLocator();
   late final _youtubeImport = YoutubeImportService(
     tmpDirProvider: _repo.getTmpDir,
@@ -138,6 +141,7 @@ class _SongListScreenState extends State<SongListScreen> {
       onMessage: _showSnack,
       timedLyricsLoader: _lyricsSync.loadFor,
       pitchVariantResolver: _resolvePitchVariant,
+      levelsLoader: _loadTrackLevels,
       onPracticeSessionEnded: (snapshot, played) {
         unawaited(_recordPractice(snapshot, played));
       },
@@ -728,6 +732,20 @@ class _SongListScreenState extends State<SongListScreen> {
 
   // ── 유튜브 가져오기 ─────────────────────────────────────
 
+  /// EQ 미터용 밴드 레벨. 캐시가 있으면 즉시, 없으면 백그라운드 분석 후 반환.
+  Future<TrackLevels?> _loadTrackLevels(Song song, int slot) async {
+    final track = song.trackForSlot(slot);
+    if (track == null) return null;
+    final cached = await _levelAnalysis.cached(track.fileName);
+    if (cached != null) return cached;
+    final sourcePath = await _repo.getBackingTrackPath(track.fileName);
+    if (sourcePath == null || !await File(sourcePath).exists()) return null;
+    return _levelAnalysis.analyze(
+      sourcePath: sourcePath,
+      sourceFileName: track.fileName,
+    );
+  }
+
   /// 홈의 서버 상태 표시가 낡지 않도록 30초마다 가볍게 갱신한다.
   /// (분리 서버 status는 3초 타임아웃의 GET 하나 — 부담 없음)
   void _startStatusRefresh() {
@@ -910,6 +928,9 @@ class _SongListScreenState extends State<SongListScreen> {
       _failJob(job, '곡 등록에 실패했습니다.');
       return;
     }
+
+    // 첫 무대 진입 때 EQ가 바로 뜨도록 등록 직후 백그라운드로 선분석한다.
+    unawaited(_loadTrackLevels(song, 1));
 
     // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
     var lyricsNote = '';
@@ -1334,6 +1355,8 @@ class _SongListScreenState extends State<SongListScreen> {
         onSettingsChanged: _updateSettings,
         onCustomFontSize: _showCustomFontSizeDialog,
         onAccessibilityPreset: _applyAccessibilityPreset,
+        onToggleEqMeter: (value) =>
+            _updateSettings(_settings.copyWith(showEqMeter: value)),
         onMessage: _showSnack,
         onClearQueue: _clearQueue,
         onReorderQueue: _reorderQueue,
