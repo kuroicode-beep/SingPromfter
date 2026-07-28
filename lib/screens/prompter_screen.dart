@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../widgets/prompter_eq_meter.dart';
+import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_progress_bar.dart';
 import '../widgets/prompter_keyboard_scope.dart';
@@ -182,47 +183,84 @@ class _PrompterScreenState extends State<PrompterScreen> {
         onClose: () => Navigator.pop(context),
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: GestureDetector(
-            onTap: _toggleControls,
-            child: Stack(
-              children: [
-                // 하이라이트 줄만 구독해 갱신한다. 위치(60Hz)는 진행바가 따로 받는다.
-                ValueListenableBuilder<int>(
-                  valueListenable: widget.playback.lineIndex,
-                  builder: (context, lineIndex, _) => PrompterLyricsView(
-                    lyricsText: widget.song.lyricsText,
-                    timedLyrics: widget.playback.timedLyrics.value,
-                    displayMode: _displayMode,
-                    fontSize: _fontSize,
-                    lineHeight: _lineHeight,
-                    fontFamily: widget.fontFamily,
-                    boldText: widget.boldText,
-                    highlightLineIndex: lineIndex,
-                    scrollController: _scrollController,
-                    padding: EdgeInsets.fromLTRB(
-                      32,
-                      _controlsVisible ? 80 : 48,
-                      32,
-                      110,
-                    ),
-                    textColor: Colors.white,
-                    mutedColor: Colors.white70,
-                  ),
-                ),
-                // 좌하단 EQ — 컨트롤 페이드와 무관한 무대 분위기 요소.
-                if (widget.showEqMeter)
-                  Positioned(
-                    left: 16,
-                    bottom: 118,
-                    child: PrompterEqMeter(playback: widget.playback),
-                  ),
-                if (_controlsVisible) _buildTopBar(),
-                _buildBottomBar(),
-              ],
-            ),
+          // 하단 바를 Stack 오버레이가 아니라 Column 형제로 둔다.
+          // 겹침을 상수로 어림잡지 않고 레이아웃 구조로 불가능하게 만든다
+          // (이전에는 하단 바가 EQ 미터를 덮어 막대가 보이지 않았다).
+          body: Column(
+            children: [
+              Expanded(child: _buildStage()),
+              _buildBottomBar(),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  /// 무대 영역 — 가사 + EQ 밴드 + 상단 바.
+  ///
+  /// 가사 뷰포트를 EQ 밴드 높이만큼 잘라(Positioned.fill의 bottom) 스크롤
+  /// 중에도 가사 픽셀이 밴드로 넘어오지 못하게 한다. 패딩만으로는 스크롤
+  /// 중 통과를 막을 수 없다.
+  Widget _buildStage() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stage = Size(constraints.maxWidth, constraints.maxHeight);
+        final band = PrompterStageMetrics.bandHeight(
+          stage,
+          showEq: widget.showEqMeter,
+        );
+        final meter = PrompterStageMetrics.meterSize(
+          stage,
+          showEq: widget.showEqMeter,
+        );
+        return Stack(
+          children: [
+            Positioned.fill(
+              bottom: band,
+              child: ValueListenableBuilder<int>(
+                valueListenable: widget.playback.lineIndex,
+                builder: (context, lineIndex, _) => PrompterLyricsView(
+                  lyricsText: widget.song.lyricsText,
+                  timedLyrics: widget.playback.timedLyrics.value,
+                  displayMode: _displayMode,
+                  fontSize: _fontSize,
+                  lineHeight: _lineHeight,
+                  fontFamily: widget.fontFamily,
+                  boldText: widget.boldText,
+                  highlightLineIndex: lineIndex,
+                  scrollController: _scrollController,
+                  padding: EdgeInsets.fromLTRB(
+                    32,
+                    _controlsVisible ? 72 : 40,
+                    32,
+                    24,
+                  ),
+                  textColor: Colors.white,
+                  mutedColor: Colors.white70,
+                ),
+              ),
+            ),
+            if (widget.showEqMeter && !meter.isEmpty)
+              Positioned(
+                left: PrompterStageMetrics.meterInsetLeft,
+                bottom: PrompterStageMetrics.meterInsetVertical,
+                child: SizedBox.fromSize(
+                  size: meter,
+                  child: PrompterEqMeter(playback: widget.playback),
+                ),
+              ),
+            if (_controlsVisible) _buildTopBar(),
+            // 컨트롤 토글은 가사·미터보다 아래에 둬 줄 탭을 가로채지 않는다.
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _toggleControls,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -277,115 +315,110 @@ class _PrompterScreenState extends State<PrompterScreen> {
   }
 
   Widget _buildBottomBar() {
-    return Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: AnimatedOpacity(
-        opacity: _controlsVisible ? 1.0 : 0.2,
-        duration: const Duration(milliseconds: 200),
-        child: Container(
-          margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.76),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 재생 위치는 컨트롤러를 직접 구독한다 — 전체화면 진행바가
-                // 멈춰 있던 문제(값 스냅샷 전달)를 여기서 해소한다.
-                ValueListenableBuilder<PlaybackSnapshot>(
-                  valueListenable: widget.playback.state,
-                  builder: (context, snapshot, _) {
-                    if (!snapshot.audioReady) return const SizedBox.shrink();
-                    return ValueListenableBuilder<Duration>(
-                      valueListenable: widget.playback.position,
-                      builder: (context, position, _) => PrompterProgressBar(
-                        position: position,
-                        duration: snapshot.duration,
-                        enabled: snapshot.audioReady,
-                        onSeek: widget.playback.seek,
-                        activeColor: AppColors.primary,
-                        labelColor: Colors.white70,
+    return AnimatedOpacity(
+      opacity: _controlsVisible ? 1.0 : 0.2,
+      duration: const Duration(milliseconds: 200),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.76),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 재생 위치는 컨트롤러를 직접 구독한다 — 전체화면 진행바가
+              // 멈춰 있던 문제(값 스냅샷 전달)를 여기서 해소한다.
+              ValueListenableBuilder<PlaybackSnapshot>(
+                valueListenable: widget.playback.state,
+                builder: (context, snapshot, _) {
+                  if (!snapshot.audioReady) return const SizedBox.shrink();
+                  return ValueListenableBuilder<Duration>(
+                    valueListenable: widget.playback.position,
+                    builder: (context, position, _) => PrompterProgressBar(
+                      position: position,
+                      duration: snapshot.duration,
+                      enabled: snapshot.audioReady,
+                      onSeek: widget.playback.seek,
+                      activeColor: AppColors.primary,
+                      labelColor: Colors.white70,
+                    ),
+                  );
+                },
+              ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    ValueListenableBuilder<bool>(
+                      valueListenable: widget.playback.autoScrollPaused,
+                      builder: (context, paused, _) => _BarIconButton(
+                        icon: paused ? Icons.play_circle : Icons.pause_circle,
+                        semanticsLabel: paused ? '자동 스크롤 켜기' : '자동 스크롤 끄기',
+                        toggled: !paused,
+                        onTap: widget.playback.toggleAutoScrollPaused,
                       ),
-                    );
-                  },
+                    ),
+                    const SizedBox(width: 10),
+                    _BarIconButton(
+                      icon: _displayMode == PrompterDisplayMode.highlight
+                          ? Icons.format_line_spacing
+                          : Icons.view_headline,
+                      semanticsLabel:
+                          _displayMode == PrompterDisplayMode.highlight
+                          ? '전체 가사 모드'
+                          : '줄 하이라이트 모드',
+                      toggled: _displayMode == PrompterDisplayMode.highlight,
+                      onTap: _toggleDisplayMode,
+                    ),
+                    const SizedBox(width: 10),
+                    _InlineSlider(
+                      label: '크기',
+                      value: _fontSizeLevel,
+                      min: 1,
+                      max: 7,
+                      divisions: 6,
+                      semanticValue: '현재 ${_fontSize.round()} 포인트',
+                      onChanged: _updateFontSizeLevel,
+                    ),
+                    const SizedBox(width: 10),
+                    _InlineSlider(
+                      label: '줄간격',
+                      value: _lineHeightLevel,
+                      min: 1,
+                      max: 7,
+                      divisions: 6,
+                      onChanged: _updateLineHeightLevel,
+                    ),
+                    const SizedBox(width: 10),
+                    _InlineSlider(
+                      label: '속도',
+                      value: _speedLevel,
+                      min: 0,
+                      max: 10,
+                      divisions: 20,
+                      onChanged: _updateSpeedLevel,
+                    ),
+                    const SizedBox(width: 10),
+                    _BarIconButton(
+                      icon: Icons.keyboard_arrow_up,
+                      semanticsLabel: '가사 위로 이동',
+                      onTap: () => _scroll(-200),
+                    ),
+                    const SizedBox(width: 6),
+                    _BarIconButton(
+                      icon: Icons.keyboard_arrow_down,
+                      semanticsLabel: '가사 아래로 이동',
+                      onTap: () => _scroll(200),
+                    ),
+                  ],
                 ),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      ValueListenableBuilder<bool>(
-                        valueListenable: widget.playback.autoScrollPaused,
-                        builder: (context, paused, _) => _BarIconButton(
-                          icon: paused ? Icons.play_circle : Icons.pause_circle,
-                          semanticsLabel: paused ? '자동 스크롤 켜기' : '자동 스크롤 끄기',
-                          toggled: !paused,
-                          onTap: widget.playback.toggleAutoScrollPaused,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      _BarIconButton(
-                        icon: _displayMode == PrompterDisplayMode.highlight
-                            ? Icons.format_line_spacing
-                            : Icons.view_headline,
-                        semanticsLabel:
-                            _displayMode == PrompterDisplayMode.highlight
-                            ? '전체 가사 모드'
-                            : '줄 하이라이트 모드',
-                        toggled: _displayMode == PrompterDisplayMode.highlight,
-                        onTap: _toggleDisplayMode,
-                      ),
-                      const SizedBox(width: 10),
-                      _InlineSlider(
-                        label: '크기',
-                        value: _fontSizeLevel,
-                        min: 1,
-                        max: 7,
-                        divisions: 6,
-                        semanticValue: '현재 ${_fontSize.round()} 포인트',
-                        onChanged: _updateFontSizeLevel,
-                      ),
-                      const SizedBox(width: 10),
-                      _InlineSlider(
-                        label: '줄간격',
-                        value: _lineHeightLevel,
-                        min: 1,
-                        max: 7,
-                        divisions: 6,
-                        onChanged: _updateLineHeightLevel,
-                      ),
-                      const SizedBox(width: 10),
-                      _InlineSlider(
-                        label: '속도',
-                        value: _speedLevel,
-                        min: 0,
-                        max: 10,
-                        divisions: 20,
-                        onChanged: _updateSpeedLevel,
-                      ),
-                      const SizedBox(width: 10),
-                      _BarIconButton(
-                        icon: Icons.keyboard_arrow_up,
-                        semanticsLabel: '가사 위로 이동',
-                        onTap: () => _scroll(-200),
-                      ),
-                      const SizedBox(width: 6),
-                      _BarIconButton(
-                        icon: Icons.keyboard_arrow_down,
-                        semanticsLabel: '가사 아래로 이동',
-                        onTap: () => _scroll(200),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

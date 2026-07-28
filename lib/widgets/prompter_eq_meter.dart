@@ -1,4 +1,4 @@
-// file: lib/widgets/prompter_eq_meter.dart
+﻿// file: lib/widgets/prompter_eq_meter.dart
 //
 // 전체화면 프롬프터 좌하단의 EQ 미터. 정적인 무대 화면에 살아있는 느낌을 준다.
 //
@@ -98,10 +98,11 @@ class _PrompterEqMeterState extends State<PrompterEqMeter>
           : raw.map((v) => v / 100).toList(growable: false);
     } else if (playing) {
       // 분석 전(또는 ffmpeg 부재) 폴백 — 위상이 다른 사인 펄스로 살아있게.
+      // 진폭을 넓게 잡아 분석 결과가 없어도 움직임이 또렷하게 보이도록 한다.
       _pulsePhase += 0.09;
       targets = List.generate(
         _fallbackBandCount,
-        (i) => 0.25 + 0.2 * (1 + math.sin(_pulsePhase + i * 1.1)) / 2,
+        (i) => 0.30 + 0.55 * (1 + math.sin(_pulsePhase + i * 1.1)) / 2,
       );
     } else {
       targets = List.filled(_bars.length, 0.0);
@@ -135,12 +136,19 @@ class _PrompterEqMeterState extends State<PrompterEqMeter>
 
   @override
   Widget build(BuildContext context) {
+    // 크기는 부모(무대 밴드)가 정한다. 제약이 없는 곳에 놓였을 때만
+    // 예전 기본값으로 떨어진다.
+    final painter = CustomPaint(painter: _EqMeterPainter(repaint: _frame));
     return IgnorePointer(
       child: ExcludeSemantics(
-        child: SizedBox(
-          width: 200,
-          height: 72,
-          child: CustomPaint(painter: _EqMeterPainter(repaint: _frame)),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SizedBox(
+            width: constraints.hasBoundedWidth ? constraints.maxWidth : 200,
+            height: constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : 72,
+            child: painter,
+          ),
         ),
       ),
     );
@@ -158,7 +166,7 @@ class _EqMeterPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final frame = repaintNotifier.value;
     final count = frame.bars.isEmpty ? 6 : frame.bars.length;
-    const gap = 6.0;
+    final gap = (size.width * 0.03).clamp(3.0, 10.0);
     final barWidth = (size.width - gap * (count - 1)) / count;
 
     final trackPaint = Paint()..color = Colors.white.withValues(alpha: 0.06);
