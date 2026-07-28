@@ -31,6 +31,21 @@
 - zip 백업 내보내기/가져오기, 라이브러리 정리(고아 파일·중복 제목)
 - 삭제 실행 취소
 
+## AI 제어 (MCP)
+
+앱이 켜져 있으면 루프백 제어 API(`127.0.0.1:8772`)가 함께 뜨고,
+[tool/mcp/singprompter_mcp.py](tool/mcp/singprompter_mcp.py) MCP 서버로 프롬프트만으로 앱을 조작할 수 있다
+(저장소 루트 `.mcp.json`에 등록돼 있어 이 저장소에서 Claude Code를 열면 바로 쓸 수 있음).
+
+- 곡: `sp_list_songs` `sp_get_song` `sp_add_song`(유튜브 링크) `sp_edit_song` `sp_delete_song`(confirm 필수) `sp_fetch_lyrics`
+- 키: `sp_set_pitch`(원곡 대비 반음 −6~+6 절대값)
+- 큐: `sp_queue_list·add·remove·clear(confirm)·reorder`
+- 재생: `sp_select` `sp_play` `sp_pause` `sp_stop` `sp_restart` `sp_seek` `sp_set_volume` `sp_set_rate`
+- 작업: `sp_jobs` `sp_job_cancel` `sp_job_retry` / 상태: `sp_state`
+
+안전 장치: API는 루프백 전용이며, 유튜브 저작권 최초 확인(ack)은 **앱 화면에서만** 세팅할 수
+있다 — ack 전에는 `sp_add_song`이 409로 거절된다. 파괴적 도구는 `confirm=true`가 필수다.
+
 ## 외부 도구
 
 앱에 번들하지 않고 사용자 환경의 도구를 호출한다.

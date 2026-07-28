@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "singprompter": {
+      "command": "python",
+      "args": ["tool/mcp/singprompter_mcp.py"]
+    }
+  }
+}
