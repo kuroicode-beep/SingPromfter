@@ -24,8 +24,8 @@ class AppTopNavBar extends StatelessWidget {
     return Material(
       color: AppColors.surfaceContainer,
       child: Container(
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: AppColors.outline)),
         ),

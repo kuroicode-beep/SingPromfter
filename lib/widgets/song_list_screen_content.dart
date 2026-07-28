@@ -215,6 +215,21 @@ class SongListScreenContent extends StatelessWidget {
     required this.onRemoveQueueItem,
   });
 
+  /// 곡별 현재 키(원곡 대비 반음). 저장된 슬롯이 없으면 첫 반주 기준.
+  Map<String, int> _pitchBySongId() {
+    final result = <String, int>{};
+    for (final song in songs) {
+      final slot =
+          settings.trackSlotForSong(song.id) ??
+          (song.availableTrackSlots.isNotEmpty
+              ? song.availableTrackSlots.first
+              : null);
+      final semitones = settings.pitchForSong(song.id, slot);
+      if (semitones != 0) result[song.id] = semitones;
+    }
+    return result;
+  }
+
   SongListPanel _buildSongListPanel({
     required SongListFilterMode filterMode,
     String? listTitle,
@@ -236,6 +251,7 @@ class SongListScreenContent extends StatelessWidget {
       practiceCounts: SongSortService.practiceCountsFrom(
         practiceSummaries,
       ),
+      pitchBySongId: _pitchBySongId(),
       onSelectTrack: onSelectTrack,
       onSelect: onSelectSong,
       onStart: onStart,
@@ -301,7 +317,7 @@ class SongListScreenContent extends StatelessWidget {
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(6),
       child: QueuePanel(
         queue: queue,
         songs: songs,

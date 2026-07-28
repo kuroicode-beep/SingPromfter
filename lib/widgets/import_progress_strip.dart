@@ -1,4 +1,4 @@
-// file: lib/widgets/import_progress_strip.dart
+﻿// file: lib/widgets/import_progress_strip.dart
 //
 // 홈 상단의 가져오기 진행 표시. 곡 추가가 주 경로가 되면서, 진행 상황을
 // 별도 탭까지 가지 않고 홈에서 바로 볼 수 있어야 한다.
@@ -39,7 +39,7 @@ class ImportProgressStrip extends StatelessWidget {
     final more = (active.isNotEmpty ? active.length : failed.length) - 1;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+      padding: const EdgeInsets.fromLTRB(10, 3, 4, 3),
       decoration: const BoxDecoration(
         color: AppColors.surfaceContainer,
         border: Border(bottom: BorderSide(color: AppColors.outline)),
@@ -105,10 +105,10 @@ class ImportProgressStrip extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             LinearProgressIndicator(
               value: isFailed ? 0 : job.ratio,
-              minHeight: 6,
+              minHeight: 4,
               backgroundColor: AppColors.elevated,
               color: isFailed ? AppColors.danger : AppColors.primary,
             ),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 /// SVIL 프론트엔드 표준 팔레트 (고대비 다크 + 블루 accent).
 /// 참조: svil-frontend-design 가이드. 대비값은 아래 주석에 기록한다.
@@ -67,11 +67,13 @@ class AppFonts {
 class AppShapes {
   AppShapes._();
 
-  static const double panelRadiusValue = 16;
-  static const double controlRadiusValue = 12;
-  static const BorderRadius panelRadius = BorderRadius.all(Radius.circular(16));
+  static const double panelRadiusValue = 10;
+  static const double controlRadiusValue = 8;
+  static const BorderRadius panelRadius = BorderRadius.all(
+    Radius.circular(10),
+  );
   static const BorderRadius controlRadius = BorderRadius.all(
-    Radius.circular(12),
+    Radius.circular(8),
   );
 
   static BoxDecoration panel({Color? color}) => BoxDecoration(
@@ -85,47 +87,57 @@ class AppTypography {
   AppTypography._();
 
   // 위계는 크기로. 볼드(FontWeight) 미사용 — 교보손글씨는 단일 굵기.
+  //
+  // v2.5.0 밀도 조정: 한 화면에 담기는 정보량이 너무 적다는 판단에 따라
+  // 본문을 13로 낮췄다. 무대(프롬프터) 가사는 여기 영향을 받지 않고
+  // PrompterLevels의 자체 글자 크기를 그대로 쓴다 — 읽는 화면은 계속 크다.
   static const screenTitle = TextStyle(
     fontFamily: AppFonts.brand,
-    fontSize: 24,
+    fontSize: 18,
     color: AppColors.onSurface,
   );
   static const listTitle = TextStyle(
     fontFamily: AppFonts.brand,
-    fontSize: 19,
+    fontSize: 15,
     color: AppColors.onSurface,
   );
   static const body = TextStyle(
     fontFamily: AppFonts.brand,
-    fontSize: 16,
+    fontSize: 13,
     color: AppColors.onSurface,
   );
   static const bodyMuted = TextStyle(
     fontFamily: AppFonts.brand,
-    fontSize: 16,
+    fontSize: 13,
+    color: AppColors.onSurfaceVariant,
+  );
+  /// 배지·보조 라벨용 최소 크기.
+  static const caption = TextStyle(
+    fontFamily: AppFonts.brand,
+    fontSize: 12,
     color: AppColors.onSurfaceVariant,
   );
   // 강조는 색(accent)으로. (구 labelStrong 자리 호환)
   static const labelStrong = TextStyle(
     fontFamily: AppFonts.brand,
-    fontSize: 16,
+    fontSize: 13,
     color: AppColors.onSurface,
   );
   static const emphasis = TextStyle(
     fontFamily: AppFonts.brand,
-    fontSize: 16,
+    fontSize: 13,
     color: AppColors.primary,
   );
 
   // 숫자·시간·버전·ID 전용 모노.
   static const mono = TextStyle(
     fontFamily: AppFonts.mono,
-    fontSize: 16,
+    fontSize: 13,
     color: AppColors.onSurface,
   );
   static const monoMuted = TextStyle(
     fontFamily: AppFonts.mono,
-    fontSize: 15,
+    fontSize: 12,
     color: AppColors.onSurfaceVariant,
   );
 }
@@ -154,7 +166,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontFamily: AppFonts.brand,
-          fontSize: 20,
+          fontSize: 16,
           color: AppColors.onSurface,
           letterSpacing: 0.2,
         ),
@@ -207,8 +219,8 @@ class AppTheme {
         filled: true,
         fillColor: AppColors.elevated,
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
+          horizontal: 10,
+          vertical: 8,
         ),
         border: OutlineInputBorder(
           borderRadius: AppShapes.controlRadius,

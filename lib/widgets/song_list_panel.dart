@@ -28,6 +28,9 @@ class SongListPanel extends StatelessWidget {
   final ValueChanged<SongListFilterMode>? onFilterModeChanged;
   final SongSortMode sortMode;
   final Map<String, int> practiceCounts;
+
+  /// 곡별 현재 키(원곡 대비 반음). 0이면 목록에 표시하지 않는다.
+  final Map<String, int> pitchBySongId;
   final ValueChanged<SongSortMode>? onSortModeChanged;
   final String? listTitle;
   final void Function(Song song, int slot) onSelectTrack;
@@ -51,6 +54,7 @@ class SongListPanel extends StatelessWidget {
     this.onFilterModeChanged,
     this.sortMode = SongSortMode.title,
     this.practiceCounts = const {},
+    this.pitchBySongId = const {},
     this.onSortModeChanged,
     this.listTitle,
     required this.onSelectTrack,
@@ -79,16 +83,13 @@ class SongListPanel extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.queue_music, size: 56, color: AppColors.border),
-                  SizedBox(height: 14),
-                  Text(
-                    '등록된 곡이 없습니다',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 18),
-                  ),
-                  SizedBox(height: 8),
+                  Icon(Icons.queue_music, size: 40, color: AppColors.border),
+                  SizedBox(height: 10),
+                  Text('등록된 곡이 없습니다', style: AppTypography.body),
+                  SizedBox(height: 6),
                   Text(
                     '상단 [곡 추가]에 유튜브 링크를 붙여넣으면\n반주와 가사까지 자동으로 준비됩니다',
-                    style: TextStyle(color: AppColors.textMuted),
+                    style: AppTypography.caption,
                     textAlign: TextAlign.center,
                   ),
                 ],
@@ -114,22 +115,24 @@ class SongListPanel extends StatelessWidget {
       children: [
         if (listTitle != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            padding: const EdgeInsets.fromLTRB(8, 4, 4, 2),
             child: Row(
               children: [
                 Text(listTitle!, style: AppTypography.listTitle),
+                const SizedBox(width: 8),
+                // 정렬은 전용 줄을 쓰지 않고 제목줄에 얹는다 — 목록을 한 줄 더 번다.
+                if (showSearchControls && onSortModeChanged != null)
+                  Expanded(child: _buildSortDropdown()),
                 const Spacer(),
                 Text(
                   '${filteredSongs.length}/${songs.length}곡',
-                  style: AppTypography.bodyMuted,
+                  style: AppTypography.monoMuted,
                 ),
               ],
             ),
           ),
         if (showSearchControls) _buildSearchField(),
         if (showSearchControls && showFilterChips) _buildFilterChips(),
-        if (showSearchControls && onSortModeChanged != null)
-          _buildSortRow(),
         Expanded(
           child: filteredSongs.isEmpty
               ? Center(
@@ -140,12 +143,7 @@ class SongListPanel extends StatelessWidget {
                   ),
                 )
               : ListView.separated(
-                  padding: EdgeInsets.fromLTRB(
-                    12,
-                    0,
-                    12,
-                    listTitle == null ? 12 : 8,
-                  ),
+                  padding: const EdgeInsets.only(bottom: 8),
                   itemCount: filteredSongs.length,
                   separatorBuilder: (_, index) =>
                       const Divider(height: 1, thickness: 1),
@@ -156,6 +154,8 @@ class SongListPanel extends StatelessWidget {
                       song: song,
                       selected: selected,
                       selectedTrackSlot: selected ? selectedTrackSlot : null,
+                      pitchSemitones: pitchBySongId[song.id] ?? 0,
+                      practiceCount: practiceCounts[song.id] ?? 0,
                       onSelectTrack: (slot) => onSelectTrack(song, slot),
                       onSelect: () => onSelect(song),
                       onStart: () => onStart(song),
@@ -179,7 +179,7 @@ class SongListPanel extends StatelessWidget {
 
   Widget _buildSearchField() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
       child: _SongSearchField(
         query: query,
         onQueryChanged: onQueryChanged,
@@ -188,62 +188,105 @@ class SongListPanel extends StatelessWidget {
   }
 
 
-  Widget _buildSortRow() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      child: Row(
-        children: [
-          Text('정렬', style: AppTypography.bodyMuted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Semantics(
-              label: '정렬 방식',
-              child: DropdownButton<SongSortMode>(
-                isExpanded: true,
-                value: sortMode,
-                dropdownColor: AppColors.surface,
-                style: AppTypography.body,
-                items: SongSortMode.values
-                    .map(
-                      (mode) => DropdownMenuItem(
-                        value: mode,
-                        child: Text(mode.label),
-                      ),
-                    )
-                    .toList(growable: false),
-                onChanged: (mode) {
-                  if (mode != null) onSortModeChanged?.call(mode);
-                },
+  Widget _buildSortDropdown() {
+    return Semantics(
+      label: '정렬 방식',
+      child: DropdownButton<SongSortMode>(
+        isExpanded: true,
+        isDense: true,
+        underline: const SizedBox.shrink(),
+        value: sortMode,
+        dropdownColor: AppColors.surface,
+        style: AppTypography.caption,
+        iconSize: 16,
+        items: SongSortMode.values
+            .map(
+              (mode) => DropdownMenuItem(
+                value: mode,
+                child: Text(mode.label, style: AppTypography.caption),
               ),
-            ),
-          ),
-        ],
+            )
+            .toList(growable: false),
+        onChanged: (mode) {
+          if (mode != null) onSortModeChanged?.call(mode);
+        },
       ),
     );
   }
 
   Widget _buildFilterChips() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
       child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
+        spacing: 4,
+        runSpacing: 4,
         children: _chips.map((entry) {
-          final selected = filterMode == entry.$2;
-          return Semantics(
-            button: true,
-            selected: selected,
+          return _FilterChipSmall(
             label: entry.$1,
-            child: FilterChip(
-              label: Text(entry.$1, style: AppTypography.body),
-              selected: selected,
-              showCheckmark: true,
-              onSelected: (_) => onFilterModeChanged?.call(entry.$2),
-              materialTapTargetSize: MaterialTapTargetSize.padded,
-              visualDensity: VisualDensity.standard,
-            ),
+            selected: filterMode == entry.$2,
+            onTap: () => onFilterModeChanged?.call(entry.$2),
           );
         }).toList(growable: false),
+      ),
+    );
+  }
+}
+
+/// 목록 필터 칩. Material FilterChip은 최소 높이가 커서 직접 그린다.
+/// 선택 상태는 색만이 아니라 체크 표시로도 알린다.
+class _FilterChipSmall extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChipSmall({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: InkWell(
+        borderRadius: AppShapes.controlRadius,
+        onTap: onTap,
+        child: Container(
+          height: AppConstants.denseTouchTarget,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primaryContainer : AppColors.elevated,
+            borderRadius: AppShapes.controlRadius,
+            border: Border.all(
+              color: selected ? AppColors.primaryContainer : AppColors.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selected)
+                const Padding(
+                  padding: EdgeInsets.only(right: 3),
+                  child: Icon(
+                    Icons.check,
+                    size: 13,
+                    color: AppColors.onPrimaryContainer,
+                  ),
+                ),
+              Text(
+                label,
+                style: AppTypography.caption.copyWith(
+                  color: selected
+                      ? AppColors.onPrimaryContainer
+                      : AppColors.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -296,16 +339,25 @@ class _SongSearchFieldState extends State<_SongSearchField> {
         decoration: InputDecoration(
           isDense: true,
           hintText: '제목·가수·초성으로 검색',
-          hintStyle: AppTypography.bodyMuted,
-          prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+          hintStyle: AppTypography.caption,
+          prefixIcon: const Icon(
+            Icons.search,
+            size: 16,
+            color: AppColors.textMuted,
+          ),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 30,
+            minHeight: 30,
+          ),
           suffixIcon: widget.query.isEmpty
               ? null
               : IconButton(
-                  icon: const Icon(Icons.clear),
+                  icon: const Icon(Icons.clear, size: 16),
                   tooltip: '검색어 지우기',
+                  visualDensity: VisualDensity.compact,
                   constraints: const BoxConstraints(
                     minWidth: AppConstants.minTouchTarget,
-                    minHeight: AppConstants.minTouchTarget,
+                    minHeight: AppConstants.denseTouchTarget,
                   ),
                   onPressed: () => widget.onQueryChanged?.call(''),
                 ),
