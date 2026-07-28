@@ -1008,8 +1008,6 @@ class _SongListScreenState extends State<SongListScreen> {
         onSettingsChanged: _updateSettings,
         onCustomFontSize: _showCustomFontSizeDialog,
         onAccessibilityPreset: _applyAccessibilityPreset,
-        onToggleEqMeter: (value) =>
-            _updateSettings(_settings.copyWith(showEqMeter: value)),
         onMessage: _showSnack,
         onClearQueue: _clearQueue,
         onReorderQueue: _reorderQueue,

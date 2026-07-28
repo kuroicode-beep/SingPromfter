@@ -133,7 +133,6 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<PrompterSettings> onSettingsChanged;
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
-  final ValueChanged<bool> onToggleEqMeter;
   final ValueChanged<String> onMessage;
   final VoidCallback onClearQueue;
   final void Function(int oldIndex, int newIndex) onReorderQueue;
@@ -234,7 +233,6 @@ class SongListScreenContent extends StatelessWidget {
     required this.onSettingsChanged,
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
-    required this.onToggleEqMeter,
     required this.onMessage,
     required this.onClearQueue,
     required this.onReorderQueue,
@@ -453,8 +451,9 @@ class SongListScreenContent extends StatelessWidget {
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,
         ytDlpVersion: ytDlpVersion,
-        showEqMeter: settings.showEqMeter,
-        onToggleEqMeter: onToggleEqMeter,
+        settings: settings,
+        onSettingsChanged: onSettingsChanged,
+        fontOptions: PrompterSettingsService.fontOptions,
         separatorStatusLabel: separatorStatusLabel,
         onUpdateYtDlp: onUpdateYtDlp,
         onExportBackup: onExportBackup,

@@ -26,7 +26,6 @@ class PrompterBottomBar extends StatefulWidget {
   final Duration duration;
   final PlaybackController playback;
   final PrompterSettings settings;
-  final Map<String, String?> fontOptions;
   final VoidCallback onStop;
   final VoidCallback onTogglePlayPause;
   final VoidCallback onRestart;
@@ -34,8 +33,6 @@ class PrompterBottomBar extends StatefulWidget {
   final VoidCallback onOpenPrompter;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<PrompterSettings> onSettingsChanged;
-  final VoidCallback onCustomFontSize;
-  final ValueChanged<String> onAccessibilityPreset;
   final ValueChanged<String> onMessage;
   final bool hasSyncedLyrics;
   final int lyricsOffsetMs;
@@ -67,7 +64,6 @@ class PrompterBottomBar extends StatefulWidget {
     required this.duration,
     required this.playback,
     required this.settings,
-    required this.fontOptions,
     required this.onStop,
     required this.onTogglePlayPause,
     required this.onRestart,
@@ -75,8 +71,6 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onOpenPrompter,
     required this.onSeek,
     required this.onSettingsChanged,
-    required this.onCustomFontSize,
-    required this.onAccessibilityPreset,
     required this.onMessage,
     required this.hasSyncedLyrics,
     required this.lyricsOffsetMs,
@@ -99,7 +93,6 @@ class PrompterBottomBar extends StatefulWidget {
 }
 
 class _PrompterBottomBarState extends State<PrompterBottomBar> {
-  bool _displaySettingsExpanded = false;
 
   @override
   Widget build(BuildContext context) {
@@ -206,188 +199,22 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
           const SizedBox(height: 8),
           _TempoRow(scale: widget.tempoScale, onAdjust: widget.onAdjustTempo),
           const Divider(height: 16, thickness: 1),
-          Semantics(
-            label: '표시 설정',
-            button: true,
-            expanded: _displaySettingsExpanded,
-            child: InkWell(
-              onTap: () => setState(
-                () => _displaySettingsExpanded = !_displaySettingsExpanded,
-              ),
-              borderRadius: AppShapes.controlRadius,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
-                  children: [
-                    Text('표시 설정', style: AppTypography.body),
-                    const Spacer(),
-                    Icon(
-                      _displaySettingsExpanded
-                          ? Icons.expand_less
-                          : Icons.expand_more,
-                      color: AppColors.textMuted,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          // 표시 설정(글자 크기·줄 간격·글꼴·굵게·표시 모드)은 v2.8.0에서
+          // 설정 화면으로 옮겼다. 여기 남은 것은 노래하는 동안 손대야 하는
+          // 값들뿐이다 — 키와 싱크 오프셋.
+          _PitchRow(
+            semitones: widget.pitchSemitones,
+            onAdjust: widget.onAdjustPitch,
+            soundingKey: widget.soundingKey,
           ),
-          if (_displaySettingsExpanded) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: MiniSlider(
-                    label: '크기',
-                    value: widget.settings.fontSizeLevel,
-                    min: 1,
-                    max: 7,
-                    divisions: 6,
-                    semanticValue:
-                        '현재 ${widget.settings.effectiveFontSizePt.round()} 포인트',
-                    onChanged: (v) => widget.onSettingsChanged(
-                      widget.settings.copyWith(
-                        fontSizeLevel: v,
-                        clearCustomFontSize: true,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: MiniSlider(
-                    label: '줄간격',
-                    value: widget.settings.lineHeightLevel,
-                    min: 1,
-                    max: 7,
-                    divisions: 6,
-                    onChanged: (v) => widget.onSettingsChanged(
-                      widget.settings.copyWith(lineHeightLevel: v),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                PresetBtn(
-                  label: widget.settings.customFontSizePt == null
-                      ? '직접'
-                      : '${widget.settings.customFontSizePt!.round()}pt',
-                  semanticsLabel: '사용자 정의 글자 크기',
-                  onTap: widget.onCustomFontSize,
-                ),
-                PresetBtn(
-                  label: '표준',
-                  semanticsLabel: '표준 접근성 프리셋',
-                  onTap: () => widget.onAccessibilityPreset('standard'),
-                ),
-                PresetBtn(
-                  label: '저시력',
-                  semanticsLabel: '저시력 추천 프리셋',
-                  onTap: () => widget.onAccessibilityPreset('recommended'),
-                ),
-                PresetBtn(
-                  label: '원거리',
-                  semanticsLabel: '원거리 무대 프리셋',
-                  onTap: () => widget.onAccessibilityPreset('stage'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: widget.fontOptions.containsKey(widget.settings.fontFamily)
-                        ? widget.settings.fontFamily
-                        : 'System Default',
-                    dropdownColor: AppColors.surface,
-                    style: AppTypography.body,
-                    items: widget.fontOptions.keys
-                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
-                        .toList(growable: false),
-                    onChanged: (v) {
-                      if (v == null) return;
-                      widget.onSettingsChanged(
-                        widget.settings.copyWith(fontFamily: v),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Semantics(
-                  label: '굵은 글씨',
-                  checked: widget.settings.boldText,
-                  child: SizedBox(
-                    width: AppConstants.minTouchTarget,
-                    height: AppConstants.minTouchTarget,
-                    child: Checkbox(
-                      value: widget.settings.boldText,
-                      onChanged: (v) => widget.onSettingsChanged(
-                        widget.settings.copyWith(boldText: v ?? false),
-                      ),
-                    ),
-                  ),
-                ),
-                Text('굵게', style: AppTypography.body),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButton<PrompterDisplayMode>(
-                    isExpanded: true,
-                    value: widget.settings.displayMode,
-                    dropdownColor: AppColors.surface,
-                    style: AppTypography.body,
-                    items: PrompterDisplayMode.values
-                        .map(
-                          (mode) => DropdownMenuItem(
-                            value: mode,
-                            child: Text(mode.label),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (mode) {
-                      if (mode == null) return;
-                      widget.onSettingsChanged(
-                        widget.settings.copyWith(displayMode: mode),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 4),
-                const Tooltip(
-                  message: '줄 하이라이트는 재생 위치 기준 추정, 싱크 가사는 실제 타임스탬프로 이동합니다.',
-                  child: Icon(
-                    Icons.info_outline,
-                    size: 20,
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _PitchRow(
-              semitones: widget.pitchSemitones,
-              onAdjust: widget.onAdjustPitch,
-              soundingKey: widget.soundingKey,
-            ),
-            const SizedBox(height: 8),
-            _SyncedLyricsRow(
-              hasSyncedLyrics: widget.hasSyncedLyrics,
-              offsetMs: widget.lyricsOffsetMs,
-              onFetch: widget.onFetchSyncedLyrics,
-              onImportFile: widget.onImportLrcFile,
-              onAdjust: widget.onAdjustLyricsOffset,
-            ),
-          ],
+          const SizedBox(height: 8),
+          _SyncedLyricsRow(
+            hasSyncedLyrics: widget.hasSyncedLyrics,
+            offsetMs: widget.lyricsOffsetMs,
+            onFetch: widget.onFetchSyncedLyrics,
+            onImportFile: widget.onImportLrcFile,
+            onAdjust: widget.onAdjustLyricsOffset,
+          ),
         ],
       ),
     );

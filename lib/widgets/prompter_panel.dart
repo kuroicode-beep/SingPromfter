@@ -274,7 +274,6 @@ class PrompterPanel extends StatelessWidget {
             recordingElapsed: recordingElapsed,
             onToggleRecording: onToggleRecording,
             settings: settings,
-            fontOptions: fontOptions,
             onStop: onStop,
             onTogglePlayPause: onTogglePlayPause,
             onRestart: onRestart,
@@ -282,8 +281,6 @@ class PrompterPanel extends StatelessWidget {
             onOpenPrompter: () => onOpenPrompter(currentSong),
             onSeek: onSeek,
             onSettingsChanged: onSettingsChanged,
-            onCustomFontSize: onCustomFontSize,
-            onAccessibilityPreset: onAccessibilityPreset,
             onMessage: onMessage,
           ),
           if (showQueue && queue.isNotEmpty)
