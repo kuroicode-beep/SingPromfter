@@ -99,6 +99,7 @@ class SongListScreenContent extends StatelessWidget {
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
   final void Function(Song song, int slot) onSelectTrack;
+  final ValueChanged<Song> onAddTrack;
   final ValueChanged<Song> onSelectSong;
   final ValueChanged<Song> onStart;
   final ValueChanged<Song> onReserveSong;
@@ -192,6 +193,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onImportBackup,
     required this.onRunMaintenance,
     required this.onSelectTrack,
+    required this.onAddTrack,
     required this.onSelectSong,
     required this.onStart,
     required this.onReserveSong,
@@ -253,6 +255,7 @@ class SongListScreenContent extends StatelessWidget {
       ),
       pitchBySongId: _pitchBySongId(),
       onSelectTrack: onSelectTrack,
+      onAddTrack: onAddTrack,
       onSelect: onSelectSong,
       onStart: onStart,
       onReserve: onReserveSong,

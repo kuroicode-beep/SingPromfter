@@ -34,6 +34,7 @@ class SongListPanel extends StatelessWidget {
   final ValueChanged<SongSortMode>? onSortModeChanged;
   final String? listTitle;
   final void Function(Song song, int slot) onSelectTrack;
+  final ValueChanged<Song>? onAddTrack;
   final ValueChanged<Song> onSelect;
   final ValueChanged<Song> onStart;
   final ValueChanged<Song> onReserve;
@@ -58,6 +59,7 @@ class SongListPanel extends StatelessWidget {
     this.onSortModeChanged,
     this.listTitle,
     required this.onSelectTrack,
+    this.onAddTrack,
     required this.onSelect,
     required this.onStart,
     required this.onReserve,
@@ -157,6 +159,9 @@ class SongListPanel extends StatelessWidget {
                       pitchSemitones: pitchBySongId[song.id] ?? 0,
                       practiceCount: practiceCounts[song.id] ?? 0,
                       onSelectTrack: (slot) => onSelectTrack(song, slot),
+                      onAddTrack: onAddTrack == null
+                          ? null
+                          : () => onAddTrack!(song),
                       onSelect: () => onSelect(song),
                       onStart: () => onStart(song),
                       onReserve: () => onReserve(song),

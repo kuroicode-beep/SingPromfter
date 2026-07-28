@@ -12,6 +12,7 @@ import '../controllers/playback_controller.dart';
 import '../controllers/recording_controller.dart';
 import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/add_song_dialog.dart';
+import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/import_plan.dart';
@@ -642,6 +643,34 @@ class _SongListScreenState extends State<SongListScreen> {
     return false;
   }
 
+  /// 기존 곡에 반주를 하나 더 붙인다(노래방 버전 등, 별도 링크).
+  Future<void> _addTrackToSong(Song song) async {
+    unawaited(_refreshToolAvailability());
+    final choice = await AddTrackDialog.show(
+      context,
+      song: song,
+      toolAvailable: _ytDlpAvailable,
+      toolMissingReason: _ytDlpMissingReason,
+      separatorStatusLabel: _separatorStatusLabel,
+      separatorOnline: _separatorOnline,
+    );
+    if (choice == null) return;
+    if (!await _confirmYoutubeNotice()) return;
+    final outcome = await _app.enqueueTrackImport(
+      songId: choice.songId,
+      url: choice.url,
+      mode: choice.mode,
+      slot: choice.slot,
+      label: choice.label,
+    );
+    if (!mounted) return;
+    _showSnack(
+      outcome.ok
+          ? '반주를 가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.'
+          : (outcome.message ?? '반주를 가져오지 못했습니다.'),
+    );
+  }
+
   /// 곡 추가의 유일한 경로 — 링크를 받아 가져오기 파이프라인에 넘긴다.
   Future<void> _addSong() async {
     // 최신 도구·서버 상태를 반영해 대화상자에서 바로 알려준다.
@@ -663,6 +692,9 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   Future<void> _editSong(Song song) async {
+    final before = {
+      for (final track in song.backingTracks) track.slot: track.fileName,
+    };
     final outcome = await _songActions.editSong(
       context: context,
       songs: _songs,
@@ -670,6 +702,20 @@ class _SongListScreenState extends State<SongListScreen> {
       selectedSong: _selectedSong,
     );
     await _applySongActionOutcome(outcome, preferredSlot: _selectedTrackSlot);
+
+    // 반주를 갈아끼웠는데 파일명이 같으면(같은 제목·슬롯) 예전 오디오의
+    // 키 변형본·EQ 분석이 그대로 서빙된다. 그 캐시를 비운다.
+    final updated = _app.songById(song.id);
+    if (updated == null) return;
+    for (final track in updated.backingTracks) {
+      if (before[track.slot] == track.fileName) continue;
+      unawaited(_app.trackAssets.invalidate(track.fileName));
+    }
+    for (final entry in before.entries) {
+      final still = updated.trackForSlot(entry.key);
+      if (still?.fileName == entry.value) continue;
+      unawaited(_app.trackAssets.invalidate(entry.value));
+    }
   }
 
   Future<void> _deleteSong(Song song) async => _applySongActionOutcome(
@@ -924,6 +970,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),
+        onAddTrack: _addTrackToSong,
         onSelectSong: _loadSong,
         onStart: _startSong,
         onReserveSong: _reserveSong,

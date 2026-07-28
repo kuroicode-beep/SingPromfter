@@ -1,4 +1,4 @@
-// file: lib/widgets/song_tile.dart
+﻿// file: lib/widgets/song_tile.dart
 //
 // 곡 목록의 한 행. v2.5.0에서 카드형 → 고밀도 행으로 바꿨다.
 //
@@ -25,6 +25,7 @@ class SongTile extends StatelessWidget {
   final int practiceCount;
 
   final void Function(int slot)? onSelectTrack;
+  final VoidCallback? onAddTrack;
   final VoidCallback onSelect;
   final VoidCallback onStart;
   final VoidCallback onReserve;
@@ -40,6 +41,7 @@ class SongTile extends StatelessWidget {
     this.pitchSemitones = 0,
     this.practiceCount = 0,
     this.onSelectTrack,
+    this.onAddTrack,
     required this.onSelect,
     required this.onStart,
     required this.onReserve,
@@ -145,25 +147,34 @@ class SongTile extends StatelessWidget {
                     ),
                   ],
                 ),
-                // 반주가 둘 이상일 때만 슬롯 선택줄을 편다 — 하나면 고를 게 없다.
-                if (selected &&
-                    song.backingTracks.length > 1 &&
-                    onSelectTrack != null)
+                // 선택한 곡에서만 슬롯 줄을 편다. 반주가 하나여도
+                // '반주 추가'로 노래방 버전 등을 붙일 수 있어야 한다.
+                if (selected && (onSelectTrack != null || onAddTrack != null))
                   Padding(
                     padding: const EdgeInsets.only(left: 26, top: 3),
                     child: Wrap(
                       spacing: 4,
                       runSpacing: 4,
-                      children: song.backingTracks.map((track) {
-                        final isSel = selectedTrackSlot == track.slot;
-                        return _SlotChip(
-                          label: track.label.trim().isEmpty
-                              ? '반주${track.slot}'
-                              : track.label,
-                          selected: isSel,
-                          onTap: () => onSelectTrack!(track.slot),
-                        );
-                      }).toList(growable: false),
+                      children: [
+                        if (song.backingTracks.length > 1 &&
+                            onSelectTrack != null)
+                          for (final track in song.backingTracks)
+                            _SlotChip(
+                              label: track.label.trim().isEmpty
+                                  ? '반주${track.slot}'
+                                  : track.label,
+                              selected: selectedTrackSlot == track.slot,
+                              onTap: () => onSelectTrack!(track.slot),
+                            ),
+                        if (onAddTrack != null &&
+                            song.backingTracks.length <
+                                AppConstants.maxBackingTrackSlots)
+                          _SlotChip(
+                            label: '+ 반주',
+                            selected: false,
+                            onTap: onAddTrack!,
+                          ),
+                      ],
                     ),
                   ),
               ],
