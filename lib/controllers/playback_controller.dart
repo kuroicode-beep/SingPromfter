@@ -484,6 +484,26 @@ class PlaybackController {
     if (message != null) onMessage(message);
   }
 
+  /// 명시적 재생(멱등). 이미 재생 중이면 무동작 — MCP 제어용.
+  Future<void> play() async {
+    final message = await audio.play(
+      song: state.value.song,
+      audioReady: state.value.audioReady,
+      playing: state.value.playing,
+    );
+    if (message != null) onMessage(message);
+  }
+
+  /// 명시적 일시정지(멱등). 정지 상태면 무동작.
+  Future<void> pause() async {
+    final message = await audio.pause(
+      song: state.value.song,
+      audioReady: state.value.audioReady,
+      playing: state.value.playing,
+    );
+    if (message != null) onMessage(message);
+  }
+
   Future<void> stop() async {
     await audio.stop();
     _accumulatePractice();

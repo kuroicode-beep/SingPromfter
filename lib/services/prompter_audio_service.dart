@@ -99,20 +99,46 @@ class PrompterAudioService {
     required bool audioReady,
     required bool playing,
   }) async {
-    if (song == null) return null;
-    if (!audioReady) {
-      if (song.backingTracks.isEmpty) {
-        return '이 곡은 반주가 없어 가사만 표시됩니다.';
-      }
-      return '재생 가능한 반주를 먼저 선택해 주세요.';
-    }
+    return playing
+        ? pause(song: song, audioReady: audioReady, playing: playing)
+        : play(song: song, audioReady: audioReady, playing: playing);
+  }
 
-    if (playing) {
-      await _player.pause();
-    } else {
-      await _player.resume();
-    }
+  /// 명시적 재생. 이미 재생 중이면 무동작(멱등) — MCP 제어용.
+  Future<String?> play({
+    required Song? song,
+    required bool audioReady,
+    required bool playing,
+  }) async {
+    final blocked = _playabilityMessage(song: song, audioReady: audioReady);
+    if (blocked != null || song == null) return blocked;
+    if (!playing) await _player.resume();
     return null;
+  }
+
+  /// 명시적 일시정지. 정지 상태면 무동작(멱등).
+  Future<String?> pause({
+    required Song? song,
+    required bool audioReady,
+    required bool playing,
+  }) async {
+    final blocked = _playabilityMessage(song: song, audioReady: audioReady);
+    if (blocked != null || song == null) return blocked;
+    if (playing) await _player.pause();
+    return null;
+  }
+
+  /// 재생 불가 사유. 가능하면 null.
+  String? _playabilityMessage({
+    required Song? song,
+    required bool audioReady,
+  }) {
+    if (song == null) return null;
+    if (audioReady) return null;
+    if (song.backingTracks.isEmpty) {
+      return '이 곡은 반주가 없어 가사만 표시됩니다.';
+    }
+    return '재생 가능한 반주를 먼저 선택해 주세요.';
   }
 
   Future<void> stop() async {
