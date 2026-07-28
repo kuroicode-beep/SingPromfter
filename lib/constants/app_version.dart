@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.3.0';
+  static const String current = '2.4.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.4.0',
+      '2026-07-28',
+      'AI 제어(MCP) — 곡 추가·키·큐·재생을 프롬프트로 조작 (로컬 API 8772)',
+    ),
     AppVersionEntry(
       '2.3.0',
       '2026-07-28',
