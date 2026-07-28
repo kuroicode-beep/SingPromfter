@@ -1,4 +1,4 @@
-// file: lib/models/song_draft.dart
+﻿// file: lib/models/song_draft.dart
 //
 // 곡 등록/수정 다이얼로그가 화면에 돌려주는 임시 입력 모델.
 class SongDraft {
@@ -9,6 +9,9 @@ class SongDraft {
   final Map<int, int?> trackStartMs;
   final Map<int, int?> trackEndMs;
 
+  /// 파일에 이미 구워 넣은 키(키조절 슬롯만 0이 아니다).
+  final Map<int, int> trackBakedSemitones;
+
   const SongDraft({
     required this.title,
     this.artist = '',
@@ -16,6 +19,7 @@ class SongDraft {
     this.trackLabels = const {},
     this.trackStartMs = const {},
     this.trackEndMs = const {},
+    this.trackBakedSemitones = const {},
   });
 }
 

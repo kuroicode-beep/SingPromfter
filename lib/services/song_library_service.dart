@@ -39,6 +39,7 @@ class SongLibraryService {
       trackLabels: draft.trackLabels,
       trackStartMs: draft.trackStartMs,
       trackEndMs: draft.trackEndMs,
+      trackBakedSemitones: draft.trackBakedSemitones,
     );
     final nextSongs = List<Song>.from(songs)..add(song);
     await _repo.saveSongs(nextSongs);

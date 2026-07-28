@@ -14,6 +14,7 @@ import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/add_song_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../models/app_destination.dart';
+import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
@@ -579,6 +580,7 @@ class _SongListScreenState extends State<SongListScreen> {
     String url,
     MrSourceMode mode, {
     bool fetchLyrics = true,
+    ImportPlan plan = const ImportPlan.single(),
   }) async {
     if (!looksLikeYoutubeUrl(url)) {
       _showSnack('유튜브 주소가 아닙니다. 링크를 다시 확인해 주세요.');
@@ -589,6 +591,7 @@ class _SongListScreenState extends State<SongListScreen> {
       url,
       mode,
       fetchLyrics: fetchLyrics,
+      plan: plan,
     );
     if (!mounted) return;
     _showSnack(
@@ -655,6 +658,7 @@ class _SongListScreenState extends State<SongListScreen> {
       choice.url,
       choice.mode,
       fetchLyrics: choice.fetchLyrics,
+      plan: choice.plan,
     );
   }
 

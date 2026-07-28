@@ -79,7 +79,7 @@ void main() {
     expect(find.textContaining('붙여넣어'), findsOneWidget);
   });
 
-  testWidgets('링크를 넣으면 기본값(반주 그대로 + 가사 자동)으로 돌려준다', (tester) async {
+  testWidgets('링크를 넣으면 기본 3슬롯 구성(원곡+MR+키조절)으로 돌려준다', (tester) async {
     AddSongFromUrl? captured;
     await tester.pumpWidget(
       MaterialApp(
@@ -114,8 +114,86 @@ void main() {
 
     expect(captured, isNotNull);
     expect(captured!.url, 'https://www.youtube.com/watch?v=abc');
-    expect(captured!.mode, MrSourceMode.asIs);
+    // 3슬롯 구성이 기본이 되려면 보컬 분리가 기본이어야 한다.
+    expect(captured!.mode, MrSourceMode.aiSeparate);
     expect(captured!.fetchLyrics, isTrue);
+    expect(captured!.plan.makeOriginal, isTrue);
+    expect(captured!.plan.makeInstrumental, isTrue);
+    expect(captured!.plan.pitchSemitones, -2);
+  });
+
+  testWidgets('반주 처리를 그대로로 바꾸면 MR 슬롯은 만들지 않는다', (tester) async {
+    AddSongFromUrl? captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () async {
+                captured = await AddSongDialog.show(
+                  context,
+                  toolAvailable: true,
+                  toolMissingReason: null,
+                  separatorStatusLabel: '분리 서버: 온라인 (GPU)',
+                  separatorOnline: true,
+                );
+              },
+              child: const Text('열기'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('열기'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'https://youtu.be/abc');
+    await tester.ensureVisible(find.text(MrSourceMode.asIs.label));
+    await tester.tap(find.text(MrSourceMode.asIs.label));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('가져와서 추가'));
+    await tester.pumpAndSettle();
+
+    expect(captured!.mode, MrSourceMode.asIs);
+    expect(captured!.plan.makeInstrumental, isFalse);
+  });
+
+  testWidgets('키조절본을 끄면 계획에서 빠진다', (tester) async {
+    AddSongFromUrl? captured;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () async {
+                captured = await AddSongDialog.show(
+                  context,
+                  toolAvailable: true,
+                  toolMissingReason: null,
+                  separatorStatusLabel: '분리 서버: 온라인 (GPU)',
+                  separatorOnline: true,
+                );
+              },
+              child: const Text('열기'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('열기'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'https://youtu.be/abc');
+    await tester.ensureVisible(find.text('키조절본 (MR 기준)'));
+    await tester.tap(find.text('키조절본 (MR 기준)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('가져와서 추가'));
+    await tester.pumpAndSettle();
+
+    expect(captured!.plan.pitchSemitones, isNull);
+    expect(captured!.plan.wantsPitch, isFalse);
   });
 
   testWidgets('보컬 분리를 고르면 서버가 꺼져 있을 때 안내한다', (tester) async {

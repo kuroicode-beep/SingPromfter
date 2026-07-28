@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../constants/app_constants.dart';
+import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../services/youtube_import_service.dart';
+import '../utils/key_label.dart';
 import '../theme/app_theme.dart';
 
 /// 링크로 가져오기. 곡 추가는 링크 경로 하나로만 들어온다.
@@ -16,10 +18,14 @@ class AddSongFromUrl {
   final MrSourceMode mode;
   final bool fetchLyrics;
 
+  /// 이 링크로 만들 반주 구성(원곡·MR·키조절).
+  final ImportPlan plan;
+
   const AddSongFromUrl({
     required this.url,
     required this.mode,
     required this.fetchLyrics,
+    this.plan = const ImportPlan.single(),
   });
 }
 
@@ -61,8 +67,12 @@ class AddSongDialog extends StatefulWidget {
 
 class _AddSongDialogState extends State<AddSongDialog> {
   final _controller = TextEditingController();
-  MrSourceMode _mode = MrSourceMode.asIs;
+  MrSourceMode _mode = MrSourceMode.aiSeparate;
   bool _fetchLyrics = true;
+  bool _makeOriginal = true;
+  bool _makeInstrumental = true;
+  bool _makePitch = true;
+  int _pitchSemitones = -2;
   String? _error;
 
   @override
@@ -103,7 +113,17 @@ class _AddSongDialogState extends State<AddSongDialog> {
     }
     Navigator.pop(
       context,
-      AddSongFromUrl(url: url, mode: _mode, fetchLyrics: _fetchLyrics),
+      AddSongFromUrl(
+        url: url,
+        mode: _mode,
+        fetchLyrics: _fetchLyrics,
+        plan: ImportPlan(
+          makeOriginal: _makeOriginal,
+          makeInstrumental:
+              _makeInstrumental && _mode == MrSourceMode.aiSeparate,
+          pitchSemitones: _makePitch ? _pitchSemitones : null,
+        ),
+      ),
     );
   }
 
@@ -172,6 +192,61 @@ class _AddSongDialogState extends State<AddSongDialog> {
                   ),
                 ],
               ],
+              const SizedBox(height: 16),
+              Text('이 링크로 만들 반주', style: AppTypography.bodyMuted),
+              const SizedBox(height: 6),
+              _CheckRow(
+                label: '원곡 그대로 (가이드 보컬 포함)',
+                description: '슬롯 1',
+                checked: _makeOriginal,
+                onTap: () => setState(() => _makeOriginal = !_makeOriginal),
+              ),
+              _CheckRow(
+                label: 'MR (AI 보컬 분리)',
+                description: _mode == MrSourceMode.aiSeparate
+                    ? '슬롯 2'
+                    : "반주 처리에서 'AI 보컬 분리'를 골라야 만들 수 있습니다",
+                checked:
+                    _makeInstrumental && _mode == MrSourceMode.aiSeparate,
+                enabled: _mode == MrSourceMode.aiSeparate,
+                onTap: () =>
+                    setState(() => _makeInstrumental = !_makeInstrumental),
+              ),
+              _CheckRow(
+                label: '키조절본 (MR 기준)',
+                description: '슬롯 3 · ${formatKeyLabel(_pitchSemitones)}',
+                checked: _makePitch,
+                onTap: () => setState(() => _makePitch = !_makePitch),
+              ),
+              if (_makePitch)
+                Padding(
+                  padding: const EdgeInsets.only(left: 36, top: 2),
+                  child: Row(
+                    children: [
+                      _StepButton(
+                        icon: Icons.remove,
+                        tooltip: '키 낮추기',
+                        onTap: _pitchSemitones <= -6
+                            ? null
+                            : () => setState(() => _pitchSemitones -= 1),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          formatKeyLabel(_pitchSemitones),
+                          style: AppTypography.mono,
+                        ),
+                      ),
+                      _StepButton(
+                        icon: Icons.add,
+                        tooltip: '키 올리기',
+                        onTap: _pitchSemitones >= 6
+                            ? null
+                            : () => setState(() => _pitchSemitones += 1),
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(height: 12),
               Semantics(
                 label: '가사 자동 가져오기',
@@ -228,6 +303,99 @@ class _AddSongDialogState extends State<AddSongDialog> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 반주 구성 선택용 체크 줄. 상태를 색만이 아니라 체크 아이콘으로도 알린다.
+class _CheckRow extends StatelessWidget {
+  final String label;
+  final String description;
+  final bool checked;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _CheckRow({
+    required this.label,
+    required this.description,
+    required this.checked,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final on = checked && enabled;
+    return Semantics(
+      label: label,
+      checked: on,
+      enabled: enabled,
+      child: InkWell(
+        borderRadius: AppShapes.controlRadius,
+        onTap: enabled ? onTap : null,
+        child: Container(
+          constraints: const BoxConstraints(
+            minHeight: AppConstants.minTouchTarget,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: Row(
+            children: [
+              Icon(
+                on ? Icons.check_box : Icons.check_box_outline_blank,
+                color: !enabled
+                    ? AppColors.textMuted
+                    : (on ? AppColors.primary : AppColors.textMuted),
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: enabled
+                          ? AppTypography.body
+                          : AppTypography.bodyMuted,
+                    ),
+                    Text(description, style: AppTypography.caption),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  const _StepButton({required this.icon, required this.tooltip, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: OutlinedButton(
+          onPressed: onTap,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(
+              AppConstants.minTouchTarget,
+              AppConstants.minTouchTarget,
+            ),
+            padding: EdgeInsets.zero,
+          ),
+          child: Icon(icon, size: 18),
+        ),
+      ),
     );
   }
 }

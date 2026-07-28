@@ -9,6 +9,13 @@
   /// 음수면 가사를 먼저 띄운다(읽을 시간 확보 — 프롬프터 기본 방향).
   final int lyricsOffsetMs;
 
+  /// 파일 자체에 이미 구워 넣은 키(원곡 대비 반음).
+  ///
+  /// 키조절 슬롯은 이미 음이 바뀐 파일이므로 재생 시 다시 적용하지
+  /// **않는다**. 표시용으로만 쓰고, 사용자가 그 위에 키를 더 올리면
+  /// 실효 키 = baked + 사용자 설정으로 보여 준다.
+  final int bakedSemitones;
+
   const BackingTrack({
     required this.slot,
     required this.fileName,
@@ -16,6 +23,7 @@
     this.startMs,
     this.endMs,
     this.lyricsOffsetMs = 0,
+    this.bakedSemitones = 0,
   });
 
   /// 일부 값만 바꾼 사본을 만든다.
@@ -29,6 +37,7 @@
     int? startMs,
     int? endMs,
     int? lyricsOffsetMs,
+    int? bakedSemitones,
     bool clearStartMs = false,
     bool clearEndMs = false,
   }) {
@@ -39,6 +48,7 @@
       startMs: clearStartMs ? null : (startMs ?? this.startMs),
       endMs: clearEndMs ? null : (endMs ?? this.endMs),
       lyricsOffsetMs: lyricsOffsetMs ?? this.lyricsOffsetMs,
+      bakedSemitones: bakedSemitones ?? this.bakedSemitones,
     );
   }
 
@@ -49,6 +59,7 @@
     'startMs': startMs,
     'endMs': endMs,
     'lyricsOffsetMs': lyricsOffsetMs,
+    'bakedSemitones': bakedSemitones,
   };
 
   factory BackingTrack.fromJson(Map<String, dynamic> json) => BackingTrack(
@@ -58,5 +69,6 @@
     startMs: (json['startMs'] as num?)?.toInt(),
     endMs: (json['endMs'] as num?)?.toInt(),
     lyricsOffsetMs: (json['lyricsOffsetMs'] as num?)?.toInt() ?? 0,
+    bakedSemitones: (json['bakedSemitones'] as num?)?.toInt() ?? 0,
   );
 }

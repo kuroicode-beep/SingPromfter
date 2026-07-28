@@ -16,6 +16,8 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/app_constants.dart';
+import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
@@ -23,10 +25,12 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../models/track_levels.dart';
+import '../models/track_variant.dart';
 import '../repository/song_repository.dart';
 import '../services/level_analysis_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/pitch_variant_service.dart';
+import '../services/track_asset_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/process_runner.dart';
 import '../services/process/tool_progress_parsers.dart';
@@ -76,6 +80,10 @@ class AppController extends ChangeNotifier {
   );
   late final LevelAnalysisService levelAnalysis = LevelAnalysisService(
     locator: toolLocator,
+  );
+  late final TrackAssetService trackAssets = TrackAssetService(
+    pitch: pitchVariants,
+    levels: levelAnalysis,
   );
   late final YoutubeImportService youtubeImport = YoutubeImportService(
     tmpDirProvider: repo.getTmpDir,
@@ -424,6 +432,7 @@ class AppController extends ChangeNotifier {
     String url,
     MrSourceMode mode, {
     bool fetchLyrics = true,
+    ImportPlan plan = const ImportPlan.single(),
   }) async {
     if (!looksLikeYoutubeUrl(url)) {
       return const ImportEnqueueOutcome.error(
@@ -437,11 +446,20 @@ class AppController extends ChangeNotifier {
         '앱에서 최초 1회 저작권 확인이 필요합니다. 앱의 곡 추가에서 "확인했습니다"를 눌러 주세요.',
       );
     }
+    if (plan.makeInstrumental &&
+        mode == MrSourceMode.aiSeparate &&
+        !separatorOnline) {
+      return const ImportEnqueueOutcome.error(
+        'separator_offline',
+        '분리 서버가 꺼져 있어 MR을 만들 수 없습니다. SAW에서 켜 주세요.',
+      );
+    }
     final job = importJobs.enqueue(
       url: url,
       mode: mode,
       id: const Uuid().v4(),
       fetchLyrics: fetchLyrics,
+      plan: plan,
     );
     return ImportEnqueueOutcome.ok(job.id);
   }
@@ -489,22 +507,78 @@ class AppController extends ChangeNotifier {
       return;
     }
 
-    var audioPath = result.audioPath!;
+    // 내려받은 원본은 절대 덮어쓰지 않는다 — 원곡 슬롯이 여기서 나온다.
+    final originalPath = result.audioPath!;
+
+    // 기존 곡에 반주만 더하는 작업이면 여기서 갈라진다.
+    final targetSongId = job.targetSongId;
+    if (targetSongId != null) {
+      await _runTrackImport(
+        job,
+        songId: targetSongId,
+        originalPath: originalPath,
+        onProgress: onProgress,
+      );
+      await youtubeImport.cleanupJob(job.id);
+      return;
+    }
+
+    String? instrumentalPath;
+    var separationNote = '';
     if (job.mode == MrSourceMode.aiSeparate) {
       onProgress(const JobProgress(label: 'AI 보컬 분리 중 (수십 초 걸립니다)'));
-      final separated = await separation.separate(audioPath);
-      if (!separated.success || separated.instrumentalPath == null) {
-        _failJob(job, separated.message ?? 'AI 보컬 분리에 실패했습니다.');
-        await youtubeImport.cleanupJob(job.id);
-        return;
+      final separated = await separation.separate(originalPath);
+      if (separated.success && separated.instrumentalPath != null) {
+        instrumentalPath = separated.instrumentalPath;
+      } else {
+        // 분리에 실패해도 원곡은 등록한다(부분 성공).
+        separationNote = ' · MR 분리 실패';
       }
-      audioPath = separated.instrumentalPath!;
+    }
+
+    final plan = job.plan;
+    final planned = resolveImportPlan(
+      plan: ImportPlan(
+        // 분리가 없거나 실패했으면 MR 슬롯을 만들 수 없다.
+        makeInstrumental: plan.makeInstrumental && instrumentalPath != null,
+        makeOriginal: plan.makeOriginal || instrumentalPath == null,
+        pitchSemitones: plan.pitchSemitones,
+      ),
+      pitchLabel: plan.wantsPitch
+          ? '키조절 ${formatKeyLabel(plan.pitchSemitones!)}'
+          : null,
+    );
+
+    final slotPaths = <int, String>{};
+    final slotLabels = <int, String>{};
+    final slotBaked = <int, int>{};
+    int? mrSlot;
+    PlannedTrack? pitchPlanned;
+    for (final track in planned.tracks) {
+      switch (track.variant) {
+        case TrackVariant.original:
+          slotPaths[track.slot] = originalPath;
+        case TrackVariant.mr:
+          slotPaths[track.slot] = instrumentalPath ?? originalPath;
+          mrSlot = track.slot;
+        case TrackVariant.pitch:
+          // 키조절본은 리포지토리에 복사된 MR을 원본으로 삼아야
+          // 캐시 키가 안정적이다. 곡 등록 뒤 2단계로 만든다.
+          pitchPlanned = track;
+          continue;
+        case TrackVariant.karaoke:
+          slotPaths[track.slot] = originalPath;
+      }
+      slotLabels[track.slot] = track.label;
+      slotBaked[track.slot] = track.bakedSemitones;
     }
 
     onProgress(const JobProgress(ratio: 1, label: '곡으로 등록 중'));
     var song = await _registerImportedSong(
       metadata: metadata,
-      audioPath: audioPath,
+      slotPaths: slotPaths,
+      slotLabels: slotLabels,
+      slotBaked: slotBaked,
     );
     await youtubeImport.cleanupJob(job.id);
 
@@ -513,8 +587,41 @@ class AppController extends ChangeNotifier {
       return;
     }
 
+    // 키조절 슬롯 — MR(없으면 원곡)을 기준으로 구워 넣는다.
+    var pitchNote = '';
+    if (pitchPlanned != null) {
+      onProgress(
+        JobProgress(
+          ratio: 1,
+          label: '${formatKeyLabel(plan.pitchSemitones!)} 반주 만드는 중',
+        ),
+      );
+      final baseSlot = mrSlot ?? song.availableTrackSlots.firstOrNull;
+      final rendered = baseSlot == null
+          ? null
+          : await _renderPitchSlot(
+              song: song,
+              baseSlot: baseSlot,
+              targetSlot: pitchPlanned.slot,
+              semitones: pitchPlanned.bakedSemitones,
+              label: pitchPlanned.label,
+            );
+      if (rendered != null) {
+        song = rendered;
+      } else {
+        pitchNote = ' · 키조절본 실패';
+      }
+    }
+
+    if (planned.dropped.isNotEmpty) {
+      final names = planned.dropped.map((v) => v.label).join('·');
+      pitchNote += ' · 슬롯 부족으로 $names 건너뜀';
+    }
+
     // 첫 무대 진입 때 EQ가 바로 뜨도록 등록 직후 백그라운드로 선분석한다.
-    unawaited(loadTrackLevels(song, 1));
+    for (final slot in song.availableTrackSlots) {
+      unawaited(loadTrackLevels(song, slot));
+    }
 
     // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
     var lyricsNote = '';
@@ -533,17 +640,106 @@ class AppController extends ChangeNotifier {
       }
     }
 
+    final extra = '$lyricsNote$separationNote$pitchNote';
+    final slotNote = ' · 반주 ${song.availableTrackSlots.length}개';
     final finished = importJobs.jobById(job.id);
     if (finished == null) return;
     importJobs.update(
       finished.copyWith(
         status: ImportJobStatus.done,
-        statusDetail: '재생목록에 추가했습니다$lyricsNote.',
+        statusDetail: '재생목록에 추가했습니다$slotNote$extra.',
         songId: song.id,
         ratio: 1,
       ),
     );
-    _emit('"${song.title}" 추가 완료$lyricsNote');
+    _emit('"${song.title}" 추가 완료$slotNote$extra');
+  }
+
+  /// 기존 곡의 한 슬롯에 내려받은 반주를 넣는다.
+  Future<void> _runTrackImport(
+    ImportJob job, {
+    required String songId,
+    required String originalPath,
+    required void Function(JobProgress progress) onProgress,
+  }) async {
+    var audioPath = originalPath;
+    if (job.mode == MrSourceMode.aiSeparate) {
+      onProgress(const JobProgress(label: 'AI 보컬 분리 중 (수십 초 걸립니다)'));
+      final separated = await separation.separate(originalPath);
+      if (separated.success && separated.instrumentalPath != null) {
+        audioPath = separated.instrumentalPath!;
+      }
+    }
+
+    final song = songById(songId);
+    if (song == null) {
+      _failJob(job, '대상 곡을 찾을 수 없습니다.');
+      return;
+    }
+    final slot = job.targetSlot ?? _firstFreeSlot(song);
+    if (slot == null) {
+      _failJob(job, '반주 슬롯이 모두 찼습니다.');
+      return;
+    }
+
+    onProgress(const JobProgress(ratio: 1, label: '반주 넣는 중'));
+    final updated = await attachTrackToSong(
+      songId: songId,
+      slot: slot,
+      sourcePath: audioPath,
+      label: job.trackLabel ?? TrackVariant.karaoke.label,
+    );
+    if (updated == null) {
+      _failJob(job, '반주를 넣지 못했습니다.');
+      return;
+    }
+
+    final finished = importJobs.jobById(job.id);
+    if (finished == null) return;
+    final label = updated.trackForSlot(slot)?.label ?? '반주';
+    importJobs.update(
+      finished.copyWith(
+        status: ImportJobStatus.done,
+        statusDetail: '슬롯 $slot에 "$label"을(를) 넣었습니다.',
+        songId: updated.id,
+        ratio: 1,
+      ),
+    );
+    _emit('"${updated.title}" 슬롯 $slot에 $label 추가');
+  }
+
+  /// 이미 등록된 반주를 기준으로 키조절본을 만들어 다른 슬롯에 넣는다.
+  Future<Song?> _renderPitchSlot({
+    required Song song,
+    required int baseSlot,
+    required int targetSlot,
+    required int semitones,
+    required String label,
+  }) async {
+    try {
+      final base = song.trackForSlot(baseSlot);
+      if (base == null) return null;
+      final sourcePath = await repo.getBackingTrackPath(base.fileName);
+      if (sourcePath == null) return null;
+
+      final rendered = await pitchVariants.render(
+        sourcePath: sourcePath,
+        sourceFileName: base.fileName,
+        semitones: semitones,
+      );
+      if (!rendered.success || rendered.path == null) return null;
+
+      return attachTrackToSong(
+        songId: song.id,
+        slot: targetSlot,
+        sourcePath: rendered.path!,
+        label: label,
+        bakedSemitones: semitones,
+      );
+    } catch (e) {
+      debugPrint('키조절 슬롯 생성 실패: $e');
+      return null;
+    }
   }
 
   /// 목록의 곡을 최신 인스턴스로 갈아끼우고 저장한다.
@@ -568,11 +764,13 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  /// 받은 오디오를 반주 1번 슬롯으로 하는 곡을 만든다.
+  /// 받은 오디오들을 슬롯에 배치해 곡을 만든다.
   /// 가사는 이어지는 단계에서 채운다. 실패하면 null.
   Future<Song?> _registerImportedSong({
     required YoutubeMetadata metadata,
-    required String audioPath,
+    required Map<int, String> slotPaths,
+    required Map<int, String> slotLabels,
+    Map<int, int> slotBaked = const {},
   }) async {
     try {
       // 유튜브 제목의 MR/노래방/키 표기를 걷어내고 가수를 분리한다 —
@@ -587,8 +785,9 @@ class AppController extends ChangeNotifier {
       final draft = SongDraft(
         title: title.isEmpty ? '제목 없음' : title,
         artist: cleaned.artist ?? metadata.uploader,
-        trackPaths: {1: audioPath},
-        trackLabels: {1: 'MR1'},
+        trackPaths: slotPaths,
+        trackLabels: slotLabels,
+        trackBakedSemitones: slotBaked,
       );
       final result = await libraryService.addSong(
         songs: songs,
@@ -604,6 +803,115 @@ class AppController extends ChangeNotifier {
       debugPrint('가져온 곡 등록 실패: $e');
       return null;
     }
+  }
+
+  // ── 반주 슬롯 관리 ──────────────────────────────────────
+
+  /// 기존 곡의 한 슬롯에 반주를 넣는다(있으면 갈아끼운다).
+  ///
+  /// 파일명이 슬롯마다 고정이라 같은 이름으로 다른 오디오가 들어간다 —
+  /// 파생 캐시를 반드시 비워야 엉뚱한 키·파형이 서빙되지 않는다.
+  Future<Song?> attachTrackToSong({
+    required String songId,
+    required int slot,
+    required String sourcePath,
+    required String label,
+    int bakedSemitones = 0,
+  }) async {
+    final song = songById(songId);
+    if (song == null) return null;
+    try {
+      final updated = await repo.addBackingTrack(
+        song: song,
+        slot: slot,
+        sourcePath: sourcePath,
+        label: label,
+        bakedSemitones: bakedSemitones,
+      );
+      final track = updated.trackForSlot(slot);
+      if (track != null) await trackAssets.invalidate(track.fileName);
+      await replaceSongInList(updated);
+      unawaited(loadTrackLevels(updated, slot));
+      if (selectedSong?.id == songId) {
+        await playback.loadSong(updated, preferredSlot: selectedTrackSlot);
+      }
+      return updated;
+    } catch (e) {
+      debugPrint('반주 추가 실패: $e');
+      return null;
+    }
+  }
+
+  /// 슬롯에서 반주를 빼고 파일·파생 캐시를 지운다.
+  Future<Song?> removeTrackFromSong({
+    required String songId,
+    required int slot,
+  }) async {
+    final song = songById(songId);
+    if (song == null) return null;
+    final track = song.trackForSlot(slot);
+    if (track == null) return null;
+    final updated = await repo.removeBackingTrack(song: song, slot: slot);
+    await trackAssets.invalidate(track.fileName);
+    await replaceSongInList(updated);
+    if (selectedSong?.id == songId && selectedTrackSlot == slot) {
+      await playback.loadSong(updated);
+    }
+    return updated;
+  }
+
+  /// 기존 곡에 링크로 반주를 더하는 작업을 큐에 넣는다.
+  Future<ImportEnqueueOutcome> enqueueTrackImport({
+    required String songId,
+    required String url,
+    required MrSourceMode mode,
+    int? slot,
+    String? label,
+  }) async {
+    final song = songById(songId);
+    if (song == null) {
+      return const ImportEnqueueOutcome.error(
+        'song_not_found',
+        '곡을 찾을 수 없습니다.',
+      );
+    }
+    if (!looksLikeYoutubeUrl(url)) {
+      return const ImportEnqueueOutcome.error(
+        'not_youtube_url',
+        '유튜브 주소가 아닙니다. 링크를 다시 확인해 주세요.',
+      );
+    }
+    if (!await hasYoutubeAck()) {
+      return const ImportEnqueueOutcome.error(
+        'notice_not_acked',
+        '앱에서 최초 1회 저작권 확인이 필요합니다. 앱의 곡 추가에서 "확인했습니다"를 눌러 주세요.',
+      );
+    }
+    final resolved = slot ?? _firstFreeSlot(song);
+    if (resolved == null) {
+      return const ImportEnqueueOutcome.error(
+        'no_free_slot',
+        '반주 슬롯이 모두 찼습니다. 덮어쓸 슬롯을 지정해 주세요.',
+      );
+    }
+    final job = importJobs.enqueue(
+      url: url,
+      mode: mode,
+      id: const Uuid().v4(),
+      fetchLyrics: false,
+      targetSongId: songId,
+      targetSlot: resolved,
+      trackLabel: label,
+    );
+    return ImportEnqueueOutcome.ok(job.id);
+  }
+
+  int? _firstFreeSlot(Song song) {
+    final used = song.availableTrackSlots.toSet();
+    for (final slot in AppConstants.backingTrackSlots) {
+      if (!used.contains(slot)) return slot;
+    }
+    return null;
   }
 
   // ── 곡 관리 (헤드리스 — 확인 UI 없음, 제어 API용) ───────

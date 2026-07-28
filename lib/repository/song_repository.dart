@@ -189,6 +189,7 @@ class SongRepository {
     Map<int, String>? trackLabels,
     Map<int, int?>? trackStartMs,
     Map<int, int?>? trackEndMs,
+    Map<int, int>? trackBakedSemitones,
   }) async {
     final lyricsPath = await writeLyricsFile(title: title, lyrics: lyrics);
     final tracks = <BackingTrack>[];
@@ -211,6 +212,7 @@ class SongRepository {
             label: _trackLabel(trackLabels, slot, 'MR$slot'),
             startMs: trackStartMs?[slot],
             endMs: trackEndMs?[slot],
+            bakedSemitones: trackBakedSemitones?[slot] ?? 0,
           ),
         );
       }
@@ -369,6 +371,56 @@ class SongRepository {
     final dest = File('${dir.path}/$fileName');
     await File(sourcePath).copy(dest.path);
     return fileName;
+  }
+
+  /// 반주 하나만 곡에 더한다(또는 그 슬롯을 갈아끼운다).
+  ///
+  /// updateSong은 제목·가사 중심이라 가사 파일을 다시 쓴다. 반주만
+  /// 바꾸려는 경우엔 그 부작용이 필요 없어 전용 경로를 둔다.
+  Future<Song> addBackingTrack({
+    required Song song,
+    required int slot,
+    required String sourcePath,
+    required String label,
+    int bakedSemitones = 0,
+  }) async {
+    if (slot < 1 || slot > AppConstants.maxBackingTrackSlots) return song;
+    final fileName = await copyBackingTrack(
+      title: song.title,
+      slot: slot,
+      sourcePath: sourcePath,
+    );
+    final previous = song.trackForSlot(slot);
+    if (previous != null && previous.fileName != fileName) {
+      await _deleteBackingTrackByName(previous.fileName);
+    }
+    final next = song.backingTracks
+        .where((t) => t.slot != slot)
+        .toList(growable: true)
+      ..add(
+        BackingTrack(
+          slot: slot,
+          fileName: fileName,
+          label: label.trim().isEmpty ? 'MR$slot' : label.trim(),
+          bakedSemitones: bakedSemitones,
+        ),
+      )
+      ..sort((a, b) => a.slot.compareTo(b.slot));
+    return song.copyWith(backingTracks: next, updatedAt: DateTime.now());
+  }
+
+  /// 반주 하나를 곡에서 빼고 파일도 지운다.
+  Future<Song> removeBackingTrack({
+    required Song song,
+    required int slot,
+  }) async {
+    final track = song.trackForSlot(slot);
+    if (track == null) return song;
+    await _deleteBackingTrackByName(track.fileName);
+    final next = song.backingTracks
+        .where((t) => t.slot != slot)
+        .toList(growable: false);
+    return song.copyWith(backingTracks: next, updatedAt: DateTime.now());
   }
 
   Future<String?> getBackingTrackPath(String fileName) async {
