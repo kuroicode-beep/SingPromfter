@@ -1,7 +1,6 @@
-// file: lib/theme/prompter_levels.dart
+﻿// file: lib/theme/prompter_levels.dart
 //
 // 프롬프터의 단계형 설정을 실제 표시 값으로 변환하는 공통 모듈이다.
-import '../constants/app_constants.dart';
 
 class PrompterLevels {
   PrompterLevels._();
@@ -42,7 +41,4 @@ class PrompterLevels {
     }
     return maxLevel;
   }
-
-  static double scrollDeltaForSpeed(double speedLevel) =>
-      speedLevel * AppConstants.scrollDeltaMultiplier;
 }

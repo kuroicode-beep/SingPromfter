@@ -1,4 +1,4 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/theme/prompter_levels.dart';
 
 void main() {
@@ -22,8 +22,5 @@ void main() {
       expect(PrompterLevels.levelForLineHeight(9), 7);
     });
 
-    test('scrollDeltaForSpeed scales speed level', () {
-      expect(PrompterLevels.scrollDeltaForSpeed(2), 2.8);
-    });
   });
 }

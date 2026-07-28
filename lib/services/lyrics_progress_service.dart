@@ -47,14 +47,27 @@ class LyricsProgressService {
     return rawIndex.floor().clamp(0, lineCount - 1);
   }
 
-  /// 자동 스크롤(전체 모드)에서 한 틱에 이동할 픽셀 양.
+  /// [estimatedLineIndex]의 역함수 — 그 줄이 시작되는 재생 위치.
   ///
-  /// 타이머 클로저에 값으로 갇히지 않도록 매 틱 현재 속도로 다시 계산한다.
-  static double scrollDelta({
+  /// 싱크 가사가 없는 곡에서 줄을 클릭하거나 휠로 넘겼을 때 쓴다.
+  /// 계산이 불가능하면(길이 모름·속도 0·줄 1개) null을 준다.
+  static Duration? positionForLineIndex({
+    required int index,
+    required Duration duration,
+    required int lineCount,
     required double speedLevel,
-    required double multiplier,
   }) {
-    if (speedLevel <= 0) return 0;
-    return speedLevel * multiplier;
+    if (lineCount <= 1) return null;
+    if (speedLevel <= 0) return null;
+    if (duration <= Duration.zero) return null;
+    if (index <= 0) return Duration.zero;
+
+    final clamped = index.clamp(0, lineCount - 1);
+    final speedFactor = speedLevel / neutralSpeedLevel;
+    final ratio = clamped / (lineCount * speedFactor);
+    if (ratio >= 1) return duration;
+    // floor 경계에서 한 줄 앞으로 밀리지 않도록 1ms 안쪽으로 들어간다.
+    final micros = (duration.inMicroseconds * ratio).ceil() + 1000;
+    return Duration(microseconds: micros.clamp(0, duration.inMicroseconds));
   }
 }

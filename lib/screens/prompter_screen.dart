@@ -83,13 +83,10 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _speedLevel = widget.speedLevel;
     _displayMode = widget.displayMode;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    // 전체화면이 열려 있는 동안에는 이쪽 스크롤을 자동 스크롤 대상으로 삼는다.
-    widget.playback.attachScrollController(_scrollController);
   }
 
   @override
   void dispose() {
-    widget.playback.detachScrollController(_scrollController);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _scrollController.dispose();
     super.dispose();
@@ -218,9 +215,14 @@ class _PrompterScreenState extends State<PrompterScreen> {
           children: [
             Positioned.fill(
               bottom: band,
-              child: ValueListenableBuilder<int>(
-                valueListenable: widget.playback.lineIndex,
-                builder: (context, lineIndex, _) => PrompterLyricsView(
+              child: AnimatedBuilder(
+                // 줄 번호뿐 아니라 가사 도착·따라가기 토글에도 다시 그린다.
+                animation: Listenable.merge([
+                  widget.playback.lineIndex,
+                  widget.playback.timedLyrics,
+                  widget.playback.autoScrollPaused,
+                ]),
+                builder: (context, _) => PrompterLyricsView(
                   lyricsText: widget.song.lyricsText,
                   timedLyrics: widget.playback.timedLyrics.value,
                   displayMode: _displayMode,
@@ -228,7 +230,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   lineHeight: _lineHeight,
                   fontFamily: widget.fontFamily,
                   boldText: widget.boldText,
-                  highlightLineIndex: lineIndex,
+                  highlightLineIndex: widget.playback.lineIndex.value,
                   scrollController: _scrollController,
                   padding: EdgeInsets.fromLTRB(
                     32,
@@ -358,7 +360,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
                       valueListenable: widget.playback.autoScrollPaused,
                       builder: (context, paused, _) => _BarIconButton(
                         icon: paused ? Icons.play_circle : Icons.pause_circle,
-                        semanticsLabel: paused ? '자동 스크롤 켜기' : '자동 스크롤 끄기',
+                        semanticsLabel: paused
+                            ? '가사 따라가기 켜기'
+                            : '가사 따라가기 끄기',
                         toggled: !paused,
                         onTap: widget.playback.toggleAutoScrollPaused,
                       ),

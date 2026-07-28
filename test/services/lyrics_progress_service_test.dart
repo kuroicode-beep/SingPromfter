@@ -116,19 +116,98 @@ void main() {
     });
   });
 
-  group('scrollDelta', () {
-    test('속도에 비례한다', () {
+  // scrollDelta 그룹은 v2.6.0에서 삭제했다. 매 프레임 픽셀을 굴리던
+  // 자동 스크롤이 "현재 줄 센터링"으로 바뀌면서 함수 자체가 사라졌다.
+
+  group('positionForLineIndex (estimatedLineIndex의 역함수)', () {
+    const duration = Duration(minutes: 4);
+    const lineCount = 40;
+
+    test('구한 위치를 되돌리면 같은 줄이 나온다', () {
+      for (var i = 0; i < lineCount; i++) {
+        final position = LyricsProgressService.positionForLineIndex(
+          index: i,
+          duration: duration,
+          lineCount: lineCount,
+          speedLevel: 2,
+        );
+        expect(position, isNotNull, reason: '줄 $i');
+        final back = LyricsProgressService.estimatedLineIndex(
+          position: position!,
+          duration: duration,
+          lineCount: lineCount,
+          speedLevel: 2,
+        );
+        expect(back, i, reason: '줄 $i 왕복');
+      }
+    });
+
+    test('첫 줄은 0초', () {
       expect(
-        LyricsProgressService.scrollDelta(speedLevel: 3, multiplier: 1.4),
-        closeTo(4.2, 0.0001),
+        LyricsProgressService.positionForLineIndex(
+          index: 0,
+          duration: duration,
+          lineCount: lineCount,
+          speedLevel: 2,
+        ),
+        Duration.zero,
       );
     });
 
-    test('속도가 0이면 움직이지 않는다', () {
+    test('속도를 올리면 같은 줄에 더 일찍 닿는다', () {
+      final slow = LyricsProgressService.positionForLineIndex(
+        index: 20,
+        duration: duration,
+        lineCount: lineCount,
+        speedLevel: 2,
+      )!;
+      final fast = LyricsProgressService.positionForLineIndex(
+        index: 20,
+        duration: duration,
+        lineCount: lineCount,
+        speedLevel: 4,
+      )!;
+      expect(fast, lessThan(slow));
+    });
+
+    test('계산할 수 없으면 null — 길이 모름·속도 0·줄 1개', () {
       expect(
-        LyricsProgressService.scrollDelta(speedLevel: 0, multiplier: 1.4),
-        0,
+        LyricsProgressService.positionForLineIndex(
+          index: 3,
+          duration: Duration.zero,
+          lineCount: lineCount,
+          speedLevel: 2,
+        ),
+        isNull,
       );
+      expect(
+        LyricsProgressService.positionForLineIndex(
+          index: 3,
+          duration: duration,
+          lineCount: lineCount,
+          speedLevel: 0,
+        ),
+        isNull,
+      );
+      expect(
+        LyricsProgressService.positionForLineIndex(
+          index: 0,
+          duration: duration,
+          lineCount: 1,
+          speedLevel: 2,
+        ),
+        isNull,
+      );
+    });
+
+    test('곡 길이를 넘지 않는다', () {
+      final position = LyricsProgressService.positionForLineIndex(
+        index: lineCount - 1,
+        duration: duration,
+        lineCount: lineCount,
+        speedLevel: 6,
+      )!;
+      expect(position, lessThanOrEqualTo(duration));
     });
   });
 }

@@ -7,8 +7,6 @@ import 'dart:async';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
-import '../constants/app_constants.dart';
-import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
@@ -16,6 +14,7 @@ import '../models/timed_lyrics.dart';
 import '../models/track_levels.dart';
 import '../repository/song_repository.dart';
 import '../services/lyrics_progress_service.dart';
+import '../services/lyrics_sync_math.dart';
 import '../services/prompter_audio_service.dart';
 import '../services/song_queue_service.dart';
 import '../utils/lyrics_line_utils.dart';
@@ -225,15 +224,15 @@ class PlaybackController {
   }
 
   /// 재생 중이거나 가사 전용 곡이면 틱을 돌린다. 그 외에는 멈춰 CPU를 아낀다.
+  ///
+  /// v2.6.0: 게이트에서 speedLevel·autoScrollPaused를 뺐다. 둘은 "추정 줄
+  /// 진행"과 "화면 따라가기" 설정일 뿐인데, 여기 묶여 있어 속도를 0으로
+  /// 두거나 따라가기를 끄면 재생 위치·싱크 가사·진행바·EQ가 통째로 얼어붙었다.
   void _syncTicker() {
     final ticker = _ticker;
     if (ticker == null) return;
 
-    final settings = settingsProvider();
-    final shouldRun =
-        (state.value.playing || state.value.isLyricsOnly) &&
-        settings.speedLevel > 0 &&
-        !autoScrollPaused.value;
+    final shouldRun = state.value.playing || state.value.isLyricsOnly;
 
     if (shouldRun && !ticker.isActive) {
       // 가사 전용 곡은 오디오 이벤트가 없으므로 시계를 직접 돌린다.
@@ -245,78 +244,100 @@ class PlaybackController {
     }
   }
 
-  Duration _lastScrollTick = Duration.zero;
-
   void _onTick(Duration elapsed) {
     if (_disposed) return;
+    position.value = _clock.value;
+    _recomputeLineIndex(position.value);
+  }
 
-    final current = _clock.value;
-    position.value = current;
-
+  /// 현재 재생 위치로 하이라이트 줄을 다시 구한다.
+  ///
+  /// 줄 소스 규칙은 하나뿐이다 — **싱크 가사가 있으면 그 타임스탬프, 없으면
+  /// 추정**. 이전에는 `displayMode == timed`까지 만족해야 LRC를 썼는데,
+  /// 전체화면에서는 그 모드에 도달할 수 없어 싱크가 무시됐다.
+  void _recomputeLineIndex(Duration current) {
     final song = state.value.song;
     if (song == null) return;
-    final settings = settingsProvider();
 
-    // 줄 번호 — 싱크 가사가 있으면 실제 타임스탬프를, 없으면 추정을 쓴다.
     final synced = timedLyrics.value;
-    final int nextIndex;
-    if (settings.displayMode == PrompterDisplayMode.timed &&
-        synced != null &&
-        !synced.isEmpty) {
-      // 트림 시작점을 빼고 곡별 오프셋을 더해 실제 노래 시각으로 환산한다.
-      final startMs = state.value.trackStartMs ?? 0;
-      final songTime = Duration(
-        milliseconds:
-            current.inMilliseconds - startMs + state.value.lyricsOffsetMs,
+    if (synced != null && !synced.isEmpty) {
+      final songTime = LyricsSyncMath.songTimeFor(
+        playerPosition: current,
+        trackStartMs: state.value.trackStartMs,
+        lyricsOffsetMs: state.value.lyricsOffsetMs,
       );
-      nextIndex = synced.indexAt(songTime);
-    } else {
-      final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
-      nextIndex = LyricsProgressService.estimatedLineIndex(
-        position: current,
-        duration: state.value.duration,
-        lineCount: lines,
-        speedLevel: settings.speedLevel,
-      );
+      final next = synced.indexAt(songTime);
+      if (next != lineIndex.value) lineIndex.value = next;
+      return;
     }
-    if (nextIndex != lineIndex.value) lineIndex.value = nextIndex;
 
-    // 전체 모드 자동 스크롤 — 프레임 간격 기준이라 주사율에 좌우되지 않는다.
-    if (settings.displayMode == PrompterDisplayMode.full) {
-      final deltaSeconds =
-          (elapsed - _lastScrollTick).inMicroseconds /
-          Duration.microsecondsPerSecond;
-      _scrollBy(settings.speedLevel, deltaSeconds);
-    }
-    _lastScrollTick = elapsed;
-  }
+    // 추정 진행은 속도가 0이면 계산 자체가 0을 돌려준다.
+    // 그대로 쓰면 줄이 첫 줄로 튀므로, 이 경우엔 현재 줄을 유지한다.
+    final speedLevel = settingsProvider().speedLevel;
+    if (speedLevel <= 0) return;
 
-  /// 전체화면이 열리면 그쪽 스크롤을 대신 움직인다.
-  ScrollController? _overrideScroll;
-
-  ScrollController get _activeScroll => _overrideScroll ?? lyricsScrollController;
-
-  void attachScrollController(ScrollController controller) {
-    _overrideScroll = controller;
-  }
-
-  void detachScrollController(ScrollController controller) {
-    if (identical(_overrideScroll, controller)) _overrideScroll = null;
-  }
-
-  void _scrollBy(double speedLevel, double seconds) {
-    if (seconds <= 0 || seconds > 0.5) return; // 첫 틱·정지 후 복귀 시 튐 방지
-    final scroll = _activeScroll;
-    if (!scroll.hasClients) return;
-    final pixels =
-        speedLevel * AppConstants.autoScrollPixelsPerSecond * seconds;
-    if (pixels <= 0) return;
-    final next = (scroll.offset + pixels).clamp(
-      0.0,
-      scroll.position.maxScrollExtent,
+    final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
+    final next = LyricsProgressService.estimatedLineIndex(
+      position: current,
+      duration: state.value.duration,
+      lineCount: lines,
+      speedLevel: speedLevel,
     );
-    scroll.jumpTo(next);
+    if (next != lineIndex.value) lineIndex.value = next;
   }
+
+  /// 지금 곡의 줄 수. 싱크 가사가 있으면 그 줄 목록 기준이다.
+  int get lineCount {
+    final synced = timedLyrics.value;
+    if (synced != null && !synced.isEmpty) return synced.lines.length;
+    final song = state.value.song;
+    if (song == null) return 0;
+    return LyricsLineUtils.splitLines(song.lyricsText).length;
+  }
+
+  /// 특정 줄로 이동한다. 싱크 가사가 없으면 추정 시각으로, 그마저 불가능하면
+  /// 줄 번호만 옮긴다(가사만 넘겨보는 용도).
+  Future<void> seekToLine(int index) async {
+    final total = lineCount;
+    if (total <= 0) return;
+    final clamped = index.clamp(0, total - 1);
+
+    final synced = timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      await seek(
+        LyricsSyncMath.playerPositionForLine(
+          lyrics: synced,
+          index: clamped,
+          trackStartMs: state.value.trackStartMs,
+          lyricsOffsetMs: state.value.lyricsOffsetMs,
+        ),
+      );
+      return;
+    }
+
+    final estimated = LyricsProgressService.positionForLineIndex(
+      index: clamped,
+      duration: state.value.duration,
+      lineCount: total,
+      speedLevel: settingsProvider().speedLevel,
+    );
+    if (estimated != null) {
+      await seek(estimated + Duration(milliseconds: state.value.trackStartMs ?? 0));
+      return;
+    }
+
+    lineIndex.value = clamped;
+    if (!_warnedNoSeekableLyrics) {
+      _warnedNoSeekableLyrics = true;
+      onMessage('싱크 가사가 없어 줄만 옮깁니다. 가사를 가져오면 반주도 함께 이동합니다.');
+    }
+  }
+
+  bool _warnedNoSeekableLyrics = false;
+
+  /// 이전/다음 줄로 옮긴다. (마우스 휠·단축키용)
+  Future<void> stepLine(int delta) =>
+      seekToLine(lineIndex.value + delta);
 
   // ── 연습 세션 집계 ────────────────────────────────────────
 
@@ -392,6 +413,9 @@ class PlaybackController {
 
     // 싱크 가사는 곡 단위라 슬롯 전환 때는 다시 읽지 않는다.
     timedLyrics.value = await timedLyricsLoader?.call(song);
+    // 가사가 늦게 도착하면 그 자리에서 줄을 다시 잡는다 —
+    // 정지 상태라면 다음 틱이 영영 오지 않는다.
+    _recomputeLineIndex(position.value);
     _reloadTrackLevels(song, resolvedSlot);
 
     await repo.saveLastSongId(song.id);
@@ -522,14 +546,25 @@ class PlaybackController {
     final start = Duration(milliseconds: state.value.trackStartMs ?? 0);
     _clock.anchor(start);
     position.value = start;
-    lineIndex.value = 0;
+    // 트림 시작이 있으면 첫 줄이 아닐 수 있다.
+    _recomputeLineIndex(start);
     if (message != null) onMessage(message);
   }
 
   Future<void> seek(Duration target) async {
-    await audio.seek(target);
-    _clock.anchor(target);
-    position.value = target;
+    final clamped = LyricsSyncMath.clampToTrim(
+      target,
+      startMs: state.value.trackStartMs,
+      endMs: state.value.trackEndMs,
+      duration: state.value.duration,
+    );
+    await audio.seek(clamped);
+    _clock.anchor(clamped);
+    position.value = clamped;
+    // 이동 직후 바로 하이라이트를 맞춘다 — 다음 틱을 기다리면 정지 중에는
+    // 영영 갱신되지 않는다.
+    _recomputeLineIndex(clamped);
+    _syncTicker();
   }
 
   /// 볼륨·배속 등 설정 변경을 재생에 반영한다.
