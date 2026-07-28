@@ -817,7 +817,7 @@ class _SongListScreenState extends State<SongListScreen> {
     PrompterNavigation.open(
       context: context,
       song: song,
-      settings: _settings,
+      settingsProvider: () => _settings,
       playback: _playback,
       fontSize: _settings.effectiveFontSizePt,
       lineHeight: _settings.effectiveLineHeight,

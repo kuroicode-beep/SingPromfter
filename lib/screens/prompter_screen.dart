@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'dart:async';
+
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/playback_controller.dart';
@@ -12,6 +14,7 @@ import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_progress_bar.dart';
 import '../widgets/prompter_keyboard_scope.dart';
+import '../widgets/prompter_wheel_scope.dart';
 
 class PrompterScreen extends StatefulWidget {
   final Song song;
@@ -87,6 +90,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
 
   @override
   void dispose() {
+    _sizeHintTimer?.cancel();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _scrollController.dispose();
     super.dispose();
@@ -178,20 +182,50 @@ class _PrompterScreenState extends State<PrompterScreen> {
         enablePlaybackShortcuts: false,
         onSettingsChanged: _applyKeyboardSettings,
         onClose: () => Navigator.pop(context),
-        child: Scaffold(
-          backgroundColor: Colors.black,
-          // 하단 바를 Stack 오버레이가 아니라 Column 형제로 둔다.
-          // 겹침을 상수로 어림잡지 않고 레이아웃 구조로 불가능하게 만든다
-          // (이전에는 하단 바가 EQ 미터를 덮어 막대가 보이지 않았다).
-          body: Column(
-            children: [
-              Expanded(child: _buildStage()),
-              _buildBottomBar(),
-            ],
+        child: PrompterWheelScope(
+          onStepLine: widget.playback.stepLine,
+          onStepFontSize: _stepFontSize,
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            // 하단 바를 Stack 오버레이가 아니라 Column 형제로 둔다.
+            // 겹침을 상수로 어림잡지 않고 레이아웃 구조로 불가능하게 만든다
+            // (이전에는 하단 바가 EQ 미터를 덮어 막대가 보이지 않았다).
+            body: Column(
+              children: [
+                Expanded(child: _buildStage()),
+                _buildBottomBar(),
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  /// Ctrl+휠 글자 크기. 커스텀 pt가 잡혀 있으면 레벨로 환산한 뒤 옮긴다.
+  void _stepFontSize(int delta) {
+    final base = _customFontSizePt != null
+        ? PrompterLevels.levelForFontSize(_customFontSizePt!)
+        : _fontSizeLevel;
+    final next = (base + delta).clamp(
+      PrompterLevels.minLevel.toDouble(),
+      PrompterLevels.maxLevel.toDouble(),
+    );
+    if (next == _fontSizeLevel && _customFontSizePt == null) return;
+    _updateFontSizeLevel(next);
+    _showSizeHint();
+  }
+
+  Timer? _sizeHintTimer;
+  bool _sizeHintVisible = false;
+
+  /// 크기를 바꾸면 잠깐 숫자로 알려 준다(색이 아니라 글자로).
+  void _showSizeHint() {
+    _sizeHintTimer?.cancel();
+    if (!_sizeHintVisible) setState(() => _sizeHintVisible = true);
+    _sizeHintTimer = Timer(const Duration(milliseconds: 800), () {
+      if (mounted) setState(() => _sizeHintVisible = false);
+    });
   }
 
   /// 무대 영역 — 가사 + EQ 밴드 + 상단 바.
@@ -255,6 +289,30 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
+            if (_sizeHintVisible)
+              Positioned(
+                top: 16,
+                right: 16,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.8),
+                      borderRadius: AppShapes.controlRadius,
+                      border: Border.all(color: AppColors.primary),
+                    ),
+                    child: Text(
+                      '글자 크기 ${_fontSize.round()}pt',
+                      style: AppTypography.mono.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             // 컨트롤 토글은 가사·미터보다 아래에 둬 줄 탭을 가로채지 않는다.
             Positioned.fill(
               child: GestureDetector(
