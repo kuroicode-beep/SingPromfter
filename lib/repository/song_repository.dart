@@ -196,7 +196,7 @@ class SongRepository {
     if (sourceTrackPaths != null) {
       for (final entry in sourceTrackPaths.entries) {
         final slot = entry.key;
-        if (slot < 1 || slot > 3) continue;
+        if (slot < 1 || slot > AppConstants.maxBackingTrackSlots) continue;
         final source = entry.value;
         if (source.trim().isEmpty) continue;
         final fileName = await copyBackingTrack(

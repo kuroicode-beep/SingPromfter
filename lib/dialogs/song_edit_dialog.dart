@@ -1,4 +1,4 @@
-// file: lib/dialogs/song_edit_dialog.dart
+﻿// file: lib/dialogs/song_edit_dialog.dart
 //
 // 곡 수정 시 제목, 가사 교체, 반주 교체 입력을 담당하는 다이얼로그.
 import 'dart:convert';
@@ -18,7 +18,9 @@ class SongEditDialog {
   static Future<SongEditDraft?> show(BuildContext context, Song song) {
     final titleController = TextEditingController(text: song.title);
     final artistController = TextEditingController(text: song.artist);
-    final trackPaths = <int, String?>{1: null, 2: null, 3: null};
+    final trackPaths = <int, String?>{
+      for (final slot in AppConstants.backingTrackSlots) slot: null,
+    };
     final trackLabels = <int, String>{
       for (final slot in AppConstants.backingTrackSlots)
         slot: song.trackForSlot(slot)?.label ?? 'MR$slot',
@@ -147,8 +149,9 @@ class SongEditDialog {
                         },
                       ),
                       const SizedBox(height: 14),
-                      const Text(
-                        '반주 교체 (선택: 0~3개)',
+                      Text(
+                        '반주 교체 '
+                        '(선택: 0~${AppConstants.maxBackingTrackSlots}개)',
                         style: AppTypography.bodyMuted,
                       ),
                       const SizedBox(height: 8),

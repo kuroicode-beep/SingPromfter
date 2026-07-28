@@ -114,9 +114,10 @@ void main() {
                 title: '아주 아주 긴 제목의 노래 제목이 계속 이어지는 경우를 위한 시험용 문자열',
                 artist: '이름이 아주 긴 가수 이름',
                 tracks: const [
-                  BackingTrack(slot: 1, fileName: 'a.mp3', label: 'MR1'),
-                  BackingTrack(slot: 2, fileName: 'b.mp3', label: 'MR2'),
-                  BackingTrack(slot: 3, fileName: 'c.mp3', label: 'MR3'),
+                  BackingTrack(slot: 1, fileName: 'a.mp3', label: '원곡'),
+                  BackingTrack(slot: 2, fileName: 'b.mp3', label: 'MR'),
+                  BackingTrack(slot: 3, fileName: 'c.mp3', label: '키조절 2키 낮춤'),
+                  BackingTrack(slot: 4, fileName: 'd.mp3', label: '노래방'),
                 ],
                 lrcFileName: 'song-1.lrc',
               ),
