@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.2.0';
+  static const String current = '2.3.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.3.0',
+      '2026-07-28',
+      '가져오기 개선(제목 정제·재시도·가사 길이 가드) + 전체화면 EQ 미터',
+    ),
     AppVersionEntry(
       '2.2.0',
       '2026-07-28',
