@@ -558,6 +558,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack(outcome.message);
   }
 
+  /// 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸리므로 안내를 먼저 띄운다.
+  Future<void> _autoAlignLyrics() => _app.autoAlignLyrics();
+
   Future<void> _adjustLyricsOffset(int deltaMs) =>
       _app.adjustLyricsOffset(deltaMs);
 
@@ -928,6 +931,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onPlayTakeMix: _playTakeMix,
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
+        onAutoAlignLyrics: _autoAlignLyrics,
         pitchSemitones: _selectedSong == null
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),

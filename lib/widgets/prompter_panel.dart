@@ -40,6 +40,9 @@ class PrompterPanel extends StatelessWidget {
   final VoidCallback onFetchSyncedLyrics;
   final VoidCallback onImportLrcFile;
   final ValueChanged<int> onAdjustLyricsOffset;
+
+  /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
+  final VoidCallback? onAutoAlignLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -102,6 +105,7 @@ class PrompterPanel extends StatelessWidget {
     required this.onFetchSyncedLyrics,
     required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
+    this.onAutoAlignLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -264,6 +268,7 @@ class PrompterPanel extends StatelessWidget {
             onFetchSyncedLyrics: onFetchSyncedLyrics,
             onImportLrcFile: onImportLrcFile,
             onAdjustLyricsOffset: onAdjustLyricsOffset,
+            onAutoAlignLyrics: onAutoAlignLyrics,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
             soundingKey: soundingKey,

@@ -61,6 +61,9 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<RecordingTake> onPlayTakeMix;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
+
+  /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
+  final VoidCallback? onAutoAlignLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -169,6 +172,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onPlayTakeMix,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
+    this.onAutoAlignLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -306,6 +310,7 @@ class SongListScreenContent extends StatelessWidget {
       onFetchSyncedLyrics: onFetchSyncedLyrics,
       onImportLrcFile: onImportLrcFile,
       onAdjustLyricsOffset: onAdjustLyricsOffset,
+      onAutoAlignLyrics: onAutoAlignLyrics,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
       onStepPitch: onStepPitch,

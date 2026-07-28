@@ -29,6 +29,7 @@ import '../models/track_variant.dart';
 import '../repository/song_repository.dart';
 import '../services/key_detection_service.dart';
 import '../services/level_analysis_service.dart';
+import '../services/lyrics_align_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/pitch_variant_service.dart';
 import '../services/track_asset_service.dart';
@@ -85,6 +86,9 @@ class AppController extends ChangeNotifier {
     locator: toolLocator,
   );
   late final KeyDetectionService keyDetection = KeyDetectionService(
+    locator: toolLocator,
+  );
+  late final LyricsAlignService lyricsAlign = LyricsAlignService(
     locator: toolLocator,
   );
   late final TrackAssetService trackAssets = TrackAssetService(
@@ -452,6 +456,68 @@ class AppController extends ChangeNotifier {
       }
     }
     return outcome;
+  }
+
+  /// 원곡과 MR을 비교해 가사 오프셋을 자동으로 맞춘다.
+  ///
+  /// 보컬 = 원곡 − MR 이라는 점을 이용해 실제 발성 시작을 찾아 LRC 줄 시각과
+  /// 비교한다. 원곡·MR 두 슬롯이 모두 있고 싱크 가사가 있어야 한다.
+  ///
+  /// 여러 줄에서 못 찾거나 편차가 크면 값을 밀어 넣지 않고 그대로 둔다 —
+  /// 잘못 맞춘 싱크는 안 맞춘 것보다 나쁘다.
+  Future<bool> autoAlignLyrics({String? songId}) async {
+    final song = songId == null ? selectedSong : songById(songId);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return false;
+    }
+    final lyrics = await lyricsSync.loadFor(song);
+    if (lyrics == null || lyrics.isEmpty) {
+      _emit('싱크 가사가 있어야 자동으로 맞출 수 있습니다.');
+      return false;
+    }
+
+    final originalSlot = TrackVariant.original.preferredSlot;
+    final mrSlot = TrackVariant.mr.preferredSlot;
+    final original = song.trackForSlot(originalSlot);
+    final mr = song.trackForSlot(mrSlot);
+    if (original == null || mr == null) {
+      _emit('원곡과 MR이 모두 있어야 합니다. 둘을 비교해 목소리를 찾습니다.');
+      return false;
+    }
+    final originalPath = await repo.getBackingTrackPath(original.fileName);
+    final mrPath = await repo.getBackingTrackPath(mr.fileName);
+    if (originalPath == null || mrPath == null) return false;
+
+    _emit('노래와 가사를 맞추는 중...');
+    final result = await lyricsAlign.measure(
+      originalPath: originalPath,
+      mrPath: mrPath,
+      lyrics: lyrics,
+    );
+    if (_disposed) return false;
+    if (result == null) {
+      _emit('맞출 지점을 찾지 못했습니다. 손으로 조절해 주세요.');
+      return false;
+    }
+
+    final next = result.offsetMs.clamp(
+      -AppConstants.maxLyricsOffsetMs,
+      AppConstants.maxLyricsOffsetMs,
+    );
+    final fresh = songById(song.id) ?? song;
+    final updatedTracks = fresh.backingTracks
+        .map((t) => t.copyWith(lyricsOffsetMs: next))
+        .toList(growable: false);
+    await replaceSongInList(
+      fresh.copyWith(backingTracks: updatedTracks, updatedAt: DateTime.now()),
+    );
+    if (selectedSong?.id == song.id) playback.applyLyricsOffset(next);
+
+    final seconds = (next.abs() / 1000).toStringAsFixed(1);
+    final direction = next < 0 ? '먼저' : '늦게';
+    _emit('가사를 $seconds초 $direction 띄우도록 맞췄습니다 (${result.samples}줄 비교).');
+    return true;
   }
 
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.

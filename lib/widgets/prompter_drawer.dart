@@ -50,9 +50,8 @@ class PrompterDrawerPalette {
   );
 }
 
-/// 손잡이 높이. AppConstants.minTouchTarget(34)을 쓰지 않고 따로 둔다 —
-/// 그 상수는 SVIL 접근성 기준(50px 이상)보다 작다. 조작판을 여는 유일한
-/// 입구라 여기만큼은 기준을 지킨다.
+/// 손잡이 높이. AppConstants.minTouchTarget과 같은 값이지만, 조작판을 여는
+/// 유일한 입구라 다른 컨트롤이 작아지더라도 여기는 줄지 않도록 따로 둔다.
 const double drawerHandleHeight = 50;
 
 class PrompterDrawer extends StatefulWidget {

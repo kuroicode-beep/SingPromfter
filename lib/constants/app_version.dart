@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.8.0';
+  static const String current = '2.8.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.8.1',
+      '2026-07-29',
+      '가사 싱크 자동 맞춤(원곡·MR 비교) + 버튼·터치 영역 확대(34→50)',
+    ),
     AppVersionEntry(
       '2.8.0',
       '2026-07-29',

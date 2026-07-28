@@ -43,6 +43,9 @@ class PrompterBottomBar extends StatefulWidget {
   final VoidCallback onFetchSyncedLyrics;
   final VoidCallback onImportLrcFile;
   final ValueChanged<int> onAdjustLyricsOffset;
+
+  /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다. 조건이 안 되면 null.
+  final VoidCallback? onAutoAlignLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -83,6 +86,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onFetchSyncedLyrics,
     required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
+    this.onAutoAlignLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.soundingKey,
@@ -229,6 +233,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   onFetch: widget.onFetchSyncedLyrics,
                   onImportFile: widget.onImportLrcFile,
                   onAdjust: widget.onAdjustLyricsOffset,
+                  onAutoAlign: widget.onAutoAlignLyrics,
                 ),
               ],
             ),
@@ -248,12 +253,16 @@ class _SyncedLyricsRow extends StatelessWidget {
   final VoidCallback onImportFile;
   final ValueChanged<int> onAdjust;
 
+  /// 원곡과 MR을 비교해 오프셋을 자동으로 맞춘다. 조건이 안 되면 null.
+  final VoidCallback? onAutoAlign;
+
   const _SyncedLyricsRow({
     required this.hasSyncedLyrics,
     required this.offsetMs,
     required this.onFetch,
     required this.onImportFile,
     required this.onAdjust,
+    this.onAutoAlign,
   });
 
   /// 음수는 가사를 먼저 띄운다는 뜻이라 사용자 표현도 '먼저'로 쓴다.
@@ -301,6 +310,22 @@ class _SyncedLyricsRow extends StatelessWidget {
           children: [
             Text('가사 표시 시점', style: AppTypography.bodyMuted),
             const SizedBox(width: 10),
+            if (onAutoAlign != null) ...[
+              OutlinedButton.icon(
+                // 싱크 가사가 없으면 맞출 대상이 없다.
+                onPressed: hasSyncedLyrics ? onAutoAlign : null,
+                icon: const Icon(Icons.auto_fix_high, size: 20),
+                label: const Text('자동 맞춤'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(120, AppConstants.minTouchTarget),
+                  side: const BorderSide(
+                    color: AppColors.borderStrong,
+                    width: 2,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
             _OffsetButton(
               icon: Icons.remove,
               semanticsLabel: '가사를 0.2초 더 먼저 띄우기',

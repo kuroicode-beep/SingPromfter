@@ -155,6 +155,25 @@ class ControlRouter {
           'message': outcome.message,
         });
 
+      // 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸린다.
+      case ('POST', ['songs', final String id, 'lyrics', 'align']):
+        if (app.songById(id) == null) {
+          return ControlResponse.error(404, 'song_not_found', '곡을 찾을 수 없습니다.');
+        }
+        final aligned = await app.autoAlignLyrics(songId: id);
+        if (!aligned) {
+          return ControlResponse.error(
+            422,
+            'align_failed',
+            '맞출 지점을 찾지 못했습니다. 원곡·MR·싱크 가사가 모두 필요합니다.',
+          );
+        }
+        final song = app.songById(id);
+        return ControlResponse.ok({
+          'lyricsOffsetMs':
+              song?.backingTracks.firstOrNull?.lyricsOffsetMs ?? 0,
+        });
+
       case ('POST', ['songs', final String id, 'pitch']):
         final semitones = (body['semitones'] as num?)?.toInt();
         if (semitones == null) {

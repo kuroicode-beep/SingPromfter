@@ -23,7 +23,11 @@ class AppConstants {
   /// 조작 요소 최소 높이.
   /// v2.5.0에서 정보 밀도를 위해 축소했다(사용자 요청). 무대 전체화면의
   /// 큰 조작부는 자체 크기를 쓰므로 이 값의 영향을 받지 않는다.
-  static const double minTouchTarget = 34;
+  /// 최소 터치·클릭 타깃(dp).
+  ///
+  /// SVIL 접근성 기준은 50 이상인데 v2.8.0까지 34였다. 저시력 사용자에게
+  /// 34dp 버튼은 조준이 필요한 크기라 기준대로 올렸다.
+  static const double minTouchTarget = 50;
 
   /// 목록 행처럼 더 촘촘해도 되는 곳.
   static const double denseTouchTarget = 28;
