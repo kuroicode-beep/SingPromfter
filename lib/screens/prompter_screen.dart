@@ -14,6 +14,7 @@ import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
 import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
+import '../widgets/prompter_drawer.dart';
 import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_sweep_line.dart';
@@ -41,6 +42,10 @@ class PrompterScreen extends StatefulWidget {
 
   /// Shift+휠 — 템포. null이면 아무 일도 하지 않는다.
   final void Function(double delta)? onStepTempo;
+
+  /// 하단 조작판을 펼쳐 둘지. 접혀도 손잡이는 항상 보인다.
+  final bool controlsDrawerOpen;
+  final ValueChanged<bool>? onControlsDrawerChanged;
 
   /// 현재 줄을 한 글자씩 밝힐지.
   final bool showSyllableSweep;
@@ -76,6 +81,8 @@ class PrompterScreen extends StatefulWidget {
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
     this.showSyllableSweep = true,
+    this.controlsDrawerOpen = false,
+    this.onControlsDrawerChanged,
     this.onStepPitch,
     this.onStepTempo,
     this.pendingPitch,
@@ -95,6 +102,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
   final _scrollController = ScrollController();
 
   bool _controlsVisible = true;
+
+  /// 드로어 애니메이션 진행도(0=닫힘, 1=열림).
+  /// 무대 크기 계산에 쓴다 — 접히는 동안 밴드가 리사이즈되면 가사가 통째로
+  /// 재레이아웃되기 때문에, 언제나 "열린 상태" 크기를 기준으로 잡는다.
+  Animation<double>? _drawerAnim;
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
@@ -258,18 +270,32 @@ class _PrompterScreenState extends State<PrompterScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final stage = Size(constraints.maxWidth, constraints.maxHeight);
-        final band = PrompterStageMetrics.bandHeight(
+        // 드로어가 접힌 만큼 무대가 더 커져 있다. 그 몫을 빼 "열린 상태"
+        // 크기로 계산해야 애니메이션 내내 밴드·뷰포트가 상수로 남는다.
+        final hidden =
+            PrompterStageMetrics.stageDrawerHeight *
+            (1 - (_drawerAnim?.value ?? (widget.controlsDrawerOpen ? 1 : 0)));
+        final stable = PrompterStageMetrics.stableStage(
           stage,
+          hiddenDrawerHeight: hidden,
+        );
+        final band = PrompterStageMetrics.bandHeight(
+          stable,
           showEq: widget.showEqMeter,
         );
         final meter = PrompterStageMetrics.meterSize(
-          stage,
+          stable,
           showEq: widget.showEqMeter,
         );
         return Stack(
           children: [
-            Positioned.fill(
-              bottom: band,
+            // Positioned.fill(bottom:)이 아니라 상단 고정 + 명시 높이.
+            // 무대가 커지는 동안에도 가사 뷰포트가 흔들리지 않는다.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: (stable.height - band).clamp(0.0, double.infinity),
               child: AnimatedBuilder(
                 // 줄 번호뿐 아니라 가사 도착·따라가기 토글에도 다시 그린다.
                 animation: Listenable.merge([
@@ -434,12 +460,25 @@ class _PrompterScreenState extends State<PrompterScreen> {
     );
   }
 
+  /// 무대 하단 조작판.
+  ///
+  /// v2.7.0까지는 AnimatedOpacity(→0.2)라 **숨겨져도 자리를 먹고 클릭도
+  /// 먹었다**. 이제 진짜로 접히고, 접힌 동안은 히트테스트·시맨틱이 죽는다.
   Widget _buildBottomBar() {
-    return AnimatedOpacity(
-      opacity: _controlsVisible ? 1.0 : 0.2,
-      duration: const Duration(milliseconds: 200),
+    return PrompterDrawer(
+      open: widget.controlsDrawerOpen,
+      onOpenChanged: (open) => widget.onControlsDrawerChanged?.call(open),
+      label: '조작판',
+      palette: PrompterDrawerPalette.stage,
+      fixedHeight: PrompterStageMetrics.stageDrawerHeight,
+      onAnimationReady: (anim) {
+        _drawerAnim = anim;
+        anim.addListener(() {
+          if (mounted) setState(() {});
+        });
+      },
       child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.76),

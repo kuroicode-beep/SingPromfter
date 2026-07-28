@@ -1,4 +1,4 @@
-﻿// file: lib/widgets/prompter_bottom_bar.dart
+// file: lib/widgets/prompter_bottom_bar.dart
 //
 // 메인 화면 하단 재생 바(항상 표시) + 표시 설정(접이식).
 import 'package:flutter/material.dart';
@@ -14,6 +14,7 @@ import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
+import 'prompter_drawer.dart';
 import 'prompter_progress_bar.dart';
 
 class PrompterBottomBar extends StatefulWidget {
@@ -24,6 +25,11 @@ class PrompterBottomBar extends StatefulWidget {
   final Duration duration;
   final PlaybackController playback;
   final PrompterSettings settings;
+
+  /// 조작판을 펼쳐 둘지. 전송 버튼과 진행바는 접혀도 항상 보인다 —
+  /// 닫힌 채로도 일시정지는 눌러야 한다.
+  final bool drawerOpen;
+  final ValueChanged<bool> onDrawerChanged;
   final VoidCallback onStop;
   final VoidCallback onTogglePlayPause;
   final VoidCallback onRestart;
@@ -62,6 +68,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.duration,
     required this.playback,
     required this.settings,
+    this.drawerOpen = false,
+    required this.onDrawerChanged,
     required this.onStop,
     required this.onTogglePlayPause,
     required this.onRestart,
@@ -91,7 +99,6 @@ class PrompterBottomBar extends StatefulWidget {
 }
 
 class _PrompterBottomBarState extends State<PrompterBottomBar> {
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -176,49 +183,61 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               onSeek: widget.onSeek,
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: MiniSlider(
-                  label: '볼륨',
-                  value: widget.settings.volume,
-                  min: 0,
-                  max: 1,
-                  divisions: 10,
-                  step: 0.1,
-                  onChanged: (v) => widget.onSettingsChanged(
-                    widget.settings.copyWith(volume: v),
-                  ),
+          PrompterDrawer(
+            open: widget.drawerOpen,
+            onOpenChanged: widget.onDrawerChanged,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: MiniSlider(
+                        label: '볼륨',
+                        value: widget.settings.volume,
+                        min: 0,
+                        max: 1,
+                        divisions: 10,
+                        step: 0.1,
+                        onChanged: (v) => widget.onSettingsChanged(
+                          widget.settings.copyWith(volume: v),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _TempoRow(scale: widget.tempoScale, onAdjust: widget.onAdjustTempo),
-          const Divider(height: 16, thickness: 1),
-          // 표시 설정(글자 크기·줄 간격·글꼴·굵게·표시 모드)은 v2.8.0에서
-          // 설정 화면으로 옮겼다. 여기 남은 것은 노래하는 동안 손대야 하는
-          // 값들뿐이다 — 키와 싱크 오프셋.
-          _PitchRow(
-            semitones: widget.pitchSemitones,
-            onAdjust: widget.onAdjustPitch,
-            soundingKey: widget.soundingKey,
-          ),
-          const SizedBox(height: 8),
-          _SyncedLyricsRow(
-            hasSyncedLyrics: widget.hasSyncedLyrics,
-            offsetMs: widget.lyricsOffsetMs,
-            onFetch: widget.onFetchSyncedLyrics,
-            onImportFile: widget.onImportLrcFile,
-            onAdjust: widget.onAdjustLyricsOffset,
+                const SizedBox(height: 8),
+                _TempoRow(
+                  scale: widget.tempoScale,
+                  onAdjust: widget.onAdjustTempo,
+                ),
+                const Divider(height: 16, thickness: 1),
+                // 표시 설정(글자 크기·줄 간격·글꼴·굵게·표시 모드)은 v2.8.0에서
+                // 설정 화면으로 옮겼다. 여기 남은 것은 노래하는 동안 손대야 하는
+                // 값들뿐이다 — 키와 싱크 오프셋.
+                _PitchRow(
+                  semitones: widget.pitchSemitones,
+                  onAdjust: widget.onAdjustPitch,
+                  soundingKey: widget.soundingKey,
+                ),
+                const SizedBox(height: 8),
+                _SyncedLyricsRow(
+                  hasSyncedLyrics: widget.hasSyncedLyrics,
+                  offsetMs: widget.lyricsOffsetMs,
+                  onFetch: widget.onFetchSyncedLyrics,
+                  onImportFile: widget.onImportLrcFile,
+                  onAdjust: widget.onAdjustLyricsOffset,
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 }
-
 
 /// 싱크 가사 가져오기 + 선행/지연 오프셋 조절.
 /// 슬라이더 대신 큰 -/+ 버튼을 쓰고 현재 값을 모노 숫자로 함께 보여준다.
@@ -263,10 +282,7 @@ class _SyncedLyricsRow extends StatelessWidget {
               label: const Text('가사 가져오기'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(150, AppConstants.minTouchTarget),
-                side: const BorderSide(
-                  color: AppColors.borderStrong,
-                  width: 2,
-                ),
+                side: const BorderSide(color: AppColors.borderStrong, width: 2),
               ),
             ),
             const SizedBox(width: 8),
@@ -274,10 +290,7 @@ class _SyncedLyricsRow extends StatelessWidget {
               onPressed: onImportFile,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(110, AppConstants.minTouchTarget),
-                side: const BorderSide(
-                  color: AppColors.borderStrong,
-                  width: 2,
-                ),
+                side: const BorderSide(color: AppColors.borderStrong, width: 2),
               ),
               child: const Text('.lrc 파일'),
             ),

@@ -33,6 +33,9 @@ class PrompterSettings {
   /// 움직임이 신경 쓰이면 끌 수 있다(EQ 미터와 같은 이유).
   final bool showSyllableSweep;
 
+  /// 하단 조작판을 펼쳐 둘지. 기본은 닫힘 — 가사 자리를 먼저 준다.
+  final bool controlsDrawerOpen;
+
   const PrompterSettings({
     this.fontSizeLevel = 3,
     this.lineHeightLevel = 3,
@@ -47,6 +50,7 @@ class PrompterSettings {
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
     this.showSyllableSweep = true,
+    this.controlsDrawerOpen = false,
   });
 
   double get effectiveFontSizePt =>
@@ -69,6 +73,7 @@ class PrompterSettings {
     PrompterDisplayMode? displayMode,
     bool? showEqMeter,
     bool? showSyllableSweep,
+    bool? controlsDrawerOpen,
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
   }) {
@@ -92,6 +97,7 @@ class PrompterSettings {
       displayMode: displayMode ?? this.displayMode,
       showEqMeter: showEqMeter ?? this.showEqMeter,
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
+      controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
     );
   }
 
@@ -154,6 +160,7 @@ class PrompterSettings {
     'displayMode': displayMode.storageValue,
     'showEqMeter': showEqMeter,
     'showSyllableSweep': showSyllableSweep,
+    'controlsDrawerOpen': controlsDrawerOpen,
   };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
@@ -198,6 +205,7 @@ class PrompterSettings {
       ),
       showEqMeter: json['showEqMeter'] as bool? ?? true,
       showSyllableSweep: json['showSyllableSweep'] as bool? ?? true,
+      controlsDrawerOpen: json['controlsDrawerOpen'] as bool? ?? false,
     );
   }
 

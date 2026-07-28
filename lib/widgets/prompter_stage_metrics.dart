@@ -24,6 +24,24 @@ class PrompterStageMetrics {
   static const double meterMaxWidth = 520;
   static const double meterWidthRatio = 0.30;
 
+  /// 무대 조작판(드로어 본체)의 고정 높이.
+  ///
+  /// 내용을 우리가 통제하므로 재는 대신 못박는다. 진행바 + 버튼 한 줄 +
+  /// 여백 기준이며, 줄이 추가되면 위젯 테스트가 먼저 깨지도록 되어 있다.
+  static const double stageDrawerHeight = 132;
+
+  /// 드로어가 여닫히는 동안 밴드·가사 뷰포트가 리사이즈되지 않도록,
+  /// **드로어가 완전히 열린 상태**의 무대 크기를 기준으로 계산한다.
+  ///
+  /// [hiddenDrawerHeight]는 지금 접혀서 무대가 더 차지하고 있는 높이다
+  /// (= stageDrawerHeight * (1 - 애니메이션 진행도)).
+  /// 이게 없으면 220ms 동안 매 프레임 bandHeight가 바뀌어 EQ가 리사이즈되고
+  /// 가사 줄 전체가 재레이아웃된다.
+  static Size stableStage(Size stage, {required double hiddenDrawerHeight}) {
+    final height = stage.height - hiddenDrawerHeight;
+    return Size(stage.width, height < 0 ? 0 : height);
+  }
+
   /// 가사 뷰포트가 비워 줘야 하는 하단 띠 높이. 미터를 끄면 0.
   static double bandHeight(Size stage, {required bool showEq}) {
     if (!showEq) return 0;

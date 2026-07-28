@@ -60,6 +60,9 @@ class PrompterNavigation {
           displayMode: initial.displayMode,
           showEqMeter: initial.showEqMeter,
           showSyllableSweep: initial.showSyllableSweep,
+          controlsDrawerOpen: initial.controlsDrawerOpen,
+          onControlsDrawerChanged: (open) =>
+              update((s) => s.copyWith(controlsDrawerOpen: open)),
           onStepPitch: onStepPitch,
           onStepTempo: onStepTempo,
           pendingPitch: pendingPitch,

@@ -274,6 +274,9 @@ class PrompterPanel extends StatelessWidget {
             recordingElapsed: recordingElapsed,
             onToggleRecording: onToggleRecording,
             settings: settings,
+            drawerOpen: settings.controlsDrawerOpen,
+            onDrawerChanged: (open) =>
+                onSettingsChanged(settings.copyWith(controlsDrawerOpen: open)),
             onStop: onStop,
             onTogglePlayPause: onTogglePlayPause,
             onRestart: onRestart,
