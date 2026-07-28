@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.7.0';
+  static const String current = '2.8.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.8.0',
+      '2026-07-29',
+      '한 글자씩 가사 스윕 · 조작판 드로어 · 속도→템포(음정 보존) · '
+          '표시 설정 이동 · EQ 24밴드. 재생 배속 설정은 템포로 대체됐습니다',
+    ),
     AppVersionEntry(
       '2.7.0',
       '2026-07-29',
