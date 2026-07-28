@@ -12,6 +12,9 @@ import 'preset_btn.dart';
 
 class SettingsPanel extends StatelessWidget {
   final List<PracticeSummary> practiceSummaries;
+  final String? ytDlpVersion;
+  final String separatorStatusLabel;
+  final VoidCallback onUpdateYtDlp;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -21,6 +24,9 @@ class SettingsPanel extends StatelessWidget {
   const SettingsPanel({
     super.key,
     this.practiceSummaries = const [],
+    this.ytDlpVersion,
+    this.separatorStatusLabel = '',
+    required this.onUpdateYtDlp,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -53,6 +59,35 @@ class SettingsPanel extends StatelessWidget {
           subtitle: '사용하지 않는 파일·임시 항목 정리, 중복 제목 확인',
           onTap: onRunMaintenance,
         ),
+        const SizedBox(height: 24),
+        Text('외부 도구', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('yt-dlp ', style: AppTypography.bodyMuted),
+            Expanded(
+              child: Text(
+                ytDlpVersion == null ? '찾을 수 없음' : '버전 $ytDlpVersion',
+                style: AppTypography.mono,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '유튜브 가져오기가 갑자기 실패하면 대부분 오래된 yt-dlp가 원인입니다.',
+          style: AppTypography.bodyMuted,
+        ),
+        _SettingsTile(
+          icon: Icons.system_update_alt,
+          title: 'yt-dlp 업데이트 실행',
+          subtitle: 'yt-dlp -U 로 최신 버전을 받습니다',
+          onTap: onUpdateYtDlp,
+        ),
+        if (separatorStatusLabel.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(separatorStatusLabel, style: AppTypography.bodyMuted),
+        ],
         const SizedBox(height: 24),
         Text('프롬프터 기본값', style: AppTypography.listTitle),
         const SizedBox(height: 8),

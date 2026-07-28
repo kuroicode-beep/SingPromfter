@@ -400,6 +400,9 @@ class SongListScreenContent extends StatelessWidget {
       ),
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,
+        ytDlpVersion: ytDlpVersion,
+        separatorStatusLabel: separatorStatusLabel,
+        onUpdateYtDlp: onUpdateYtDlp,
         onExportBackup: onExportBackup,
         onImportBackup: onImportBackup,
         onRunMaintenance: onRunMaintenance,

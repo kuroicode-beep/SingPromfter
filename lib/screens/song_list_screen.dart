@@ -93,6 +93,7 @@ class _SongListScreenState extends State<SongListScreen> {
   bool _ytDlpAvailable = false;
   String? _ytDlpMissingReason;
   String? _ytDlpVersion;
+  Timer? _statusRefreshTimer;
   final _separation = VocalSeparationClient();
   String _separatorStatusLabel = '분리 서버: 확인 중';
   bool _separatorOnline = false;
@@ -174,6 +175,7 @@ class _SongListScreenState extends State<SongListScreen> {
     for (final timer in _pendingDeleteTimers.values) {
       timer.cancel();
     }
+    _statusRefreshTimer?.cancel();
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.dispose();
@@ -201,6 +203,7 @@ class _SongListScreenState extends State<SongListScreen> {
     });
 
     unawaited(_refreshToolAvailability());
+    _startStatusRefresh();
 
     final schemaError = _repo.schemaLoadError;
     if (schemaError != null) _showSnack(schemaError);
@@ -725,6 +728,16 @@ class _SongListScreenState extends State<SongListScreen> {
 
   // ── 유튜브 가져오기 ─────────────────────────────────────
 
+  /// 홈의 서버 상태 표시가 낡지 않도록 30초마다 가볍게 갱신한다.
+  /// (분리 서버 status는 3초 타임아웃의 GET 하나 — 부담 없음)
+  void _startStatusRefresh() {
+    _statusRefreshTimer?.cancel();
+    _statusRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      unawaited(_refreshToolAvailability());
+    });
+  }
+
   Future<void> _refreshToolAvailability() async {
     final tool = await _toolLocator.locate(ExternalTool.ytDlp, refresh: true);
     final separator = await _separation.status();
@@ -864,7 +877,12 @@ class _SongListScreenState extends State<SongListScreen> {
     }
 
     if (!result.success) {
-      _failJob(job, result.message ?? '가져오기에 실패했습니다.');
+      // 유튜브 측 변경으로 오래된 yt-dlp가 깨지는 일이 잦다 — 힌트를 함께 준다.
+      final message = result.message ?? '가져오기에 실패했습니다.';
+      _failJob(
+        job,
+        '$message 오래된 yt-dlp가 원인일 수 있어요 — 설정에서 업데이트(-U)를 실행해 보세요.',
+      );
       await _youtubeImport.cleanupJob(job.id);
       return;
     }
