@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:flutter/material.dart';
 
+import '../controllers/app_controller.dart';
 import '../controllers/import_job_controller.dart';
 import '../controllers/playback_controller.dart';
 import '../controllers/recording_controller.dart';
@@ -61,24 +62,20 @@ class SongListScreen extends StatefulWidget {
 }
 
 class _SongListScreenState extends State<SongListScreen> {
-  final _repo = SongRepository.instance;
-  late final _queueService = SongQueueService(_repo);
-  late final _bootstrapService = SongListBootstrapService(_repo);
-  late final _libraryService = SongLibraryService(_repo);
+  /// 헤드리스 중심부 — 상태·서비스·가져오기 파이프라인·재생을 소유한다.
+  /// 화면은 위임 getter로 기존 이름을 유지해 위젯 배선을 바꾸지 않는다.
+  final _app = AppController();
+
+  SongRepository get _repo => _app.repo;
+  SongQueueService get _queueService => _app.queueService;
+  SongLibraryService get _libraryService => _app.libraryService;
   late final _backupService = BackupService(_repo);
   late final _songActions = SongActionCoordinator(_repo, _libraryService);
-  late final _audio = PrompterAudioService(_repo);
-  final _lyricsScrollController = ScrollController();
+  PrompterAudioService get _audio => _app.audio;
+  ScrollController get _lyricsScrollController => _app.lyricsScrollController;
   final _practiceLog = PracticeLogService();
-  final _lyricsSync = LyricsSyncService();
-  late final _pitchVariants = PitchVariantService(locator: _toolLocator);
-  late final _levelAnalysis = LevelAnalysisService(locator: _toolLocator);
-  final _toolLocator = ExternalToolLocator();
-  late final _youtubeImport = YoutubeImportService(
-    tmpDirProvider: _repo.getTmpDir,
-    locator: _toolLocator,
-  );
-  late final ImportJobController _importJobs;
+  LyricsSyncService get _lyricsSync => _app.lyricsSync;
+  ImportJobController get _importJobs => _app.importJobs;
   final _recordingLibrary = RecordingLibraryService();
   final _dailyGoals = DailyGoalService();
   late final RecordingController _recording;
@@ -93,24 +90,22 @@ class _SongListScreenState extends State<SongListScreen> {
   int _recordingPitch = 0;
   int _recordingAlignMs = 0;
 
-  bool _ytDlpAvailable = false;
-  String? _ytDlpMissingReason;
-  String? _ytDlpVersion;
-  Timer? _statusRefreshTimer;
-  final _separation = VocalSeparationClient();
-  String _separatorStatusLabel = '분리 서버: 확인 중';
-  bool _separatorOnline = false;
-  static const _kYtNoticeAckKey = 'yt_notice_ack';
+  bool get _ytDlpAvailable => _app.ytDlpAvailable;
+  String? get _ytDlpMissingReason => _app.ytDlpMissingReason;
+  String? get _ytDlpVersion => _app.ytDlpVersion;
+  String get _separatorStatusLabel => _app.separatorStatusLabel;
+  bool get _separatorOnline => _app.separatorOnline;
 
-  late final PlaybackController _playback;
+  PlaybackController get _playback => _app.playback;
 
   final _pendingDeleteTimers = <String, Timer>{};
 
-  List<Song> _songs = [];
-  List<QueueItem> _queue = [];
-  PrompterSettings _settings = const PrompterSettings();
-
-  bool _loading = true;
+  List<Song> get _songs => _app.songs;
+  set _songs(List<Song> value) => _app.songs = value;
+  List<QueueItem> get _queue => _app.queue;
+  set _queue(List<QueueItem> value) => _app.queue = value;
+  PrompterSettings get _settings => _app.settings;
+  bool get _loading => _app.loading;
 
   AppDestination _destination = AppDestination.home;
   String _searchQuery = '';
@@ -127,30 +122,15 @@ class _SongListScreenState extends State<SongListScreen> {
   @override
   void initState() {
     super.initState();
-    _playback = PlaybackController(
-      audio: _audio,
-      queueService: _queueService,
-      repo: _repo,
-      lyricsScrollController: _lyricsScrollController,
-      songsProvider: () => _songs,
-      queueProvider: () => _queue,
-      settingsProvider: () => _settings,
-      onQueueChanged: (queue) {
-        if (mounted) setState(() => _queue = queue);
-      },
-      onMessage: _showSnack,
-      timedLyricsLoader: _lyricsSync.loadFor,
-      pitchVariantResolver: _resolvePitchVariant,
-      levelsLoader: _loadTrackLevels,
-      onPracticeSessionEnded: (snapshot, played) {
-        unawaited(_recordPractice(snapshot, played));
-      },
-    )..init();
+    _app.onMessage = _showSnack;
+    _app.onPracticeSessionEnded = (snapshot, played) {
+      unawaited(_recordPractice(snapshot, played));
+    };
+    _app.addListener(_onPlaybackStateChanged);
     // 재생 상태(저빈도)만 화면 재빌드에 연결한다. 위치(60Hz)는 구독 위젯이 직접 받는다.
     _playback.state.addListener(_onPlaybackStateChanged);
     _playback.lineIndex.addListener(_onPlaybackStateChanged);
-    _importJobs = ImportJobController(runner: _runImportJob)
-      ..addListener(_onPlaybackStateChanged);
+    _importJobs.addListener(_onPlaybackStateChanged);
     _recording = RecordingController(
       pathBuilder: _buildRecordingPath,
     )..addListener(_onPlaybackStateChanged);
@@ -179,50 +159,23 @@ class _SongListScreenState extends State<SongListScreen> {
     for (final timer in _pendingDeleteTimers.values) {
       timer.cancel();
     }
-    _statusRefreshTimer?.cancel();
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
-    _importJobs.dispose();
+    _importJobs.removeListener(_onPlaybackStateChanged);
     _recording.dispose();
     _takeBindings?.cancel();
     _takePlayer.dispose();
-    _playback.dispose();
-    _audio.dispose();
-    _lyricsScrollController.dispose();
+    _app.removeListener(_onPlaybackStateChanged);
+    _app.dispose();
     super.dispose();
   }
 
   Future<void> _bootstrap() async {
-    final initial = await _bootstrapService.load();
+    // 화면 전용 저장소(연습 로그·녹음·일일 목표)를 먼저 읽고 중심부를 깨운다.
     await _practiceLog.load();
     await _recordingLibrary.load();
     await _dailyGoals.load();
-
-    if (!mounted) return;
-    setState(() {
-      _songs = initial.songs;
-      _queue = initial.queue;
-      _settings = initial.settings;
-      _loading = false;
-    });
-
-    unawaited(_refreshToolAvailability());
-    _startStatusRefresh();
-
-    final schemaError = _repo.schemaLoadError;
-    if (schemaError != null) _showSnack(schemaError);
-
-    await _audio.setVolume(_settings.volume);
-    await _audio.setPlaybackRate(_settings.playbackRate);
-    final initialSong = initial.initialSong;
-    if (initialSong != null) {
-      await _playback.loadSong(
-        initialSong,
-        preferredSlot:
-            _settings.trackSlotForSong(initialSong.id) ??
-            _settings.lastSelectedTrackSlot,
-      );
-    }
+    await _app.bootstrap();
   }
 
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
@@ -237,11 +190,8 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _applyAccessibilityPreset(String preset) =>
       _updateSettings(PrompterSettingsService.preset(_settings, preset));
 
-  Future<void> _updateSettings(PrompterSettings next) async {
-    if (mounted) setState(() => _settings = next);
-    await _repo.saveSettings(next);
-    await _playback.applySettings(next);
-  }
+  Future<void> _updateSettings(PrompterSettings next) =>
+      _app.updateSettings(next);
 
   Future<void> _showCustomFontSizeDialog() async {
     final next = await CustomFontSizeDialog.pickSettings(context, _settings);
@@ -249,13 +199,7 @@ class _SongListScreenState extends State<SongListScreen> {
     if (next != null) await _updateSettings(next);
   }
 
-  Future<void> _selectTrackSlot(int slot) async {
-    final song = _selectedSong;
-    if (song == null) return;
-    if (!song.availableTrackSlots.contains(slot)) return;
-    await _updateSettings(_settings.withSongTrackSlot(song.id, slot));
-    await _playback.selectTrackSlot(slot);
-  }
+  Future<void> _selectTrackSlot(int slot) => _app.selectTrackSlot(slot);
 
   // ── 녹음 믹스다운 ───────────────────────────────────────
 
@@ -342,12 +286,7 @@ class _SongListScreenState extends State<SongListScreen> {
       _showSnack('싱크 가사를 해석하지 못했습니다. [mm:ss.xx] 형식인지 확인해 주세요.');
       return;
     }
-    setState(() {
-      _songs = _songs
-          .map((s) => s.id == updated.id ? updated : s)
-          .toList(growable: false);
-    });
-    await _repo.saveSongs(_songs);
+    await _app.replaceSongInList(updated);
     _playback.timedLyrics.value = await _lyricsSync.loadFor(updated);
     await _updateSettings(
       _settings.copyWith(displayMode: PrompterDisplayMode.timed),
@@ -613,180 +552,29 @@ class _SongListScreenState extends State<SongListScreen> {
 
   // ── 키(피치) 조절 ───────────────────────────────────────
 
-  /// 키를 바꾼 반주를 준비한다. 처음 쓰는 키는 여기서 렌더링된다.
-  Future<String?> _resolvePitchVariant(Song song, int slot, int semitones) async {
-    final track = song.trackForSlot(slot);
-    if (track == null) return null;
-    final sourcePath = await _repo.getBackingTrackPath(track.fileName);
-    if (sourcePath == null) return null;
-
-    final cached = await _pitchVariants.cachedPath(
-      sourceFileName: track.fileName,
-      semitones: semitones,
-    );
-    if (cached != null) return cached;
-
-    if (mounted) _showSnack('${formatKeyLabel(semitones)} 반주를 준비하는 중...');
-    final result = await _pitchVariants.render(
-      sourcePath: sourcePath,
-      sourceFileName: track.fileName,
-      semitones: semitones,
-      total: _playback.snapshot.duration,
-    );
-    if (!result.success) {
-      if (mounted) _showSnack(result.message ?? '키 변경에 실패했습니다.');
-      return null;
-    }
-    return result.path;
-  }
-
-  Future<void> _adjustPitch(int delta) async {
-    final song = _selectedSong;
-    final slot = _selectedTrackSlot;
-    if (song == null || slot == null) {
-      _showSnack('먼저 곡과 반주를 선택해 주세요.');
-      return;
-    }
-    final current = _settings.pitchForSong(song.id, slot);
-    final next = clampSemitones(current + delta);
-    if (next == current) return;
-
-    await _updateSettings(_settings.withSongPitch(song.id, slot, next));
-    // 새 키로 다시 준비한다(필요하면 렌더링이 일어난다).
-    await _playback.prepareAudioForSelection();
-    if (!mounted) return;
-    _showSnack('키: ${formatKeyLabel(next)}');
-  }
+  Future<void> _adjustPitch(int delta) => _app.adjustPitch(delta);
 
   // ── 싱크 가사 ───────────────────────────────────────────
 
   Future<void> _fetchSyncedLyrics() async {
-    final song = _selectedSong;
-    if (song == null) {
+    if (_selectedSong == null) {
       _showSnack('먼저 곡을 선택해 주세요.');
       return;
     }
     _showSnack('싱크 가사를 찾는 중...');
-    final outcome = await _lyricsSync.fetchFor(
-      song,
-      duration: _playback.snapshot.duration,
-    );
-    if (!mounted) return;
-    if (outcome.success && outcome.song != null) {
-      final updated = outcome.song!;
-      setState(() {
-        _songs = _songs
-            .map((s) => s.id == updated.id ? updated : s)
-            .toList(growable: false);
-      });
-      await _repo.saveSongs(_songs);
-      // 새로 받은 가사를 즉시 반영하고 싱크 모드로 전환한다.
-      _playback.timedLyrics.value = await _lyricsSync.loadFor(updated);
-      await _updateSettings(
-        _settings.copyWith(displayMode: PrompterDisplayMode.timed),
-      );
-
-      // 결정 사항: 싱크 가사는 기본으로 1초 먼저 띄워 읽을 시간을 준다.
-      // 사용자가 이미 조절해 둔 값(0이 아님)은 건드리지 않는다.
-      final slot = _selectedTrackSlot;
-      final track = slot == null ? null : updated.trackForSlot(slot);
-      if (track != null && track.lyricsOffsetMs == 0) {
-        await _adjustLyricsOffset(-1000);
-      }
-    }
+    final outcome = await _app.fetchSyncedLyricsFor();
     if (!mounted) return;
     _showSnack(outcome.message);
   }
 
-  /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
-  Future<void> _adjustLyricsOffset(int deltaMs) async {
-    final snapshotSong = _selectedSong;
-    final slot = _selectedTrackSlot;
-    if (snapshotSong == null || slot == null) return;
-    // 재생 스냅샷의 곡은 오래됐을 수 있다(예: 방금 받은 lrcFileName 누락).
-    // 목록의 최신 인스턴스를 기준으로 수정해 다른 필드를 잃지 않는다.
-    final song = _songs.firstWhere(
-      (s) => s.id == snapshotSong.id,
-      orElse: () => snapshotSong,
-    );
-    final track = song.trackForSlot(slot);
-    if (track == null) return;
-
-    final next = (track.lyricsOffsetMs + deltaMs).clamp(-3000, 3000);
-    final updatedTracks = song.backingTracks
-        .map((t) => t.slot == slot ? t.copyWith(lyricsOffsetMs: next) : t)
-        .toList(growable: false);
-    final updatedSong = song.copyWith(
-      backingTracks: updatedTracks,
-      updatedAt: DateTime.now(),
-    );
-
-    setState(() {
-      _songs = _songs
-          .map((s) => s.id == updatedSong.id ? updatedSong : s)
-          .toList(growable: false);
-    });
-    await _repo.saveSongs(_songs);
-    _playback.applyLyricsOffset(next);
-  }
+  Future<void> _adjustLyricsOffset(int deltaMs) =>
+      _app.adjustLyricsOffset(deltaMs);
 
   // ── 유튜브 가져오기 ─────────────────────────────────────
 
-  /// EQ 미터용 밴드 레벨. 캐시가 있으면 즉시, 없으면 백그라운드 분석 후 반환.
-  Future<TrackLevels?> _loadTrackLevels(Song song, int slot) async {
-    final track = song.trackForSlot(slot);
-    if (track == null) return null;
-    final cached = await _levelAnalysis.cached(track.fileName);
-    if (cached != null) return cached;
-    final sourcePath = await _repo.getBackingTrackPath(track.fileName);
-    if (sourcePath == null || !await File(sourcePath).exists()) return null;
-    return _levelAnalysis.analyze(
-      sourcePath: sourcePath,
-      sourceFileName: track.fileName,
-    );
-  }
+  Future<void> _refreshToolAvailability() => _app.refreshToolAvailability();
 
-  /// 홈의 서버 상태 표시가 낡지 않도록 30초마다 가볍게 갱신한다.
-  /// (분리 서버 status는 3초 타임아웃의 GET 하나 — 부담 없음)
-  void _startStatusRefresh() {
-    _statusRefreshTimer?.cancel();
-    _statusRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (!mounted) return;
-      unawaited(_refreshToolAvailability());
-    });
-  }
-
-  Future<void> _refreshToolAvailability() async {
-    final tool = await _toolLocator.locate(ExternalTool.ytDlp, refresh: true);
-    final separator = await _separation.status();
-    if (!mounted) return;
-    setState(() {
-      _ytDlpAvailable = tool.found;
-      _ytDlpVersion = tool.version;
-      _ytDlpMissingReason = tool.found
-          ? null
-          : 'yt-dlp를 찾을 수 없습니다. 설치했다면 실행 파일 경로를 직접 지정해 주세요.';
-      _separatorStatusLabel = separator.label;
-      _separatorOnline = separator.online;
-    });
-  }
-
-  Future<void> _updateYtDlp() async {
-    final tool = await _toolLocator.locate(ExternalTool.ytDlp);
-    if (!tool.found) {
-      _showSnack('yt-dlp를 찾을 수 없습니다.');
-      return;
-    }
-    _showSnack('yt-dlp 업데이트를 확인하는 중...');
-    final result = await const SystemProcessRunner().run(tool.path!, ['-U']);
-    if (!mounted) return;
-    final output = (result.stdout + result.stderr).trim();
-    final lastLine = output.isEmpty
-        ? (result.ok ? '완료' : '실패')
-        : output.split(RegExp(r'\r?\n')).last;
-    _showSnack('yt-dlp: $lastLine');
-    await _refreshToolAvailability();
-  }
+  Future<void> _updateYtDlp() => _app.updateYtDlpTool();
 
   Future<void> _locateYtDlp() async {
     final picked = await FilePicker.platform.pickFiles(
@@ -795,10 +583,7 @@ class _SongListScreenState extends State<SongListScreen> {
     final files = picked?.files ?? const [];
     final path = files.isEmpty ? null : files.first.path;
     if (path == null) return;
-    await _toolLocator.setUserPath(ExternalTool.ytDlp, path);
-    await _refreshToolAvailability();
-    if (!mounted) return;
-    _showSnack(_ytDlpAvailable ? 'yt-dlp 경로를 저장했습니다.' : '해당 파일을 실행할 수 없습니다.');
+    await _app.setYtDlpPath(path);
   }
 
   Future<void> _startYoutubeImport(
@@ -811,20 +596,23 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
     if (!await _confirmYoutubeNotice()) return;
-    _importJobs.enqueue(
-      url: url,
-      mode: mode,
-      id: const Uuid().v4(),
+    final outcome = await _app.enqueueImport(
+      url,
+      mode,
       fetchLyrics: fetchLyrics,
     );
     if (!mounted) return;
-    _showSnack('가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.');
+    _showSnack(
+      outcome.ok
+          ? '가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.'
+          : (outcome.message ?? '가져오기를 시작하지 못했습니다.'),
+    );
   }
 
   /// 저작권 방침: 최초 사용 시 1회 확인을 받는다. 이후에는 상시 문구만 보인다.
+  /// 확인은 반드시 이 화면(사용자 본인)에서만 이뤄진다 — 제어 API는 세팅 불가.
   Future<bool> _confirmYoutubeNotice() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_kYtNoticeAckKey) ?? false) return true;
+    if (await _app.hasYoutubeAck()) return true;
     if (!mounted) return false;
 
     final agreed = await showDialog<bool>(
@@ -856,171 +644,10 @@ class _SongListScreenState extends State<SongListScreen> {
       ),
     );
     if (agreed == true) {
-      await prefs.setBool(_kYtNoticeAckKey, true);
+      await _app.ackYoutubeNotice();
       return true;
     }
     return false;
-  }
-
-  /// 작업 1건 수행: 메타 조회 → 내려받기 → 곡으로 등록.
-  Future<void> _runImportJob(
-    ImportJob job, {
-    required void Function(JobProgress progress) onProgress,
-    required void Function(void Function() cancel) onCancel,
-  }) async {
-    onProgress(const JobProgress(label: '영상 정보 확인 중'));
-    final metadata = await _youtubeImport.fetchMetadata(job.url);
-    if (metadata == null) {
-      _failJob(job, '영상 정보를 가져오지 못했습니다. 링크와 yt-dlp 설치를 확인해 주세요.');
-      return;
-    }
-    _importJobs.update(
-      _importJobs.jobById(job.id)?.copyWith(title: metadata.title) ?? job,
-    );
-
-    final result = await _youtubeImport.download(
-      url: job.url,
-      jobId: job.id,
-      metadata: metadata,
-      mode: job.mode,
-      onProgress: onProgress,
-      onCancel: onCancel,
-    );
-
-    // 사용자가 중간에 취소했으면 결과를 덮어쓰지 않는다.
-    final current = _importJobs.jobById(job.id);
-    if (current == null || current.status != ImportJobStatus.running) {
-      await _youtubeImport.cleanupJob(job.id);
-      return;
-    }
-
-    if (!result.success) {
-      // 유튜브 측 변경으로 오래된 yt-dlp가 깨지는 일이 잦다 — 힌트를 함께 준다.
-      final message = result.message ?? '가져오기에 실패했습니다.';
-      _failJob(
-        job,
-        '$message 오래된 yt-dlp가 원인일 수 있어요 — 설정에서 업데이트(-U)를 실행해 보세요.',
-      );
-      await _youtubeImport.cleanupJob(job.id);
-      return;
-    }
-
-    var audioPath = result.audioPath!;
-    if (job.mode == MrSourceMode.aiSeparate) {
-      onProgress(const JobProgress(label: 'AI 보컬 분리 중 (수십 초 걸립니다)'));
-      final separated = await _separation.separate(audioPath);
-      if (!separated.success || separated.instrumentalPath == null) {
-        _failJob(job, separated.message ?? 'AI 보컬 분리에 실패했습니다.');
-        await _youtubeImport.cleanupJob(job.id);
-        return;
-      }
-      audioPath = separated.instrumentalPath!;
-    }
-
-    onProgress(const JobProgress(ratio: 1, label: '곡으로 등록 중'));
-    var song = await _registerImportedSong(
-      metadata: metadata,
-      audioPath: audioPath,
-    );
-    await _youtubeImport.cleanupJob(job.id);
-
-    if (song == null) {
-      _failJob(job, '곡 등록에 실패했습니다.');
-      return;
-    }
-
-    // 첫 무대 진입 때 EQ가 바로 뜨도록 등록 직후 백그라운드로 선분석한다.
-    unawaited(_loadTrackLevels(song, 1));
-
-    // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
-    var lyricsNote = '';
-    if (job.fetchLyrics) {
-      onProgress(const JobProgress(ratio: 1, label: '가사 찾는 중'));
-      final outcome = await _lyricsSync.fetchFor(
-        song,
-        duration: metadata.duration,
-      );
-      if (outcome.success && outcome.song != null) {
-        song = outcome.song!;
-        await _replaceSongInList(song);
-        lyricsNote = ' · 가사 포함';
-      } else {
-        lyricsNote = ' · 가사는 찾지 못함';
-      }
-    }
-
-    final finished = _importJobs.jobById(job.id);
-    if (finished == null) return;
-    _importJobs.update(
-      finished.copyWith(
-        status: ImportJobStatus.done,
-        statusDetail: '재생목록에 추가했습니다$lyricsNote.',
-        songId: song.id,
-        ratio: 1,
-      ),
-    );
-    if (!mounted) return;
-    _showSnack('"${song.title}" 추가 완료$lyricsNote');
-  }
-
-  /// 목록의 곡을 최신 인스턴스로 갈아끼우고 저장한다.
-  Future<void> _replaceSongInList(Song song) async {
-    if (!mounted) return;
-    setState(() {
-      _songs = _songs
-          .map((s) => s.id == song.id ? song : s)
-          .toList(growable: false);
-    });
-    await _repo.saveSongs(_songs);
-  }
-
-  void _failJob(ImportJob job, String message) {
-    final current = _importJobs.jobById(job.id);
-    if (current == null) return;
-    _importJobs.update(
-      current.copyWith(
-        status: ImportJobStatus.failed,
-        statusDetail: message,
-        clearRatio: true,
-      ),
-    );
-  }
-
-  /// 받은 오디오를 반주 1번 슬롯으로 하는 곡을 만든다.
-  /// 가사는 이어지는 단계에서 채운다. 실패하면 null.
-  Future<Song?> _registerImportedSong({
-    required YoutubeMetadata metadata,
-    required String audioPath,
-  }) async {
-    try {
-      // 유튜브 제목의 MR/노래방/키 표기를 걷어내고 가수를 분리한다 —
-      // 곡 목록 표기와 가사 검색 적중률 양쪽에 중요하다.
-      final cleaned = cleanYoutubeSongName(
-        metadata.title,
-        uploader: metadata.uploader,
-      );
-      final title = _libraryService.hasDuplicateTitle(_songs, cleaned.title)
-          ? '${cleaned.title} (가져오기)'
-          : cleaned.title;
-      final draft = SongDraft(
-        title: title.isEmpty ? '제목 없음' : title,
-        artist: cleaned.artist ?? metadata.uploader,
-        trackPaths: {1: audioPath},
-        trackLabels: {1: 'MR1'},
-      );
-      final result = await _libraryService.addSong(
-        songs: _songs,
-        draft: draft,
-        lyrics: '',
-      );
-      if (!mounted) return null;
-      setState(() => _songs = result.songs);
-      // 방금 추가된 곡 — 가사 부착·선택에 이어 쓴다.
-      return result.song;
-    } catch (e) {
-      debugPrint('가져온 곡 등록 실패: $e');
-      return null;
-    }
   }
 
   /// 곡 추가의 유일한 경로 — 링크를 받아 가져오기 파이프라인에 넘긴다.
@@ -1062,19 +689,7 @@ class _SongListScreenState extends State<SongListScreen> {
     ),
   );
 
-  Future<void> _toggleFavorite(Song song) async {
-    final result = await _libraryService.toggleFavorite(
-      songs: _songs,
-      song: song,
-    );
-    if (!mounted) return;
-    setState(() {
-      _songs = result.songs;
-    });
-    if (_selectedSong?.id == song.id) {
-      await _playback.loadSong(result.song, preferredSlot: _selectedTrackSlot);
-    }
-  }
+  Future<void> _toggleFavorite(Song song) => _app.toggleFavorite(song);
 
   Future<void> _exportBackup() async {
     final result = await _backupService.exportAll();
@@ -1166,30 +781,14 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack('"${song.title}" 복원 완료');
   }
 
-  Future<void> _reserveSong(Song song) async {
-    await _applyQueueChange(
-      _queueService.addSong(queue: _queue, song: song, settings: _settings),
-      message: '"${song.title}" 예약 완료',
-    );
-  }
+  Future<void> _reserveSong(Song song) => _app.reserveSong(song);
 
-  Future<void> _removeQueueItem(int index) =>
-      _applyQueueChange(_queueService.removeAt(_queue, index));
+  Future<void> _removeQueueItem(int index) => _app.removeQueueItem(index);
 
   Future<void> _reorderQueue(int oldIndex, int newIndex) =>
-      _applyQueueChange(_queueService.reorder(_queue, oldIndex, newIndex));
+      _app.reorderQueue(oldIndex, newIndex);
 
-  Future<void> _clearQueue() => _applyQueueChange(_queueService.clear());
-
-  Future<void> _applyQueueChange(
-    Future<List<QueueItem>> queueTask, {
-    String? message,
-  }) async {
-    final next = await queueTask;
-    if (!mounted) return;
-    setState(() => _queue = next);
-    if (message != null) _showSnack(message);
-  }
+  Future<void> _clearQueue() => _app.clearQueue();
 
   Future<void> _startSong(Song song) async {
     await _loadSong(song);
@@ -1221,14 +820,7 @@ class _SongListScreenState extends State<SongListScreen> {
       ),
     );
     if (confirmed != true) return;
-    await _applyQueueChange(
-      _queueService.addSongs(
-        queue: _queue,
-        songs: songs,
-        settings: _settings,
-      ),
-      message: '${songs.length}곡 예약 완료',
-    );
+    await _app.reserveAll(songs);
   }
 
   void _openPrompter(Song song) {
