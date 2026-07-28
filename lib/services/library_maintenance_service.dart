@@ -1,4 +1,4 @@
-// file: lib/services/library_maintenance_service.dart
+﻿// file: lib/services/library_maintenance_service.dart
 //
 // 라이브러리 점검·정리. 소프트 삭제 설계상 파일이 남고 단계마다 디렉터리가
 // 늘어나 고아 파일이 쌓이므로 정리 도구가 필요하다.
@@ -43,10 +43,19 @@ class LibraryMaintenanceService {
     return deleted;
   }
 
-  /// 피치 변형본 캐시를 비운다. 파생물이라 언제든 다시 만들 수 있다.
+  /// 파생 캐시(피치 변형본·EQ 레벨 분석)를 비운다.
+  /// 파생물이라 언제든 다시 만들 수 있다.
   Future<int> clearPitchCache() async {
+    var count = 0;
+    for (final sub in const ['cache/pitch', 'cache/levels']) {
+      count += await _clearCacheDir(sub);
+    }
+    return count;
+  }
+
+  Future<int> _clearCacheDir(String subPath) async {
     try {
-      final dir = Directory('${(await _repo.getDataDir()).path}/cache/pitch');
+      final dir = Directory('${(await _repo.getDataDir()).path}/$subPath');
       if (!await dir.exists()) return 0;
       var count = 0;
       await for (final entity in dir.list()) {
@@ -57,7 +66,7 @@ class LibraryMaintenanceService {
       }
       return count;
     } catch (e) {
-      debugPrint('피치 캐시 정리 실패: $e');
+      debugPrint('캐시 정리 실패($subPath): $e');
       return 0;
     }
   }
