@@ -1,17 +1,22 @@
-﻿// file: lib/widgets/prompter_lyrics_view.dart
+// file: lib/widgets/prompter_lyrics_view.dart
 //
-// 전체 스크롤·하이라이트 3줄 모드 가사 표시.
+// 무대 가사 표시. 기본은 줄 목록이고, '줄 하이라이트' 모드만 3줄 창이다.
+//
+// v2.6.0 이전의 '전체 가사' 모드는 가사 전체를 하나의 Text로 그려서
+// 줄별 표시·클릭·휠 이동이 원천적으로 불가능했다. 줄 단위 위젯으로 바꾸고
+// 줄 목록 생성은 buildPrompterLines 한 곳에 맡긴다(인덱스 어긋남 방지).
 import 'package:flutter/material.dart';
 
 import '../models/prompter_display_mode.dart';
+import '../models/prompter_lines.dart';
 import '../models/timed_lyrics.dart';
 import '../theme/app_theme.dart';
-import '../utils/lyrics_line_utils.dart';
+import 'prompter_line_list_view.dart';
 
 class PrompterLyricsView extends StatelessWidget {
   final String lyricsText;
 
-  /// 싱크 가사. timed 모드일 때 이 줄 목록을 그린다.
+  /// 싱크 가사. 있으면 이 줄 목록과 타임스탬프를 쓴다.
   final TimedLyrics? timedLyrics;
   final PrompterDisplayMode displayMode;
   final double fontSize;
@@ -23,6 +28,12 @@ class PrompterLyricsView extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final Color textColor;
   final Color mutedColor;
+
+  /// 줄을 눌렀을 때. null이면 누를 수 없다.
+  final ValueChanged<int>? onLineTap;
+
+  /// 현재 줄을 화면 안으로 따라오게 할지.
+  final bool autoFollow;
 
   const PrompterLyricsView({
     super.key,
@@ -38,48 +49,44 @@ class PrompterLyricsView extends StatelessWidget {
     this.padding = const EdgeInsets.fromLTRB(18, 10, 18, 18),
     this.textColor = AppColors.onSurface,
     this.mutedColor = AppColors.onSurfaceVariant,
+    this.onLineTap,
+    this.autoFollow = true,
   });
+
+  PrompterLines get _lines =>
+      buildPrompterLines(lyricsText: lyricsText, timedLyrics: timedLyrics);
 
   @override
   Widget build(BuildContext context) {
+    final lines = _lines;
     if (displayMode.usesWindowedLayout) {
-      return _buildHighlightView();
+      return _buildHighlightView(lines);
     }
-    return _buildFullView();
-  }
-
-  Widget _buildFullView() {
-    return SingleChildScrollView(
-      controller: scrollController,
-      padding: padding,
-      child: Center(
-        child: Text(
-          lyricsText.isEmpty ? '(가사가 없습니다)' : lyricsText,
-          textAlign: TextAlign.center,
-          style: _baseStyle(fontSize),
-        ),
-      ),
+    return PrompterLineListView(
+      lines: lines,
+      currentIndex: highlightLineIndex,
+      fontSize: fontSize,
+      lineHeight: lineHeight,
+      fontFamily: fontFamily,
+      boldText: boldText,
+      padding: padding is EdgeInsets
+          ? padding as EdgeInsets
+          : const EdgeInsets.fromLTRB(32, 48, 32, 24),
+      textColor: textColor,
+      mutedColor: mutedColor,
+      onLineTap: onLineTap,
+      autoFollow: autoFollow,
+      scrollController: scrollController,
     );
   }
 
-  Widget _buildHighlightView() {
-    // timed 모드에서는 LRC가 자기 줄 목록을 들고 있으므로 그대로 쓴다.
-    // (splitLines는 빈 줄을 버려 인덱스가 어긋날 수 있어 섞지 않는다)
-    final synced = timedLyrics;
-    final lines = displayMode == PrompterDisplayMode.timed &&
-            synced != null &&
-            !synced.isEmpty
-        ? synced.plainLines
-        : LyricsLineUtils.splitLines(lyricsText);
+  /// 3줄 창 — 글자를 가장 크게 보고 싶을 때 쓰는 집중 모드.
+  Widget _buildHighlightView(PrompterLines lines) {
     if (lines.isEmpty) {
-      return Center(
-        child: Text(
-          LyricsLineUtils.emptyPlaceholder,
-          style: _baseStyle(fontSize),
-        ),
-      );
+      return Center(child: Text('(가사가 없습니다)', style: _baseStyle(fontSize)));
     }
-    final current = highlightLineIndex.clamp(0, lines.length - 1);
+    final texts = lines.texts;
+    final current = highlightLineIndex.clamp(0, texts.length - 1);
 
     return Padding(
       padding: padding,
@@ -87,53 +94,60 @@ class PrompterLyricsView extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           if (current > 0)
-            _highlightLine(
-              lines[current - 1],
-              fontSize * 0.82,
-              mutedColor,
-              FontWeight.w500,
-            ),
+            _highlightLine(texts[current - 1], current - 1, muted: true),
           const SizedBox(height: 12),
-          _highlightLine(
-            lines[current],
-            fontSize,
-            textColor,
-            boldText ? FontWeight.w800 : FontWeight.w700,
-            glow: true,
-          ),
+          _highlightLine(texts[current], current, muted: false),
           const SizedBox(height: 12),
-          if (current < lines.length - 1)
-            _highlightLine(
-              lines[current + 1],
-              fontSize * 0.82,
-              mutedColor,
-              FontWeight.w500,
-            ),
+          if (current < texts.length - 1)
+            _highlightLine(texts[current + 1], current + 1, muted: true),
         ],
       ),
     );
   }
 
-  Widget _highlightLine(
-    String text,
-    double size,
-    Color color,
-    FontWeight weight, {
-    bool glow = false,
-  }) {
-    return Text(
-      text,
-      textAlign: TextAlign.center,
-      style: _baseStyle(size).copyWith(
-        color: color,
-        fontWeight: weight,
-        shadows: glow
-            ? const [
-                Shadow(color: AppColors.primary, blurRadius: 18),
-                Shadow(color: AppColors.primary, blurRadius: 8),
-              ]
-            : null,
-      ),
+  Widget _highlightLine(String text, int index, {required bool muted}) {
+    final size = muted ? fontSize * 0.82 : fontSize;
+    final child = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: fontSize * 0.9,
+          child: muted
+              ? null
+              : Icon(
+                  Icons.play_arrow_rounded,
+                  size: fontSize * 0.62,
+                  color: AppColors.tertiary,
+                ),
+        ),
+        Flexible(
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: _baseStyle(size).copyWith(
+              color: muted ? mutedColor : AppColors.tertiary,
+              fontWeight: muted
+                  ? FontWeight.w500
+                  : (boldText ? FontWeight.w800 : FontWeight.w700),
+              shadows: muted
+                  ? null
+                  : const [
+                      Shadow(color: AppColors.tertiary, blurRadius: 18),
+                      Shadow(color: AppColors.tertiary, blurRadius: 8),
+                    ],
+            ),
+          ),
+        ),
+        SizedBox(width: fontSize * 0.9),
+      ],
+    );
+
+    if (onLineTap == null) return child;
+    return Semantics(
+      selected: !muted,
+      button: true,
+      label: muted ? text : '현재 줄: $text',
+      child: InkWell(onTap: () => onLineTap!(index), child: child),
     );
   }
 

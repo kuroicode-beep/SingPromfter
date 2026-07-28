@@ -240,6 +240,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   ),
                   textColor: Colors.white,
                   mutedColor: Colors.white70,
+                  onLineTap: widget.playback.seekToLine,
+                  autoFollow: !widget.playback.autoScrollPaused.value,
                 ),
               ),
             ),
