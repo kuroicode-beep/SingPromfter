@@ -139,5 +139,26 @@ void main() {
     test('빈 목록은 null', () {
       expect(LyricsSyncService.pickBestForTest(const []), isNull);
     });
+
+    test('허용 오차(7초) 이내면 채택한다', () {
+      final best = LyricsSyncService.pickBestForTest(
+        [c(1, 207)],
+        duration: const Duration(seconds: 200),
+      );
+      expect(best!.id, 1);
+    });
+
+    test('허용 오차를 넘는 후보는 버린다 — 엉뚱한 가사보다 못 찾음이 낫다', () {
+      final best = LyricsSyncService.pickBestForTest(
+        [c(1, 100), c(2, 300)],
+        duration: const Duration(seconds: 200),
+      );
+      expect(best, isNull);
+    });
+
+    test('duration이 없으면 오차 검사 없이 첫 후보', () {
+      final best = LyricsSyncService.pickBestForTest([c(1, 999)]);
+      expect(best!.id, 1);
+    });
   });
 }

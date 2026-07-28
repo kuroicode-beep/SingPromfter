@@ -976,9 +976,8 @@ class _SongListScreenState extends State<SongListScreen> {
       );
       if (!mounted) return null;
       setState(() => _songs = result.songs);
-      // 방금 추가된 곡을 돌려준다 — 가사 부착·선택에 이어 쓴다.
-      final added = result.songs.where((s) => s.title == draft.title);
-      return added.isEmpty ? null : added.last;
+      // 방금 추가된 곡 — 가사 부착·선택에 이어 쓴다.
+      return result.song;
     } catch (e) {
       debugPrint('가져온 곡 등록 실패: $e');
       return null;

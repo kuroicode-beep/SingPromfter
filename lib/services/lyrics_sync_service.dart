@@ -51,6 +51,10 @@ class LyricsSyncService {
         artist: song.artist,
         duration: duration,
       );
+      // 정확 조회 결과라도 길이가 크게 다르면 다른 곡일 가능성이 높다.
+      if (candidate != null && !_withinTolerance(candidate, duration)) {
+        candidate = null;
+      }
 
       if (candidate == null || !candidate.hasSynced) {
         final query = '${song.title} ${song.artist}'.trim();
@@ -104,7 +108,17 @@ class LyricsSyncService {
     return song.copyWith(clearLrcFileName: true, updatedAt: DateTime.now());
   }
 
+  /// 길이 차이가 이 이상이면 다른 곡으로 간주한다.
+  static const Duration durationTolerance = Duration(seconds: 7);
+
+  static bool _withinTolerance(LyricsCandidate c, Duration? duration) {
+    if (duration == null || duration <= Duration.zero) return true;
+    return (c.duration - duration).inMilliseconds.abs() <=
+        durationTolerance.inMilliseconds;
+  }
+
   /// 길이가 가장 비슷하고 싱크가 있는 결과를 고른다. (순수 로직)
+  /// 허용 오차(±7초)를 넘는 후보는 엉뚱한 가사보다 못 찾음이 낫다.
   static LyricsCandidate? _pickBest(
     List<LyricsCandidate> results, {
     Duration? duration,
@@ -118,7 +132,8 @@ class LyricsSyncService {
       final db = (b.duration - duration).inMilliseconds.abs();
       return da.compareTo(db);
     });
-    return synced.first;
+    final best = synced.first;
+    return _withinTolerance(best, duration) ? best : null;
   }
 
   /// 테스트용 공개 래퍼.
