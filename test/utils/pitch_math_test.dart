@@ -60,9 +60,9 @@ void main() {
     });
   });
 
-  group('buildPitchArgs', () {
+  group('buildVariantArgs', () {
     test('rubberband가 있으면 그 필터를 쓴다', () {
-      final args = buildPitchArgs(
+      final args = buildVariantArgs(
         input: 'in.mp3',
         output: 'out.m4a',
         semitones: 2,
@@ -71,13 +71,13 @@ void main() {
       final filterIndex = args.indexOf('-filter:a');
       expect(filterIndex, greaterThan(-1));
       // rubberband의 pitch 인자는 반음이 아니라 비율이다
-      expect(args[filterIndex + 1], contains('rubberband=pitch=1.122462'));
+      expect(args[filterIndex + 1], contains('rubberband=tempo=1.000000:pitch=1.122462'));
       expect(args, contains('in.mp3'));
       expect(args.last, 'out.m4a');
     });
 
     test('rubberband가 없으면 대체 필터를 쓴다', () {
-      final args = buildPitchArgs(
+      final args = buildVariantArgs(
         input: 'in.mp3',
         output: 'out.m4a',
         semitones: 2,
@@ -90,7 +90,7 @@ void main() {
     });
 
     test('진행률 출력을 켠다', () {
-      final args = buildPitchArgs(
+      final args = buildVariantArgs(
         input: 'a',
         output: 'b',
         semitones: 1,

@@ -100,7 +100,7 @@ class PitchVariantService {
     final outputName = pitchVariantFileName(sourceFileName, clamped);
     final outputPath = '${(await cacheDir).path}/$outputName';
 
-    final args = buildPitchArgs(
+    final args = buildVariantArgs(
       input: sourcePath,
       output: outputPath,
       semitones: clamped,

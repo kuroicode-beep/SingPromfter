@@ -2,6 +2,13 @@
 //
 // 앱 전역에서 공유하는 의미 있는 수치 상수.
 class AppConstants {
+  /// 가사 선행/지연 오프셋의 한계(ms).
+  ///
+  /// v2.7.0까지는 ±3초였는데, LRCLIB이 인트로 길이가 다른 판본을 물어 오면
+  /// 4초 넘게 어긋나는 일이 있다(실측: "넌 언제나" LRC가 보컬보다 3.96초 늦음).
+  /// 그런 곡은 ±3초 안에서는 **아예 맞출 수가 없다**. 10초까지 열어 둔다.
+  static const int maxLyricsOffsetMs = 10000;
+
   AppConstants._();
 
   static const double wideLayoutBreakpoint = 980;

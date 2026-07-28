@@ -51,9 +51,14 @@ TextStyle prompterLineStyle({
 /// 크기·자간·글꼴·굵기가 달라지면 글자 위치가 어긋나 스윕이 흔들린다.
 /// 밝은 쪽이 아니라 어두운 쪽을 파생시키는 이유: 스윕이 없는 곡(싱크 가사가
 /// 없거나 끝 시각을 모르는 줄)에서 현재 줄이 v2.7.0과 똑같이 보여야 한다.
+/// 아직 부르지 않은 부분의 불투명도.
+/// 0.45로 시작했다가 "조금 더 밝게" 피드백을 받아 올렸다. 이보다 높이면
+/// 부른 부분과의 대비가 약해져 스윕 경계가 눈에 안 띈다.
+const double unsungOpacity = 0.62;
+
 TextStyle prompterUnsungStyle(TextStyle base) {
   return base.copyWith(
-    color: (base.color ?? AppColors.tertiary).withValues(alpha: 0.45),
+    color: (base.color ?? AppColors.tertiary).withValues(alpha: unsungOpacity),
     shadows: const [],
   );
 }

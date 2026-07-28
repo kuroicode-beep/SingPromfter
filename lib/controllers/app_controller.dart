@@ -385,7 +385,10 @@ class AppController extends ChangeNotifier {
     final track = song.trackForSlot(slot);
     if (track == null) return;
 
-    final next = (track.lyricsOffsetMs + deltaMs).clamp(-3000, 3000);
+    final next = (track.lyricsOffsetMs + deltaMs).clamp(
+      -AppConstants.maxLyricsOffsetMs,
+      AppConstants.maxLyricsOffsetMs,
+    );
     final updatedTracks = song.backingTracks
         .map((t) => t.slot == slot ? t.copyWith(lyricsOffsetMs: next) : t)
         .toList(growable: false);
