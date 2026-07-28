@@ -59,6 +59,7 @@ class PrompterNavigation {
           boldText: initial.boldText,
           displayMode: initial.displayMode,
           showEqMeter: initial.showEqMeter,
+          showSyllableSweep: initial.showSyllableSweep,
           onStepPitch: onStepPitch,
           pendingPitch: pendingPitch,
           songKey: songKey,

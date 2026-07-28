@@ -22,7 +22,11 @@ class PrompterSettings {
 
   /// 전체화면 프롬프터의 EQ 애니메이션 표시 여부.
   /// 움직임이 신경 쓰이는 사용자를 위해 끌 수 있어야 한다(저시력 배려).
-  final bool showEqMeter;
+  final bool showEqMeter;
+
+  /// 현재 줄을 한 글자씩 밝히며 따라갈지.
+  /// 움직임이 신경 쓰이면 끌 수 있다(EQ 미터와 같은 이유).
+  final bool showSyllableSweep;
 
   const PrompterSettings({
     this.fontSizeLevel = 3,
@@ -37,7 +41,8 @@ class PrompterSettings {
     this.lastSelectedTrackSlotBySong = const {},
     this.pitchSemitonesBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
-    this.showEqMeter = true,
+    this.showEqMeter = true,
+    this.showSyllableSweep = true,
   });
 
   double get effectiveFontSizePt =>
@@ -59,7 +64,8 @@ class PrompterSettings {
     Map<String, int>? lastSelectedTrackSlotBySong,
     Map<String, int>? pitchSemitonesBySong,
     PrompterDisplayMode? displayMode,
-    bool? showEqMeter,
+    bool? showEqMeter,
+    bool? showSyllableSweep,
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
   }) {
@@ -82,7 +88,8 @@ class PrompterSettings {
       pitchSemitonesBySong:
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
       displayMode: displayMode ?? this.displayMode,
-      showEqMeter: showEqMeter ?? this.showEqMeter,
+      showEqMeter: showEqMeter ?? this.showEqMeter,
+      showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
     );
   }
 
@@ -127,7 +134,8 @@ class PrompterSettings {
     'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
     'pitchSemitonesBySong': pitchSemitonesBySong,
     'displayMode': displayMode.storageValue,
-    'showEqMeter': showEqMeter,
+    'showEqMeter': showEqMeter,
+    'showSyllableSweep': showSyllableSweep,
   };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
@@ -160,7 +168,8 @@ class PrompterSettings {
       displayMode: PrompterDisplayModeCodec.fromStorage(
         json['displayMode'] as String?,
       ),
-      showEqMeter: json['showEqMeter'] as bool? ?? true,
+      showEqMeter: json['showEqMeter'] as bool? ?? true,
+      showSyllableSweep: json['showSyllableSweep'] as bool? ?? true,
     );
   }
 

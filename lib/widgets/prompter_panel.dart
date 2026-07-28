@@ -16,6 +16,7 @@ import '../utils/music_key.dart';
 import 'pitch_hud.dart';
 import 'prompter_eq_meter.dart';
 import 'prompter_lyrics_view.dart';
+import 'prompter_sweep_line.dart';
 import 'prompter_wheel_scope.dart';
 import 'queue_panel.dart';
 
@@ -182,6 +183,11 @@ class PrompterPanel extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
                         onLineTap: playback.seekToLine,
                         autoFollow: !playback.autoScrollPaused.value,
+                        trackEnd: playback.lyricsTrackEnd,
+                        sweepBuilder: prompterSweepBuilder(
+                          playback: playback,
+                          enabled: settings.showSyllableSweep,
+                        ),
                       ),
                     ),
                     // 키를 굴리는 동안 가사 위에 크게 띄운다.

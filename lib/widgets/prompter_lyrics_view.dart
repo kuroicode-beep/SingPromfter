@@ -39,6 +39,13 @@ class PrompterLyricsView extends StatefulWidget {
   /// 현재 줄을 화면 안으로 따라오게 할지.
   final bool autoFollow;
 
+  /// 마지막 줄의 끝을 정하는 곡 끝(가사와 같은 원본 시간축).
+  /// 모르면 마지막 줄은 스윕하지 않는다.
+  final Duration? trackEnd;
+
+  /// 현재 줄을 한 글자씩 밝히는 렌더러. null이면 평범한 Text.
+  final Widget Function(PrompterLine line, TextStyle style)? sweepBuilder;
+
   const PrompterLyricsView({
     super.key,
     required this.lyricsText,
@@ -55,6 +62,8 @@ class PrompterLyricsView extends StatefulWidget {
     this.mutedColor = AppColors.onSurfaceVariant,
     this.onLineTap,
     this.autoFollow = true,
+    this.trackEnd,
+    this.sweepBuilder,
   });
 
   @override
@@ -74,7 +83,8 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
   void didUpdateWidget(covariant PrompterLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.lyricsText != widget.lyricsText ||
-        !identical(oldWidget.timedLyrics, widget.timedLyrics)) {
+        !identical(oldWidget.timedLyrics, widget.timedLyrics) ||
+        oldWidget.trackEnd != widget.trackEnd) {
       _lines = _build();
     }
   }
@@ -82,6 +92,7 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
   PrompterLines _build() => buildPrompterLines(
     lyricsText: widget.lyricsText,
     timedLyrics: widget.timedLyrics,
+    trackEnd: widget.trackEnd,
   );
 
   @override
@@ -103,6 +114,7 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
       mutedColor: widget.mutedColor,
       onLineTap: widget.onLineTap,
       autoFollow: widget.autoFollow,
+      sweepBuilder: widget.sweepBuilder,
       scrollController: widget.scrollController,
     );
   }
@@ -155,6 +167,9 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
       boldText: widget.boldText,
       mutedColor: widget.mutedColor,
       fillWidth: false,
+      sweepBuilder: widget.sweepBuilder == null || !isCurrent
+          ? null
+          : (style) => widget.sweepBuilder!(_lines.lines[index], style),
       onTap: widget.onLineTap == null ? null : () => widget.onLineTap!(index),
     );
   }

@@ -298,6 +298,62 @@ class PlaybackController {
     if (next != lineIndex.value) lineIndex.value = next;
   }
 
+  /// 가사 줄이 끝나는 기준이 되는 곡 끝. 트림 끝을 우선하고 없으면 곡 길이.
+  /// 마지막 줄의 끝을 정하는 데만 쓴다.
+  Duration? get lyricsTrackEnd {
+    final endMs = state.value.trackEndMs;
+    if (endMs != null && endMs > 0) return Duration(milliseconds: endMs);
+    final duration = state.value.duration;
+    return duration > Duration.zero ? duration : null;
+  }
+
+  /// 현재 줄 안에서의 진행률(0..1). 스윕할 수 없는 상황이면 null.
+  ///
+  /// ValueNotifier로 노출하지 않는 것은 의도다 — 60Hz 값이 notifier가 되는
+  /// 순간 누군가 AnimatedBuilder에 물릴 위험이 생긴다. "위치는 구독 위젯이
+  /// 직접 받는다"는 v2.6.0 규약을 여기서도 지킨다. 스윕 위젯이 자기 Ticker에서
+  /// 이 메서드를 직접 부른다.
+  double? currentLineFraction() {
+    final song = state.value.song;
+    if (song == null) return null;
+
+    final synced = timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      final index = lineIndex.value;
+      if (index < 0 || index >= synced.lines.length) return null;
+      final start = synced.lines[index].time;
+      final end = index + 1 < synced.lines.length
+          ? synced.lines[index + 1].time
+          : lyricsTrackEnd;
+      if (end == null) return null;
+
+      final lyricsTime = LyricsSyncMath.lyricsTimeFor(
+        playerPosition: position.value,
+        lyrics: synced,
+        trackStartMs: state.value.trackStartMs,
+        lyricsOffsetMs: state.value.lyricsOffsetMs,
+      );
+      return LyricsSyncMath.lineProgress(
+        lyricsTime: lyricsTime,
+        start: start,
+        end: end,
+        maxSweep: LyricsSyncMath.sweepWindow(
+          synced.lines[index].text,
+          end - start,
+        ),
+      );
+    }
+
+    // 싱크 가사가 없으면 스윕하지 않는다.
+    //
+    // 추정 진행률은 있지만(LyricsProgressService.estimatedLineProgress),
+    // 그건 "곡 길이에 줄을 고르게 뿌린" 값이라 실제 노래와 맞을 이유가 없다.
+    // 그 값으로 개별 글자를 켜면 **자신 있게 틀린 음절**을 가리키게 된다 —
+    // 아무 표시도 없느니만 못하다. 줄 단위 강조(화살표·밑줄·배경·색)는
+    // 그대로 남으므로 어느 줄인지는 여전히 알 수 있다.
+    return null;
+  }
+
   /// 지금 곡의 줄 수. 싱크 가사가 있으면 그 줄 목록 기준이다.
   int get lineCount {
     final synced = timedLyrics.value;

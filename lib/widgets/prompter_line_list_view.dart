@@ -29,6 +29,9 @@ class PrompterLineListView extends StatefulWidget {
   /// 현재 줄을 화면 안으로 따라오게 할지.
   final bool autoFollow;
 
+  /// 현재 줄을 한 글자씩 밝히는 렌더러. null이면 평범한 Text.
+  final Widget Function(PrompterLine line, TextStyle style)? sweepBuilder;
+
   final ScrollController? scrollController;
 
   const PrompterLineListView({
@@ -44,6 +47,7 @@ class PrompterLineListView extends StatefulWidget {
     this.mutedColor = Colors.white70,
     this.onLineTap,
     this.autoFollow = true,
+    this.sweepBuilder,
     this.scrollController,
   });
 
@@ -116,6 +120,9 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
               boldText: widget.boldText,
               mutedColor: widget.mutedColor,
               margin: EdgeInsets.symmetric(vertical: widget.fontSize * 0.12),
+              sweepBuilder: widget.sweepBuilder == null
+                  ? null
+                  : (style) => widget.sweepBuilder!(lines[i], style),
               onTap: widget.onLineTap == null
                   ? null
                   : () => widget.onLineTap!(i),

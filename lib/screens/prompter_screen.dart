@@ -15,6 +15,7 @@ import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/prompter_lyrics_view.dart';
+import '../widgets/prompter_sweep_line.dart';
 import '../widgets/prompter_progress_bar.dart';
 import '../widgets/prompter_keyboard_scope.dart';
 import '../widgets/prompter_wheel_scope.dart';
@@ -37,6 +38,9 @@ class PrompterScreen extends StatefulWidget {
   final bool boldText;
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
+
+  /// 현재 줄을 한 글자씩 밝힐지.
+  final bool showSyllableSweep;
 
   /// Alt+휠 키 조절. null이면 무대에서 키를 바꿀 수 없다.
   final void Function(int delta)? onStepPitch;
@@ -70,6 +74,7 @@ class PrompterScreen extends StatefulWidget {
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
+    this.showSyllableSweep = true,
     this.onStepPitch,
     this.pendingPitch,
     this.songKey,
@@ -298,6 +303,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   mutedColor: Colors.white70,
                   onLineTap: widget.playback.seekToLine,
                   autoFollow: !widget.playback.autoScrollPaused.value,
+                  trackEnd: widget.playback.lyricsTrackEnd,
+                  sweepBuilder: prompterSweepBuilder(
+                    playback: widget.playback,
+                    enabled: widget.showSyllableSweep,
+                  ),
                 ),
               ),
             ),
