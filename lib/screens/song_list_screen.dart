@@ -2,7 +2,6 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:flutter/material.dart';
@@ -21,34 +20,22 @@ import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/recording_take.dart';
 import '../models/song.dart';
-import '../models/song_draft.dart';
-import '../models/track_levels.dart';
-import '../utils/key_label.dart';
-import '../utils/pitch_math.dart';
-import '../utils/youtube_title_cleaner.dart';
 import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
 import '../services/lyrics_sync_service.dart';
-import '../services/pitch_variant_service.dart';
 import '../services/practice_log_service.dart';
 import '../services/daily_goal_service.dart';
 import '../services/recording_library_service.dart';
-import '../services/process/external_tool_locator.dart';
-import '../services/process/process_runner.dart';
-import '../services/process/tool_progress_parsers.dart';
 import '../services/youtube_import_service.dart';
 import '../services/prompter_audio_service.dart';
 import '../services/prompter_settings_service.dart';
 import '../services/song_library_service.dart';
-import '../services/song_list_bootstrap_service.dart';
-import '../services/song_queue_service.dart';
 import '../services/library_maintenance_service.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../services/take_mix_service.dart';
-import '../services/vocal_separation_client.dart';
-import '../services/level_analysis_service.dart';
+import '../services/control_server.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
@@ -65,13 +52,12 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 헤드리스 중심부 — 상태·서비스·가져오기 파이프라인·재생을 소유한다.
   /// 화면은 위임 getter로 기존 이름을 유지해 위젯 배선을 바꾸지 않는다.
   final _app = AppController();
+  late final _controlServer = ControlServer(_app);
 
   SongRepository get _repo => _app.repo;
-  SongQueueService get _queueService => _app.queueService;
   SongLibraryService get _libraryService => _app.libraryService;
   late final _backupService = BackupService(_repo);
   late final _songActions = SongActionCoordinator(_repo, _libraryService);
-  PrompterAudioService get _audio => _app.audio;
   ScrollController get _lyricsScrollController => _app.lyricsScrollController;
   final _practiceLog = PracticeLogService();
   LyricsSyncService get _lyricsSync => _app.lyricsSync;
@@ -165,6 +151,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _recording.dispose();
     _takeBindings?.cancel();
     _takePlayer.dispose();
+    unawaited(_controlServer.stop());
     _app.removeListener(_onPlaybackStateChanged);
     _app.dispose();
     super.dispose();
@@ -176,6 +163,8 @@ class _SongListScreenState extends State<SongListScreen> {
     await _recordingLibrary.load();
     await _dailyGoals.load();
     await _app.bootstrap();
+    // MCP 제어 API — 루프백 전용, 실패해도 앱 동작에 영향 없음.
+    await _controlServer.start();
   }
 
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
