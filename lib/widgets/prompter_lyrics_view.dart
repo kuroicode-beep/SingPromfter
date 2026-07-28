@@ -1,19 +1,23 @@
-﻿// file: lib/widgets/prompter_lyrics_view.dart
+// file: lib/widgets/prompter_lyrics_view.dart
 //
 // 무대 가사 표시. 기본은 줄 목록이고, '줄 하이라이트' 모드만 3줄 창이다.
 //
 // v2.6.0 이전의 '전체 가사' 모드는 가사 전체를 하나의 Text로 그려서
 // 줄별 표시·클릭·휠 이동이 원천적으로 불가능했다. 줄 단위 위젯으로 바꾸고
 // 줄 목록 생성은 buildPrompterLines 한 곳에 맡긴다(인덱스 어긋남 방지).
+//
+// 줄 목록을 State에 캐시하는 이유: 예전에는 build마다 다시 만드는 getter라
+// 리빌드가 잦아지면 그대로 비용이 됐다. 가사·싱크·끝 시각이 바뀔 때만 만든다.
 import 'package:flutter/material.dart';
 
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_lines.dart';
 import '../models/timed_lyrics.dart';
 import '../theme/app_theme.dart';
+import 'prompter_current_line.dart';
 import 'prompter_line_list_view.dart';
 
-class PrompterLyricsView extends StatelessWidget {
+class PrompterLyricsView extends StatefulWidget {
   final String lyricsText;
 
   /// 싱크 가사. 있으면 이 줄 목록과 타임스탬프를 쓴다.
@@ -53,126 +57,105 @@ class PrompterLyricsView extends StatelessWidget {
     this.autoFollow = true,
   });
 
-  PrompterLines get _lines =>
-      buildPrompterLines(lyricsText: lyricsText, timedLyrics: timedLyrics);
+  @override
+  State<PrompterLyricsView> createState() => _PrompterLyricsViewState();
+}
+
+class _PrompterLyricsViewState extends State<PrompterLyricsView> {
+  late PrompterLines _lines;
+
+  @override
+  void initState() {
+    super.initState();
+    _lines = _build();
+  }
+
+  @override
+  void didUpdateWidget(covariant PrompterLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.lyricsText != widget.lyricsText ||
+        !identical(oldWidget.timedLyrics, widget.timedLyrics)) {
+      _lines = _build();
+    }
+  }
+
+  PrompterLines _build() => buildPrompterLines(
+    lyricsText: widget.lyricsText,
+    timedLyrics: widget.timedLyrics,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final lines = _lines;
-    if (displayMode.usesWindowedLayout) {
-      return _buildHighlightView(lines);
+    if (widget.displayMode.usesWindowedLayout) {
+      return _buildHighlightView(_lines);
     }
     return PrompterLineListView(
-      lines: lines,
-      currentIndex: highlightLineIndex,
-      fontSize: fontSize,
-      lineHeight: lineHeight,
-      fontFamily: fontFamily,
-      boldText: boldText,
-      padding: padding is EdgeInsets
-          ? padding as EdgeInsets
+      lines: _lines,
+      currentIndex: widget.highlightLineIndex,
+      fontSize: widget.fontSize,
+      lineHeight: widget.lineHeight,
+      fontFamily: widget.fontFamily,
+      boldText: widget.boldText,
+      padding: widget.padding is EdgeInsets
+          ? widget.padding as EdgeInsets
           : const EdgeInsets.fromLTRB(32, 48, 32, 24),
-      textColor: textColor,
-      mutedColor: mutedColor,
-      onLineTap: onLineTap,
-      autoFollow: autoFollow,
-      scrollController: scrollController,
+      textColor: widget.textColor,
+      mutedColor: widget.mutedColor,
+      onLineTap: widget.onLineTap,
+      autoFollow: widget.autoFollow,
+      scrollController: widget.scrollController,
     );
   }
 
   /// 3줄 창 — 글자를 가장 크게 보고 싶을 때 쓰는 집중 모드.
   Widget _buildHighlightView(PrompterLines lines) {
     if (lines.isEmpty) {
-      return Center(child: Text('(가사가 없습니다)', style: _baseStyle(fontSize)));
+      return Center(
+        child: Text(
+          '(가사가 없습니다)',
+          style: prompterLineStyle(
+            fontSize: widget.fontSize,
+            lineHeight: widget.lineHeight,
+            boldText: widget.boldText,
+            isCurrent: false,
+            mutedColor: widget.mutedColor,
+            fontFamily: widget.fontFamily,
+          ),
+        ),
+      );
     }
     final texts = lines.texts;
-    final current = highlightLineIndex.clamp(0, texts.length - 1);
+    final current = widget.highlightLineIndex.clamp(0, texts.length - 1);
 
     return Padding(
-      padding: padding,
+      padding: widget.padding,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          if (current > 0)
-            _highlightLine(texts[current - 1], current - 1, muted: true),
+          if (current > 0) _line(texts[current - 1], current - 1, false),
           const SizedBox(height: 12),
-          _highlightLine(texts[current], current, muted: false),
+          _line(texts[current], current, true),
           const SizedBox(height: 12),
           if (current < texts.length - 1)
-            _highlightLine(texts[current + 1], current + 1, muted: true),
+            _line(texts[current + 1], current + 1, false),
         ],
       ),
     );
   }
 
-  Widget _highlightLine(String text, int index, {required bool muted}) {
-    final size = muted ? fontSize * 0.82 : fontSize;
-    final gutter = fontSize * 1.15;
-    // 줄 목록 모드와 같은 강조 규칙(밑줄·배경·큰 화살표)을 쓴다.
-    final child = Container(
-      padding: EdgeInsets.symmetric(vertical: fontSize * 0.1),
-      decoration: muted
-          ? null
-          : BoxDecoration(
-              color: AppColors.tertiary.withValues(alpha: 0.12),
-              border: const Border(
-                bottom: BorderSide(color: AppColors.tertiary, width: 4),
-              ),
-            ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: gutter,
-            child: muted
-                ? null
-                : Icon(
-                    Icons.play_arrow_rounded,
-                    size: fontSize * 1.0,
-                    color: AppColors.tertiary,
-                  ),
-          ),
-          Flexible(
-            child: Text(
-              text,
-              textAlign: TextAlign.center,
-              style: _baseStyle(size).copyWith(
-                color: muted ? mutedColor : AppColors.tertiary,
-                fontWeight: muted
-                    ? FontWeight.w500
-                    : (boldText ? FontWeight.w800 : FontWeight.w700),
-                shadows: muted
-                    ? null
-                    : const [
-                        Shadow(color: AppColors.tertiary, blurRadius: 18),
-                        Shadow(color: AppColors.tertiary, blurRadius: 8),
-                      ],
-              ),
-            ),
-          ),
-          SizedBox(width: gutter),
-        ],
-      ),
-    );
-
-    if (onLineTap == null) return child;
-    return Semantics(
-      selected: !muted,
-      button: true,
-      label: muted ? text : '현재 줄: $text',
-      child: InkWell(onTap: () => onLineTap!(index), child: child),
-    );
-  }
-
-  TextStyle _baseStyle(double size) {
-    // 무대 가사는 고가독이 최우선. 글꼴 미지정 시 손글씨(브랜드) 대신
-    // 고딕(Malgun)으로 폴백해 저시력 가독성을 지킨다.
-    return TextStyle(
-      color: textColor,
-      fontSize: size,
-      height: lineHeight,
-      fontFamily: fontFamily ?? AppFonts.legible,
-      fontWeight: boldText ? FontWeight.w800 : FontWeight.w500,
+  /// 3줄 창의 한 줄. 목록 모드와 같은 위젯이라 강조 규칙이 갈라지지 않는다.
+  Widget _line(String text, int index, bool isCurrent) {
+    return PrompterCurrentLine(
+      text: text,
+      isCurrent: isCurrent,
+      fontSize: widget.fontSize,
+      mutedScale: windowMutedScale,
+      lineHeight: widget.lineHeight,
+      fontFamily: widget.fontFamily,
+      boldText: widget.boldText,
+      mutedColor: widget.mutedColor,
+      fillWidth: false,
+      onTap: widget.onLineTap == null ? null : () => widget.onLineTap!(index),
     );
   }
 }

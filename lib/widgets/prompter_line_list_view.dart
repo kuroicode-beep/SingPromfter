@@ -10,7 +10,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/prompter_lines.dart';
-import '../theme/app_theme.dart';
+import 'prompter_current_line.dart';
 
 class PrompterLineListView extends StatefulWidget {
   final PrompterLines lines;
@@ -105,111 +105,22 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < lines.length; i++)
-            _LineTile(
+            PrompterCurrentLine(
               key: _keys.putIfAbsent(i, GlobalKey.new),
               text: lines[i].text,
               isCurrent: i == current,
               fontSize: widget.fontSize,
+              mutedScale: listMutedScale,
               lineHeight: widget.lineHeight,
               fontFamily: widget.fontFamily,
               boldText: widget.boldText,
               mutedColor: widget.mutedColor,
+              margin: EdgeInsets.symmetric(vertical: widget.fontSize * 0.12),
               onTap: widget.onLineTap == null
                   ? null
                   : () => widget.onLineTap!(i),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _LineTile extends StatelessWidget {
-  final String text;
-  final bool isCurrent;
-  final double fontSize;
-  final double lineHeight;
-  final String? fontFamily;
-  final bool boldText;
-  final Color mutedColor;
-  final VoidCallback? onTap;
-
-  const _LineTile({
-    super.key,
-    required this.text,
-    required this.isCurrent,
-    required this.fontSize,
-    required this.lineHeight,
-    required this.fontFamily,
-    required this.boldText,
-    required this.mutedColor,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // 색만으로는 약하다는 피드백에 따라 v2.7.0에서 강조를 겹쳤다:
-    // 두꺼운 밑줄 + 배경 띠 + 큰 화살표 + 크기 차이. 색을 못 봐도 구분된다.
-    final size = isCurrent ? fontSize : fontSize * 0.72;
-    final gutter = fontSize * 1.15;
-
-    return Semantics(
-      selected: isCurrent,
-      button: onTap != null,
-      label: isCurrent ? '현재 줄: $text' : text,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          margin: EdgeInsets.symmetric(vertical: fontSize * 0.12),
-          padding: EdgeInsets.symmetric(vertical: fontSize * 0.1),
-          decoration: isCurrent
-              ? BoxDecoration(
-                  color: AppColors.tertiary.withValues(alpha: 0.12),
-                  border: const Border(
-                    bottom: BorderSide(color: AppColors.tertiary, width: 4),
-                  ),
-                )
-              : null,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // 좌우 대칭 거터 — 마커가 붙고 떨어져도 본문이 밀리지 않는다.
-              SizedBox(
-                width: gutter,
-                child: isCurrent
-                    ? Icon(
-                        Icons.play_arrow_rounded,
-                        size: fontSize * 1.0,
-                        color: AppColors.tertiary,
-                      )
-                    : null,
-              ),
-              Expanded(
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: size,
-                    height: lineHeight,
-                    // 무대는 고가독 고딕으로 폴백한다(저시력 우선).
-                    fontFamily: fontFamily ?? AppFonts.legible,
-                    color: isCurrent ? AppColors.tertiary : mutedColor,
-                    fontWeight: isCurrent
-                        ? (boldText ? FontWeight.w800 : FontWeight.w700)
-                        : FontWeight.w500,
-                    shadows: isCurrent
-                        ? const [
-                            Shadow(color: AppColors.tertiary, blurRadius: 18),
-                            Shadow(color: AppColors.tertiary, blurRadius: 8),
-                          ]
-                        : null,
-                  ),
-                ),
-              ),
-              SizedBox(width: gutter),
-            ],
-          ),
-        ),
       ),
     );
   }
