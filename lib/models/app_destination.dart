@@ -21,7 +21,7 @@ extension AppDestinationInfo on AppDestination {
     AppDestination.favorites => '즐겨찾기',
     AppDestination.training => '트레이닝',
     AppDestination.recordings => '녹음',
-    AppDestination.jobs => '가져오기',
+    AppDestination.jobs => '가져오기 기록',
     AppDestination.settings => '설정',
   };
 

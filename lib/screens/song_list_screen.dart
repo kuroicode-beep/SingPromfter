@@ -11,6 +11,7 @@ import '../controllers/import_job_controller.dart';
 import '../controllers/playback_controller.dart';
 import '../controllers/recording_controller.dart';
 import '../coordinators/song_action_coordinator.dart';
+import '../dialogs/add_song_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/mr_source_mode.dart';
@@ -95,6 +96,7 @@ class _SongListScreenState extends State<SongListScreen> {
   String? _ytDlpVersion;
   final _separation = VocalSeparationClient();
   String _separatorStatusLabel = '분리 서버: 확인 중';
+  bool _separatorOnline = false;
   static const _kYtNoticeAckKey = 'yt_notice_ack';
 
   late final PlaybackController _playback;
@@ -735,6 +737,7 @@ class _SongListScreenState extends State<SongListScreen> {
           ? null
           : 'yt-dlp를 찾을 수 없습니다. 설치했다면 실행 파일 경로를 직접 지정해 주세요.';
       _separatorStatusLabel = separator.label;
+      _separatorOnline = separator.online;
     });
   }
 
@@ -768,13 +771,24 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack(_ytDlpAvailable ? 'yt-dlp 경로를 저장했습니다.' : '해당 파일을 실행할 수 없습니다.');
   }
 
-  Future<void> _startYoutubeImport(String url, MrSourceMode mode) async {
+  Future<void> _startYoutubeImport(
+    String url,
+    MrSourceMode mode, {
+    bool fetchLyrics = true,
+  }) async {
     if (!looksLikeYoutubeUrl(url)) {
       _showSnack('유튜브 주소가 아닙니다. 링크를 다시 확인해 주세요.');
       return;
     }
     if (!await _confirmYoutubeNotice()) return;
-    _importJobs.enqueue(url: url, mode: mode, id: const Uuid().v4());
+    _importJobs.enqueue(
+      url: url,
+      mode: mode,
+      id: const Uuid().v4(),
+      fetchLyrics: fetchLyrics,
+    );
+    if (!mounted) return;
+    _showSnack('가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.');
   }
 
   /// 저작권 방침: 최초 사용 시 1회 확인을 받는다. 이후에는 상시 문구만 보인다.
@@ -869,21 +883,57 @@ class _SongListScreenState extends State<SongListScreen> {
     }
 
     onProgress(const JobProgress(ratio: 1, label: '곡으로 등록 중'));
-    final registered = await _registerImportedSong(
+    var song = await _registerImportedSong(
       metadata: metadata,
       audioPath: audioPath,
     );
     await _youtubeImport.cleanupJob(job.id);
 
+    if (song == null) {
+      _failJob(job, '곡 등록에 실패했습니다.');
+      return;
+    }
+
+    // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
+    var lyricsNote = '';
+    if (job.fetchLyrics) {
+      onProgress(const JobProgress(ratio: 1, label: '가사 찾는 중'));
+      final outcome = await _lyricsSync.fetchFor(
+        song,
+        duration: metadata.duration,
+      );
+      if (outcome.success && outcome.song != null) {
+        song = outcome.song!;
+        await _replaceSongInList(song);
+        lyricsNote = ' · 가사 포함';
+      } else {
+        lyricsNote = ' · 가사는 찾지 못함';
+      }
+    }
+
     final finished = _importJobs.jobById(job.id);
     if (finished == null) return;
     _importJobs.update(
       finished.copyWith(
-        status: registered ? ImportJobStatus.done : ImportJobStatus.failed,
-        statusDetail: registered ? '곡 목록에 추가했습니다.' : '곡 등록에 실패했습니다.',
+        status: ImportJobStatus.done,
+        statusDetail: '재생목록에 추가했습니다$lyricsNote.',
+        songId: song.id,
         ratio: 1,
       ),
     );
+    if (!mounted) return;
+    _showSnack('"${song.title}" 추가 완료$lyricsNote');
+  }
+
+  /// 목록의 곡을 최신 인스턴스로 갈아끼우고 저장한다.
+  Future<void> _replaceSongInList(Song song) async {
+    if (!mounted) return;
+    setState(() {
+      _songs = _songs
+          .map((s) => s.id == song.id ? song : s)
+          .toList(growable: false);
+    });
+    await _repo.saveSongs(_songs);
   }
 
   void _failJob(ImportJob job, String message) {
@@ -899,8 +949,8 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   /// 받은 오디오를 반주 1번 슬롯으로 하는 곡을 만든다.
-  /// 가사는 비워 두고 이후 단계(가사 가져오기)에서 채운다.
-  Future<bool> _registerImportedSong({
+  /// 가사는 이어지는 단계에서 채운다. 실패하면 null.
+  Future<Song?> _registerImportedSong({
     required YoutubeMetadata metadata,
     required String audioPath,
   }) async {
@@ -919,15 +969,40 @@ class _SongListScreenState extends State<SongListScreen> {
         draft: draft,
         lyrics: '',
       );
-      if (!mounted) return true;
+      if (!mounted) return null;
       setState(() => _songs = result.songs);
-      return true;
+      // 방금 추가된 곡을 돌려준다 — 가사 부착·선택에 이어 쓴다.
+      final added = result.songs.where((s) => s.title == draft.title);
+      return added.isEmpty ? null : added.last;
     } catch (e) {
       debugPrint('가져온 곡 등록 실패: $e');
-      return false;
+      return null;
     }
   }
-  Future<void> _addSong() async => _applySongActionOutcome(
+  /// 곡 추가의 주 경로 — 링크를 받아 파이프라인에 넘긴다.
+  /// 파일 등록은 링크가 없는 곡을 위한 보조 선택지로 남겨 둔다.
+  Future<void> _addSong() async {
+    // 최신 도구·서버 상태를 반영해 대화상자에서 바로 알려준다.
+    unawaited(_refreshToolAvailability());
+    final choice = await AddSongDialog.show(
+      context,
+      toolAvailable: _ytDlpAvailable,
+      toolMissingReason: _ytDlpMissingReason,
+      separatorStatusLabel: _separatorStatusLabel,
+      separatorOnline: _separatorOnline,
+    );
+    if (choice == null) return;
+
+    switch (choice) {
+      case AddSongFromUrl(:final url, :final mode, :final fetchLyrics):
+        await _startYoutubeImport(url, mode, fetchLyrics: fetchLyrics);
+      case AddSongFromFiles():
+        await _addSongFromFiles();
+    }
+  }
+
+  /// 보조 경로 — 가사 txt와 반주 파일을 직접 고른다.
+  Future<void> _addSongFromFiles() async => _applySongActionOutcome(
     await _songActions.addSong(context: context, songs: _songs),
   );
 

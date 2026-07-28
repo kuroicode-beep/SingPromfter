@@ -24,6 +24,7 @@ import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
 import 'song_search_panel.dart';
+import 'import_progress_strip.dart';
 import 'recordings_panel.dart';
 import 'training_panel.dart';
 import 'youtube_import_panel.dart';
@@ -377,6 +378,11 @@ class SongListScreenContent extends StatelessWidget {
         onDelete: onDeleteTake,
         onMix: onMixTake,
         onPlayMix: onPlayTakeMix,
+      ),
+      importProgress: ImportProgressStrip(
+        jobs: importJobs,
+        onCancel: onCancelImportJob,
+        onOpenJobs: () => onDestinationChanged(AppDestination.jobs),
       ),
       importPanel: YoutubeImportPanel(
         jobs: importJobs,

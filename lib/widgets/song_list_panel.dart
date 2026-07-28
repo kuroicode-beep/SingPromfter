@@ -87,8 +87,9 @@ class SongListPanel extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '상단의 곡 등록으로 추가해 주세요',
+                    '상단 [곡 추가]에 유튜브 링크를 붙여넣으면\n반주와 가사까지 자동으로 준비됩니다',
                     style: TextStyle(color: AppColors.textMuted),
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),

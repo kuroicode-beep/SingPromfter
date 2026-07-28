@@ -56,7 +56,7 @@ class AppTopNavBar extends StatelessWidget {
             FilledButton.icon(
               onPressed: onAddSong,
               icon: const Icon(Icons.library_add),
-              label: const Text('곡 등록'),
+              label: const Text('곡 추가'),
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primaryContainer,
                 foregroundColor: AppColors.onPrimaryContainer,

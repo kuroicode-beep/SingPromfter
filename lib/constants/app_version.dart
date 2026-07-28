@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.0.0';
+  static const String current = '2.1.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.1.0',
+      '2026-07-28',
+      '곡 추가 주 경로를 링크 기반으로 교체 — 링크 하나로 반주·가사까지 자동 준비',
+    ),
     AppVersionEntry(
       '2.0.0',
       '2026-07-28',

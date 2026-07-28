@@ -1,4 +1,4 @@
-// file: lib/controllers/import_job_controller.dart
+﻿// file: lib/controllers/import_job_controller.dart
 //
 // 가져오기 작업 큐. 동시 실행은 1건으로 제한한다 —
 // 데스크톱에서 ffmpeg를 여러 개 돌리면 서로 자원을 뺏기만 한다.
@@ -36,6 +36,12 @@ class ImportJob {
   final String? statusDetail;
   final String? resultAudioPath;
 
+  /// 가사도 자동으로 찾아 붙일지.
+  final bool fetchLyrics;
+
+  /// 등록 완료된 곡 id — 완료 후 바로 선택하기 위해 들고 있는다.
+  final String? songId;
+
   const ImportJob({
     required this.id,
     required this.url,
@@ -45,6 +51,8 @@ class ImportJob {
     this.ratio,
     this.statusDetail,
     this.resultAudioPath,
+    this.fetchLyrics = true,
+    this.songId,
   });
 
   ImportJob copyWith({
@@ -53,6 +61,7 @@ class ImportJob {
     double? ratio,
     String? statusDetail,
     String? resultAudioPath,
+    String? songId,
     bool clearRatio = false,
   }) {
     return ImportJob(
@@ -64,6 +73,8 @@ class ImportJob {
       ratio: clearRatio ? null : (ratio ?? this.ratio),
       statusDetail: statusDetail ?? this.statusDetail,
       resultAudioPath: resultAudioPath ?? this.resultAudioPath,
+      fetchLyrics: fetchLyrics,
+      songId: songId ?? this.songId,
     );
   }
 
@@ -118,8 +129,18 @@ class ImportJobController extends ChangeNotifier {
         j.status == ImportJobStatus.queued,
   );
 
-  ImportJob enqueue({required String url, required MrSourceMode mode, required String id}) {
-    final job = ImportJob(id: id, url: url, mode: mode);
+  ImportJob enqueue({
+    required String url,
+    required MrSourceMode mode,
+    required String id,
+    bool fetchLyrics = true,
+  }) {
+    final job = ImportJob(
+      id: id,
+      url: url,
+      mode: mode,
+      fetchLyrics: fetchLyrics,
+    );
     _jobs.insert(0, job);
     notifyListeners();
     _pump();

@@ -30,6 +30,7 @@ class SongListScreenView extends StatelessWidget {
   final Widget trainingPanel;
   final Widget recordingsPanel;
   final Widget importPanel;
+  final Widget importProgress;
   final Widget settingsPanel;
 
   const SongListScreenView({
@@ -51,6 +52,7 @@ class SongListScreenView extends StatelessWidget {
     required this.trainingPanel,
     required this.recordingsPanel,
     required this.importPanel,
+    required this.importProgress,
     required this.settingsPanel,
   });
 
@@ -114,6 +116,7 @@ class SongListScreenView extends StatelessWidget {
       return Column(
         children: [
           nowPlayingBar,
+          importProgress,
           const ServerStatusStrip(),
           Expanded(
             child: Row(
@@ -141,6 +144,7 @@ class SongListScreenView extends StatelessWidget {
       child: Column(
         children: [
           nowPlayingBar,
+          importProgress,
           const ServerStatusStrip(),
           Material(
             color: AppColors.surfaceContainer,

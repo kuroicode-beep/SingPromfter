@@ -63,7 +63,12 @@ class _YoutubeImportPanelState extends State<YoutubeImportPanel> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        Text('유튜브에서 가져오기', style: AppTypography.screenTitle),
+        Text('가져오기 기록', style: AppTypography.screenTitle),
+        const SizedBox(height: 6),
+        Text(
+          '곡 추가는 상단 [곡 추가] 버튼이 빠릅니다. 이 화면은 진행 상황과 기록을 봅니다.',
+          style: AppTypography.bodyMuted,
+        ),
         const SizedBox(height: 12),
         const _CopyrightNotice(),
         const SizedBox(height: 16),
