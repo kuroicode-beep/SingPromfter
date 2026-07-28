@@ -44,6 +44,11 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
+  # 테스트에서 Documents 경로를 임시 폴더로 바꿔치기할 때 쓴다
+  # (track_asset_service_test의 캐시 무효화 검증).
+  path_provider_platform_interface: ^2.1.2
+  plugin_platform_interface: ^2.1.8
+
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
