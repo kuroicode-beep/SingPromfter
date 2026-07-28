@@ -134,4 +134,59 @@ void main() {
     expect(res.status, 200);
     expect(res.body['jobs'], isEmpty);
   });
+
+  group('반주 슬롯 라우트', () {
+    test('POST tracks — 없는 곡은 404', () async {
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/nope/tracks',
+        body: {'url': 'https://youtu.be/abc'},
+      );
+      expect(res.status, 404);
+      expect((res.body['error'] as Map)['code'], 'song_not_found');
+    });
+
+    test('POST tracks — ack 없으면 409', () async {
+      app.songs = [song('a', '밤편지')];
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/a/tracks',
+        body: {'url': 'https://youtu.be/abc'},
+      );
+      expect(res.status, 409);
+      expect((res.body['error'] as Map)['code'], 'notice_not_acked');
+    });
+
+    test('POST tracks — 유튜브 주소가 아니면 422', () async {
+      app.songs = [song('a', '밤편지')];
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/a/tracks',
+        body: {'url': 'https://vimeo.com/1'},
+      );
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'not_youtube_url');
+    });
+
+    test('DELETE tracks — 슬롯 번호가 잘못되면 422', () async {
+      app.songs = [song('a', '밤편지')];
+      final res = await router.dispatch('DELETE', '/api/songs/a/tracks/xyz');
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'bad_slot');
+    });
+
+    test('DELETE tracks — 비어 있는 슬롯은 404', () async {
+      app.songs = [song('a', '밤편지')];
+      final res = await router.dispatch('DELETE', '/api/songs/a/tracks/2');
+      expect(res.status, 404);
+      expect((res.body['error'] as Map)['code'], 'track_not_found');
+    });
+  });
+
+  test('곡 응답에 반주 목록이 들어간다', () async {
+    app.songs = [song('a', '밤편지')];
+    final res = await router.dispatch('GET', '/api/songs/a');
+    final data = res.body['song'] as Map<String, dynamic>;
+    expect(data['tracks'], isA<List<dynamic>>());
+  });
 }

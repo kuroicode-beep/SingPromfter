@@ -1,4 +1,4 @@
-# SingPromfter
+﻿# SingPromfter
 
 저시력 사용자를 위한 노래 프롬프터 + 보컬 트레이닝 Flutter 데스크톱 앱입니다.
 
@@ -38,7 +38,8 @@
 [tool/mcp/singprompter_mcp.py](tool/mcp/singprompter_mcp.py) MCP 서버로 프롬프트만으로 앱을 조작할 수 있다
 (저장소 루트 `.mcp.json`에 등록돼 있어 이 저장소에서 Claude Code를 열면 바로 쓸 수 있음).
 
-- 곡: `sp_list_songs` `sp_get_song` `sp_add_song`(유튜브 링크) `sp_edit_song` `sp_delete_song`(confirm 필수) `sp_fetch_lyrics`
+- 곡: `sp_list_songs` `sp_get_song` `sp_add_song`(유튜브 링크, 원곡·MR·키조절 동시 생성) `sp_edit_song` `sp_delete_song`(confirm 필수) `sp_fetch_lyrics`
+- 반주 슬롯: `sp_add_track`(별도 링크로 노래방 버전 등) `sp_remove_track`(confirm 필수)
 - 키: `sp_set_pitch`(원곡 대비 반음 −6~+6 절대값)
 - 큐: `sp_queue_list·add·remove·clear(confirm)·reorder`
 - 재생: `sp_select` `sp_play` `sp_pause` `sp_stop` `sp_restart` `sp_seek` `sp_set_volume` `sp_set_rate`

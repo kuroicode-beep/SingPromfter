@@ -107,11 +107,20 @@ def _add_song(args):
             JSONRPC_INVALID_PARAMS,
             "mode는 asIs/original/reduceVocal/aiSeparate 중 하나여야 합니다.",
         )
-    return _http("POST", "/api/songs", {
+    body = {
         "url": url,
         "mode": mode,
         "fetchLyrics": bool(args.get("fetch_lyrics", True)),
-    })
+    }
+    # 셋 중 하나라도 지정하면 다중 슬롯 계획으로 본다. 아니면 기존 동작.
+    plan_keys = ("make_original", "make_instrumental", "pitch_semitones")
+    if any(k in args for k in plan_keys):
+        body["plan"] = {
+            "makeOriginal": bool(args.get("make_original", False)),
+            "makeInstrumental": bool(args.get("make_instrumental", True)),
+            "pitchSemitones": args.get("pitch_semitones"),
+        }
+    return _http("POST", "/api/songs", body)
 
 
 def _edit_song(args):
@@ -143,6 +152,27 @@ def _set_pitch(args):
 
 def _fetch_lyrics(args):
     return _http("POST", f"/api/songs/{_song_id(args)}/lyrics/fetch")
+
+
+def _add_track(args):
+    song_id = _song_id(args)
+    url = str(args.get("url", "")).strip()
+    if not url:
+        raise McpError(JSONRPC_INVALID_PARAMS, "url(유튜브 링크)이 필요합니다.")
+    body = {"url": url, "mode": str(args.get("mode", "asIs"))}
+    if isinstance(args.get("slot"), int):
+        body["slot"] = args["slot"]
+    if args.get("label"):
+        body["label"] = str(args["label"])
+    return _http("POST", f"/api/songs/{song_id}/tracks", body)
+
+
+def _remove_track(args):
+    _require_confirm(args, "반주 삭제(파일 포함)")
+    slot = args.get("slot")
+    if not isinstance(slot, int):
+        raise McpError(JSONRPC_INVALID_PARAMS, "slot(정수)이 필요합니다.")
+    return _http("DELETE", f"/api/songs/{_song_id(args)}/tracks/{slot}")
 
 
 def _queue_list(args):
@@ -276,6 +306,20 @@ TOOLS = {
                 "description": "반주 처리: asIs=그대로(기본), aiSeparate=AI 보컬 분리",
             },
             "fetch_lyrics": {"type": "boolean", "description": "싱크 가사 자동 검색(기본 true)"},
+            "make_original": {
+                "type": "boolean",
+                "description": "원곡(가이드 보컬 포함)도 슬롯으로 남길지",
+            },
+            "make_instrumental": {
+                "type": "boolean",
+                "description": "AI 분리 반주를 슬롯으로 남길지 (mode=aiSeparate 필요)",
+            },
+            "pitch_semitones": {
+                "type": "integer",
+                "minimum": -6,
+                "maximum": 6,
+                "description": "키조절본을 만들 반음. 생략하면 만들지 않는다",
+            },
         }, ["url"]),
         "handler": _add_song,
     },
@@ -310,6 +354,33 @@ TOOLS = {
         "description": "곡의 싱크 가사를 LRCLIB에서 다시 검색해 붙인다.",
         "schema": _schema(dict(_SONG_ID_PROP), ["song_id"]),
         "handler": _fetch_lyrics,
+    },
+    "sp_add_track": {
+        "description": (
+            "기존 곡에 반주를 하나 더 붙인다(노래방 버전 등, 별도 링크). "
+            "slot을 생략하면 빈 슬롯에 넣고, 지정하면 그 슬롯을 덮어쓴다."
+        ),
+        "schema": _schema({
+            **_SONG_ID_PROP,
+            "url": {"type": "string", "description": "유튜브 링크"},
+            "mode": {
+                "type": "string",
+                "enum": ["asIs", "original", "reduceVocal", "aiSeparate"],
+                "description": "반주 처리 (기본 asIs)",
+            },
+            "slot": {"type": "integer", "minimum": 1, "maximum": 4},
+            "label": {"type": "string", "description": "반주 이름 (기본 '노래방')"},
+        }, ["song_id", "url"]),
+        "handler": _add_track,
+    },
+    "sp_remove_track": {
+        "description": "⚠ 곡의 반주 하나를 파일까지 지운다(되돌릴 수 없음). confirm=true 필수.",
+        "schema": _schema({
+            **_SONG_ID_PROP,
+            "slot": {"type": "integer", "minimum": 1, "maximum": 4},
+            "confirm": {"type": "boolean", "description": "true여야 실제로 삭제한다"},
+        }, ["song_id", "slot", "confirm"]),
+        "handler": _remove_track,
     },
     "sp_queue_list": {
         "description": "예약 큐 목록.",

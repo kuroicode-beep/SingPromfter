@@ -1,4 +1,4 @@
-// file: lib/services/control_server.dart
+﻿// file: lib/services/control_server.dart
 //
 // 로컬 제어 API — 127.0.0.1:8772 루프백 전용 HTTP 서버.
 //
@@ -18,6 +18,7 @@ import 'package:flutter/foundation.dart';
 import '../constants/app_version.dart';
 import '../controllers/app_controller.dart';
 import '../controllers/import_job_controller.dart';
+import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/song.dart';
 
@@ -105,10 +106,16 @@ class ControlRouter {
         final url = (body['url'] as String?)?.trim() ?? '';
         final mode = MrSourceModeInfo.fromStorage(body['mode'] as String?);
         final fetchLyrics = body['fetchLyrics'] as bool? ?? true;
+        // plan이 없으면 기존 동작(반주 1개) — 하위 호환.
+        final rawPlan = body['plan'];
+        final plan = rawPlan is Map<String, dynamic>
+            ? ImportPlan.fromJson(rawPlan)
+            : const ImportPlan.single();
         final outcome = await app.enqueueImport(
           url,
           mode,
           fetchLyrics: fetchLyrics,
+          plan: plan,
         );
         if (!outcome.ok) {
           final status = outcome.errorCode == 'notice_not_acked' ? 409 : 422;
@@ -167,6 +174,50 @@ class ControlRouter {
           );
         }
         return ControlResponse.ok();
+
+      // ── 반주 슬롯 ──
+      case ('POST', ['songs', final String id, 'tracks']):
+        final url = (body['url'] as String?)?.trim() ?? '';
+        final mode = MrSourceModeInfo.fromStorage(body['mode'] as String?);
+        final outcome = await app.enqueueTrackImport(
+          songId: id,
+          url: url,
+          mode: mode,
+          slot: (body['slot'] as num?)?.toInt(),
+          label: body['label'] as String?,
+        );
+        if (!outcome.ok) {
+          final status = switch (outcome.errorCode) {
+            'song_not_found' => 404,
+            'notice_not_acked' => 409,
+            'no_free_slot' => 409,
+            _ => 422,
+          };
+          return ControlResponse.error(
+            status,
+            outcome.errorCode!,
+            outcome.message ?? '반주를 가져오지 못했습니다.',
+          );
+        }
+        return ControlResponse.ok({'jobId': outcome.jobId});
+
+      case ('DELETE', ['songs', final String id, 'tracks', final String s]):
+        final slot = int.tryParse(s);
+        if (slot == null) {
+          return ControlResponse.error(422, 'bad_slot', '슬롯 번호가 잘못됐습니다.');
+        }
+        final updated = await app.removeTrackFromSong(
+          songId: id,
+          slot: slot,
+        );
+        if (updated == null) {
+          return ControlResponse.error(
+            404,
+            'track_not_found',
+            '해당 슬롯에 반주가 없습니다.',
+          );
+        }
+        return ControlResponse.ok({'song': _songJson(updated)});
 
       // ── 예약 큐 ──
       case ('GET', ['queue']):
@@ -339,6 +390,14 @@ class ControlRouter {
     'favorite': song.isFavorite,
     'hasSyncedLyrics': (song.lrcFileName ?? '').isNotEmpty,
     'slots': song.availableTrackSlots,
+    'tracks': [
+      for (final track in song.backingTracks)
+        {
+          'slot': track.slot,
+          'label': track.label,
+          'bakedSemitones': track.bakedSemitones,
+        },
+    ],
     'pitchBySlot': {
       for (final slot in song.availableTrackSlots)
         '$slot': app.settings.pitchForSong(song.id, slot),
