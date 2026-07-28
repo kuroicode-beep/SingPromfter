@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
 import '../controllers/playback_controller.dart';
-import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
@@ -15,7 +14,6 @@ import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
-import 'preset_btn.dart';
 import 'prompter_progress_bar.dart';
 
 class PrompterBottomBar extends StatefulWidget {
