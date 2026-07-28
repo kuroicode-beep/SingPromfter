@@ -145,4 +145,39 @@ void main() {
     expect(lineSteps, isEmpty);
     expect(sizeSteps, isEmpty);
   });
+
+  // Shift+휠 = 템포 (v2.8.0). 네 모드는 배타적이어야 한다.
+  group('wheelModeFor 우선순위', () {
+    test('아무것도 안 누르면 줄 이동', () {
+      expect(wheelModeFor(ctrl: false, alt: false), WheelMode.line);
+    });
+
+    test('Shift는 템포', () {
+      expect(
+        wheelModeFor(ctrl: false, alt: false, shift: true),
+        WheelMode.tempo,
+      );
+    });
+
+    test('Alt가 Shift보다 우선', () {
+      expect(
+        wheelModeFor(ctrl: false, alt: true, shift: true),
+        WheelMode.pitch,
+      );
+    });
+
+    test('Shift가 Ctrl보다 우선', () {
+      expect(
+        wheelModeFor(ctrl: true, alt: false, shift: true),
+        WheelMode.tempo,
+      );
+    });
+
+    test('모두 눌러도 하나만 고른다', () {
+      expect(
+        wheelModeFor(ctrl: true, alt: true, shift: true),
+        WheelMode.pitch,
+      );
+    });
+  });
 }

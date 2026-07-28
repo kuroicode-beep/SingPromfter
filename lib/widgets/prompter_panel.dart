@@ -12,6 +12,8 @@ import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
 import '../theme/prompter_levels.dart';
+import '../utils/pitch_math.dart';
+import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import 'pitch_hud.dart';
 import 'prompter_eq_meter.dart';
@@ -41,12 +43,19 @@ class PrompterPanel extends StatelessWidget {
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
+  /// 현재 반주의 템포(배)와 조절 콜백.
+  final double tempoScale;
+  final ValueChanged<double> onAdjustTempo;
+
   /// Alt+휠용 — 굴리는 동안은 화면만 바꾸고 렌더는 미루는 경로.
   /// 없으면 하단 바와 같은 즉시 적용 경로를 쓴다.
   final void Function(int delta)? onStepPitch;
 
   /// 적용을 기다리는 키 값. HUD가 이 값을 크게 띄운다.
   final ValueListenable<int?>? pendingPitch;
+
+  /// 적용을 기다리는 템포 값. 키와 같은 카드로 띄운다.
+  final ValueListenable<double?>? pendingTempo;
 
   /// 지금 들리는 조성. 하단 바 키 줄에 배지로 뜬다.
   final MusicKey? soundingKey;
@@ -95,8 +104,11 @@ class PrompterPanel extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.tempoScale = 1,
+    required this.onAdjustTempo,
     this.onStepPitch,
     this.pendingPitch,
+    this.pendingTempo,
     this.soundingKey,
     this.pitchBaseKey,
     required this.isRecording,
@@ -158,6 +170,7 @@ class PrompterPanel extends StatelessWidget {
               onStepLine: playback.stepLine,
               onStepFontSize: _stepFontSize,
               onStepPitch: onStepPitch ?? onAdjustPitch,
+              onStepTempo: (delta) => onAdjustTempo(delta * tempoStep),
               child: Container(
                 margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
                 decoration: AppShapes.panel(),
@@ -190,7 +203,7 @@ class PrompterPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                    // 키를 굴리는 동안 가사 위에 크게 띄운다.
+                    // 키·템포를 굴리는 동안 가사 위에 크게 띄운다.
                     if (pendingPitch != null)
                       Positioned.fill(
                         child: ValueListenableBuilder<int?>(
@@ -198,6 +211,19 @@ class PrompterPanel extends StatelessWidget {
                           builder: (context, value, _) => PitchHud(
                             semitones: value,
                             songKey: pitchBaseKey,
+                          ),
+                        ),
+                      ),
+                    if (pendingTempo != null)
+                      Positioned.fill(
+                        child: ValueListenableBuilder<double?>(
+                          valueListenable: pendingTempo!,
+                          builder: (context, value, _) => PitchHud(
+                            semitones: value == null ? null : 0,
+                            headline: value == null
+                                ? null
+                                : formatTempoLabel(value),
+                            caption: '템포',
                           ),
                         ),
                       ),
@@ -241,6 +267,8 @@ class PrompterPanel extends StatelessWidget {
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
             soundingKey: soundingKey,
+            tempoScale: tempoScale,
+            onAdjustTempo: onAdjustTempo,
             isRecording: isRecording,
             recordingLevelLabel: recordingLevelLabel,
             recordingElapsed: recordingElapsed,

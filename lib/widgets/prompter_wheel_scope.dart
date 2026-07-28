@@ -1,11 +1,12 @@
 // file: lib/widgets/prompter_wheel_scope.dart
 //
 // 무대·메인 창에서 마우스 휠의 뜻을 바꾼다.
-//   그냥 휠   → 이전/다음 가사 줄 (반주도 그 줄로 이동)
-//   Ctrl+휠  → 글자 크기
-//   Alt+휠   → 키(피치)
+//   그냥 휠    → 이전/다음 가사 줄 (반주도 그 줄로 이동)
+//   Ctrl+휠   → 글자 크기
+//   Alt+휠    → 키(피치)
+//   Shift+휠  → 템포
 //
-// 세 모드는 **완전히 배타적**이다. 한 이벤트는 한 모드에만 들어가고,
+// 네 모드는 **완전히 배타적**이다. 한 이벤트는 한 모드에만 들어가고,
 // 모드가 바뀌면 이전 모드의 누적·시간 제한을 즉시 버린다. 그러지 않으면
 // Ctrl을 눌렀다 떼는 사이에 남아 있던 델타가 줄을 한 칸 밀어 버린다.
 //
@@ -18,11 +19,20 @@ import 'package:flutter/services.dart';
 import '../utils/wheel_step_accumulator.dart';
 
 /// 휠 입력이 무엇을 뜻하는지. (순수 판정 — 테스트 대상)
-enum WheelMode { line, fontSize, pitch }
+enum WheelMode { line, fontSize, pitch, tempo }
 
-/// 눌린 수식키로 모드를 정한다. Alt가 Ctrl보다 우선이고, 둘 다 눌리면 키가 바뀐다.
-WheelMode wheelModeFor({required bool ctrl, required bool alt}) {
+/// 눌린 수식키로 모드를 정한다.
+///
+/// 우선순위 alt(키) > shift(템포) > ctrl(크기) > 없음(줄).
+/// 여러 개가 눌려도 하나만 고른다 — 두 가지가 동시에 먹으면 무대에서
+/// 무엇이 바뀌었는지 알 수 없다(v2.7.0에서 고쳤던 바로 그 문제).
+WheelMode wheelModeFor({
+  required bool ctrl,
+  required bool alt,
+  bool shift = false,
+}) {
   if (alt) return WheelMode.pitch;
+  if (shift) return WheelMode.tempo;
   if (ctrl) return WheelMode.fontSize;
   return WheelMode.line;
 }
@@ -39,12 +49,16 @@ class PrompterWheelScope extends StatefulWidget {
   /// +1 = 키 올림, -1 = 키 내림. null이면 Alt+휠은 아무 일도 하지 않는다.
   final void Function(int pitchDelta)? onStepPitch;
 
+  /// +1 = 빠르게, -1 = 느리게. null이면 Shift+휠은 아무 일도 하지 않는다.
+  final void Function(int tempoDelta)? onStepTempo;
+
   const PrompterWheelScope({
     super.key,
     required this.child,
     required this.onStepLine,
     required this.onStepFontSize,
     this.onStepPitch,
+    this.onStepTempo,
   });
 
   @override
@@ -72,8 +86,10 @@ class _PrompterWheelScopeState extends State<PrompterWheelScope> {
     final mode = wheelModeFor(
       ctrl: keyboard.isControlPressed,
       alt: keyboard.isAltPressed,
+      shift: keyboard.isShiftPressed,
     );
     if (mode == WheelMode.pitch && widget.onStepPitch == null) return;
+    if (mode == WheelMode.tempo && widget.onStepTempo == null) return;
 
     // 모드가 바뀌면 이전 모드의 흔적을 전부 버린다.
     if (_activeMode != mode) {
@@ -99,6 +115,8 @@ class _PrompterWheelScopeState extends State<PrompterWheelScope> {
         widget.onStepFontSize(-steps);
       case WheelMode.pitch:
         widget.onStepPitch!(-steps);
+      case WheelMode.tempo:
+        widget.onStepTempo!(-steps);
     }
   }
 

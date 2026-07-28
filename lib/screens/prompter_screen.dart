@@ -11,6 +11,7 @@ import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/music_key.dart';
+import '../utils/pitch_math.dart';
 import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_stage_metrics.dart';
@@ -37,6 +38,9 @@ class PrompterScreen extends StatefulWidget {
   final bool boldText;
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
+
+  /// Shift+휠 — 템포. null이면 아무 일도 하지 않는다.
+  final void Function(double delta)? onStepTempo;
 
   /// 현재 줄을 한 글자씩 밝힐지.
   final bool showSyllableSweep;
@@ -73,6 +77,7 @@ class PrompterScreen extends StatefulWidget {
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.onStepPitch,
+    this.onStepTempo,
     this.pendingPitch,
     this.songKey,
     this.soundingKey,
@@ -198,6 +203,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
           onStepLine: widget.playback.stepLine,
           onStepFontSize: _stepFontSize,
           onStepPitch: widget.onStepPitch,
+          onStepTempo: widget.onStepTempo == null
+              ? null
+              : (delta) => widget.onStepTempo!(delta * tempoStep),
           child: Scaffold(
             backgroundColor: Colors.black,
             // 하단 바를 Stack 오버레이가 아니라 Column 형제로 둔다.

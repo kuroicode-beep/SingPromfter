@@ -42,6 +42,7 @@ import '../services/song_queue_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
+import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
 import '../utils/youtube_title_cleaner.dart';
@@ -136,7 +137,7 @@ class AppController extends ChangeNotifier {
       },
       onMessage: _emit,
       timedLyricsLoader: lyricsSync.loadFor,
-      pitchVariantResolver: _resolvePitchVariant,
+      trackVariantResolver: _resolveTrackVariant,
       levelsLoader: loadTrackLevels,
       onSongReady: (song, duration) =>
           unawaited(ensureSongKey(song, duration: duration)),
@@ -151,7 +152,9 @@ class AppController extends ChangeNotifier {
     _disposed = true;
     _statusRefreshTimer?.cancel();
     _pitchApplyTimer?.cancel();
+    _tempoApplyTimer?.cancel();
     pendingPitch.dispose();
+    pendingTempo.dispose();
     importJobs.dispose();
     playback.dispose();
     audio.dispose();
@@ -193,7 +196,6 @@ class AppController extends ChangeNotifier {
     if (schemaError != null) _emit(schemaError);
 
     await audio.setVolume(settings.volume);
-    await audio.setPlaybackRate(settings.playbackRate);
     final initialSong = initial.initialSong;
     if (initialSong != null) {
       await playback.loadSong(
@@ -225,10 +227,12 @@ class AppController extends ChangeNotifier {
   // ── 키(피치) ────────────────────────────────────────────
 
   /// 키를 바꾼 반주를 준비한다. 처음 쓰는 키는 여기서 렌더링된다.
-  Future<String?> _resolvePitchVariant(
+  /// 키·템포를 구운 반주 경로. 캐시가 있으면 즉시, 없으면 렌더 후 반환.
+  Future<String?> _resolveTrackVariant(
     Song song,
     int slot,
     int semitones,
+    double tempoScale,
   ) async {
     final track = song.trackForSlot(slot);
     if (track == null) return null;
@@ -238,21 +242,99 @@ class AppController extends ChangeNotifier {
     final cached = await pitchVariants.cachedPath(
       sourceFileName: track.fileName,
       semitones: semitones,
+      tempoScale: tempoScale,
     );
     if (cached != null) return cached;
 
-    _emit('${formatKeyLabel(semitones)} 반주를 준비하는 중...');
+    _emit('${_variantLabel(semitones, tempoScale)} 반주를 준비하는 중...');
     final result = await pitchVariants.render(
       sourcePath: sourcePath,
       sourceFileName: track.fileName,
       semitones: semitones,
+      tempoScale: tempoScale,
       total: playback.snapshot.duration,
     );
     if (!result.success) {
-      _emit(result.message ?? '키 변경에 실패했습니다.');
+      _emit(result.message ?? '키·템포 변경에 실패했습니다.');
       return null;
     }
     return result.path;
+  }
+
+  /// 준비 안내에 쓸 짧은 이름. 둘 다 바뀌었으면 함께 적는다.
+  String _variantLabel(int semitones, double tempoScale) {
+    final parts = <String>[
+      if (semitones != 0) formatKeyLabel(semitones),
+      if (!isDefaultTempo(tempoScale)) formatTempoLabel(tempoScale),
+    ];
+    return parts.isEmpty ? '원본' : parts.join(' · ');
+  }
+
+  // ── 템포 ────────────────────────────────────────────────
+
+  /// 휠로 굴리는 동안 화면에 보여 줄 임시 템포. 키와 같은 구조다.
+  final ValueNotifier<double?> pendingTempo = ValueNotifier(null);
+  Timer? _tempoApplyTimer;
+
+  /// 지금 화면에 보여 줄 템포 — 적용 대기 중이면 그 값이 우선.
+  double effectiveTempoFor(Song song, int? slot) {
+    final pending = pendingTempo.value;
+    if (pending != null && selectedSong?.id == song.id) return pending;
+    return settings.tempoForSong(song.id, slot);
+  }
+
+  /// 현재 선택 곡·슬롯의 템포를 [delta]만큼 밀되, 적용은 미룬다.
+  ///
+  /// 키와 같은 이유로 디바운스한다 — 한 칸마다 렌더하면 곡 전체를 몇 번이고
+  /// 다시 인코딩하게 된다. 화면에는 즉시 반영되고 오디오는 손을 멈춘 뒤 바뀐다.
+  void nudgeTempoDebounced(double delta) {
+    final song = selectedSong;
+    final slot = selectedTrackSlot;
+    if (song == null || slot == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return;
+    }
+    final base = pendingTempo.value ?? settings.tempoForSong(song.id, slot);
+    final next = quantizeTempo(base + delta);
+    pendingTempo.value = next;
+
+    _tempoApplyTimer?.cancel();
+    _tempoApplyTimer = Timer(_pitchApplyDelay, () async {
+      final target = pendingTempo.value;
+      if (target == null) return;
+      await setTempo(song.id, target, slot: slot, keepPosition: true);
+      if (!_disposed) pendingTempo.value = null;
+    });
+  }
+
+  /// 절대값으로 템포를 지정한다 (0.5~1.5 클램프). MCP 제어의 기본형.
+  Future<bool> setTempo(
+    String songId,
+    double scale, {
+    int? slot,
+    bool keepPosition = false,
+  }) async {
+    final song = songById(songId);
+    if (song == null) return false;
+    final resolvedSlot =
+        slot ??
+        (selectedSong?.id == songId ? selectedTrackSlot : null) ??
+        settings.trackSlotForSong(songId) ??
+        (song.availableTrackSlots.isNotEmpty
+            ? song.availableTrackSlots.first
+            : null);
+    if (resolvedSlot == null) return false;
+
+    final next = quantizeTempo(scale);
+    final current = settings.tempoForSong(songId, resolvedSlot);
+    if ((next - current).abs() < tempoStep / 2) return true;
+
+    await updateSettings(settings.withSongTempo(songId, resolvedSlot, next));
+    if (selectedSong?.id == songId && selectedTrackSlot == resolvedSlot) {
+      await playback.prepareAudioForSelection(keepPosition: keepPosition);
+    }
+    _emit('템포: ${formatTempoLabel(next)}');
+    return true;
   }
 
   Future<void> adjustPitch(int delta) async {

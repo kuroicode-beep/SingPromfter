@@ -344,4 +344,119 @@ void main() {
       expect(LyricsSyncMath.sweepWindow('가나다', Duration.zero), Duration.zero);
     });
   });
+
+  // 템포 시간축 — 0.8배 렌더는 파일이 1.25배 길어진다.
+  group('toRendered / toSource', () {
+    test('느린 템포는 렌더 시각이 늘어난다', () {
+      expect(
+        LyricsSyncMath.toRendered(const Duration(seconds: 8), 0.8),
+        const Duration(seconds: 10),
+      );
+    });
+
+    test('빠른 템포는 줄어든다', () {
+      expect(
+        LyricsSyncMath.toRendered(const Duration(seconds: 10), 1.25),
+        const Duration(seconds: 8),
+      );
+    });
+
+    test('왕복하면 제자리로 돌아온다', () {
+      for (final tempo in [0.5, 0.8, 1.0, 1.25, 1.5]) {
+        for (final ms in [0, 1234, 60000, 247849]) {
+          final source = Duration(milliseconds: ms);
+          final round = LyricsSyncMath.toSource(
+            LyricsSyncMath.toRendered(source, tempo),
+            tempo,
+          );
+          expect(
+            (round - source).inMilliseconds.abs(),
+            lessThanOrEqualTo(1),
+            reason: 'tempo=$tempo ms=$ms',
+          );
+        }
+      }
+    });
+
+    test('템포 1.0은 그대로 통과한다', () {
+      const d = Duration(seconds: 42);
+      expect(LyricsSyncMath.toRendered(d, 1), d);
+      expect(LyricsSyncMath.toSource(d, 1), d);
+    });
+
+    test('0 이하는 방어적으로 그대로 둔다', () {
+      const d = Duration(seconds: 42);
+      expect(LyricsSyncMath.toRendered(d, 0), d);
+      expect(LyricsSyncMath.toSource(d, -1), d);
+    });
+  });
+
+  group('템포가 걸린 가사 시각', () {
+    test('songTimeFor는 렌더 위치를 원본 축으로 되돌린다', () {
+      // 0.8배 렌더에서 10초 지점 = 원본 8초 지점.
+      expect(
+        LyricsSyncMath.songTimeFor(
+          playerPosition: const Duration(seconds: 10),
+          tempoScale: 0.8,
+        ),
+        const Duration(seconds: 8),
+      );
+    });
+
+    test('playerPositionForLine과 왕복이 맞는다', () {
+      const lyrics = TimedLyrics(
+        lines: [
+          TimedLyricLine(time: Duration.zero, text: 'a'),
+          TimedLyricLine(time: Duration(seconds: 20), text: 'b'),
+        ],
+      );
+      for (final tempo in [0.8, 1.0, 1.25]) {
+        final pos = LyricsSyncMath.playerPositionForLine(
+          lyrics: lyrics,
+          index: 1,
+          trackStartMs: 3000,
+          lyricsOffsetMs: -500,
+          tempoScale: tempo,
+        );
+        final back = LyricsSyncMath.songTimeFor(
+          playerPosition: pos,
+          trackStartMs: 3000,
+          lyricsOffsetMs: -500,
+          tempoScale: tempo,
+        );
+        expect(
+          (back - const Duration(seconds: 20)).inMilliseconds.abs(),
+          lessThanOrEqualTo(1),
+          reason: 'tempo=$tempo',
+        );
+      }
+    });
+
+    // 실측으로 뒤집은 규약. 오프셋을 렌더 축에 두면 0.85배에서 가사가
+    // 노래보다 363ms 늦게 떴다 — 이 값의 대부분이 LRC 보정이라 그렇다.
+    test('사용자 오프셋은 원본 축 값이다 — 템포가 바뀌어도 음악적 위치가 같다', () {
+      const lyrics = TimedLyrics(
+        lines: [TimedLyricLine(time: Duration(seconds: 40), text: 'a')],
+      );
+      const offset = -4260;
+
+      // 어느 템포에서든 그 줄이 뜨는 지점의 "원본 축 시각"이 같아야 한다.
+      for (final tempo in [0.85, 1.0, 1.25]) {
+        final pos = LyricsSyncMath.playerPositionForLine(
+          lyrics: lyrics,
+          index: 0,
+          lyricsOffsetMs: offset,
+          tempoScale: tempo,
+        );
+        final sourceAt = LyricsSyncMath.toSource(pos, tempo);
+        expect(
+          (sourceAt - const Duration(milliseconds: 40000 + offset))
+              .inMilliseconds
+              .abs(),
+          lessThanOrEqualTo(1),
+          reason: 'tempo=$tempo',
+        );
+      }
+    });
+  });
 }

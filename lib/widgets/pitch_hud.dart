@@ -12,13 +12,22 @@ import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
 import '../utils/music_key.dart';
 
-/// 조절 중인 키를 크게 보여 준다. [semitones]가 null이면 사라진다.
+/// 조절 중인 값을 크게 보여 준다. [semitones]가 null이면 사라진다.
+///
+/// 키와 템포가 같은 카드를 쓴다 — 무대에서 "지금 무엇을 고르고 있는지"를
+/// 알려 주는 자리가 둘로 갈리면 눈이 헤맨다.
 class PitchHud extends StatefulWidget {
   /// 조절 중인 반음. null이면 표시하지 않는다.
   final int? semitones;
 
   /// 곡의 조성(감지·지정된 값). 알면 옮겨진 조성도 함께 보여 준다.
   final MusicKey? songKey;
+
+  /// 큰 글씨를 직접 지정한다. 주면 [semitones] 대신 이 값을 쓴다(템포용).
+  final String? headline;
+
+  /// 작은 글씨. 주면 조성 대신 이 값을 쓴다.
+  final String? caption;
 
   /// 사라지기 전 머무는 시간.
   final Duration linger;
@@ -27,6 +36,8 @@ class PitchHud extends StatefulWidget {
     super.key,
     required this.semitones,
     this.songKey,
+    this.headline,
+    this.caption,
     this.linger = const Duration(milliseconds: 1400),
   });
 
@@ -75,6 +86,7 @@ class _PitchHudState extends State<PitchHud> {
     if (value == null) return const SizedBox.shrink();
 
     final key = widget.songKey?.transposed(value);
+    final caption = widget.caption ?? key?.label;
     return IgnorePointer(
       child: Center(
         child: Container(
@@ -88,7 +100,7 @@ class _PitchHudState extends State<PitchHud> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                formatKeyLabel(value),
+                widget.headline ?? formatKeyLabel(value),
                 style: const TextStyle(
                   fontFamily: AppFonts.legible,
                   fontSize: 56,
@@ -97,10 +109,10 @@ class _PitchHudState extends State<PitchHud> {
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              if (key != null) ...[
+              if (caption != null) ...[
                 const SizedBox(height: 6),
                 Text(
-                  key.label,
+                  caption,
                   style: const TextStyle(
                     fontFamily: AppFonts.mono,
                     fontSize: 28,

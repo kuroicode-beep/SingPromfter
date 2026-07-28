@@ -28,7 +28,10 @@ const double tempoStep = 0.05;
 
 /// 캐시 키가 흔들리지 않도록 0.05 단위로 스냅한 뒤 범위로 자른다.
 double quantizeTempo(double scale) {
-  final snapped = (scale / tempoStep).round() * tempoStep;
+  // 0.05 배수를 곱셈으로 만들면 0.8500000000000001 같은 값이 나온다.
+  // 저장 파일과 제어 API에 그대로 실리므로 소수 둘째 자리에서 끊는다.
+  final steps = (scale / tempoStep).round();
+  final snapped = (steps * tempoStep * 100).round() / 100;
   return snapped.clamp(minTempoScale, maxTempoScale);
 }
 

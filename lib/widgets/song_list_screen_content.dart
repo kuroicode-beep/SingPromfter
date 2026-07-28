@@ -64,9 +64,14 @@ class SongListScreenContent extends StatelessWidget {
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
+  /// 현재 반주의 템포(배)와 조절 콜백.
+  final double tempoScale;
+  final ValueChanged<double> onAdjustTempo;
+
   /// Alt+휠 경로 — 굴리는 동안은 표시만, 렌더는 손을 멈춘 뒤.
   final void Function(int delta)? onStepPitch;
   final ValueListenable<int?>? pendingPitch;
+  final ValueListenable<double?>? pendingTempo;
 
   /// 지금 들리는 조성(곡 조성 + 구운 키 + 사용자 키).
   final MusicKey? soundingKey;
@@ -167,8 +172,11 @@ class SongListScreenContent extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.tempoScale = 1,
+    required this.onAdjustTempo,
     this.onStepPitch,
     this.pendingPitch,
+    this.pendingTempo,
     this.soundingKey,
     this.pitchBaseKey,
     required this.isRecording,
@@ -304,8 +312,11 @@ class SongListScreenContent extends StatelessWidget {
       onAdjustPitch: onAdjustPitch,
       onStepPitch: onStepPitch,
       pendingPitch: pendingPitch,
+      pendingTempo: pendingTempo,
       soundingKey: soundingKey,
       pitchBaseKey: pitchBaseKey,
+      tempoScale: tempoScale,
+      onAdjustTempo: onAdjustTempo,
       isRecording: isRecording,
       recordingLevelLabel: recordingLevelLabel,
       recordingElapsed: recordingElapsed,

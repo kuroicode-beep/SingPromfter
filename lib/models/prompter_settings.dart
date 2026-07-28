@@ -1,18 +1,24 @@
 ﻿import 'dart:convert';
 
 import '../models/prompter_display_mode.dart';
+import '../utils/pitch_math.dart';
 import '../theme/prompter_levels.dart';
 
 class PrompterSettings {
   final double fontSizeLevel;
   final double lineHeightLevel;
   final double volume;
-  final double playbackRate;
   final int? lastSelectedTrackSlot;
   final String fontFamily;
   final bool boldText;
   final double? customFontSizePt;
   final Map<String, int> lastSelectedTrackSlotBySong;
+
+  /// 곡·슬롯별 템포(배). 키와 마찬가지로 곡별 연습 취향이지 전역 설정이 아니다.
+  ///
+  /// v2.8.0에서 playbackRate(전역 재생 배속)를 대체했다. 그건 Windows에서
+  /// 음정을 끌고 올라가 연습 키가 틀어졌다 — 키를 오프라인으로 뺀 이유와 같다.
+  final Map<String, double> tempoScaleBySong;
 
   /// 곡·슬롯별 키(원곡 대비 반음). 키는 `songId:slot` 형태다.
   /// 재생 취향이라 songs.json이 아니라 설정에 둔다(제목을 바꿔도 유지된다).
@@ -31,13 +37,13 @@ class PrompterSettings {
     this.fontSizeLevel = 3,
     this.lineHeightLevel = 3,
     this.volume = 1,
-    this.playbackRate = 1,
     this.lastSelectedTrackSlot,
     this.fontFamily = '기본',
     this.boldText = false,
     this.customFontSizePt,
     this.lastSelectedTrackSlotBySong = const {},
     this.pitchSemitonesBySong = const {},
+    this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
     this.showSyllableSweep = true,
@@ -53,13 +59,13 @@ class PrompterSettings {
     double? fontSizeLevel,
     double? lineHeightLevel,
     double? volume,
-    double? playbackRate,
     int? lastSelectedTrackSlot,
     String? fontFamily,
     bool? boldText,
     double? customFontSizePt,
     Map<String, int>? lastSelectedTrackSlotBySong,
     Map<String, int>? pitchSemitonesBySong,
+    Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
     bool? showEqMeter,
     bool? showSyllableSweep,
@@ -70,7 +76,6 @@ class PrompterSettings {
       fontSizeLevel: fontSizeLevel ?? this.fontSizeLevel,
       lineHeightLevel: lineHeightLevel ?? this.lineHeightLevel,
       volume: volume ?? this.volume,
-      playbackRate: playbackRate ?? this.playbackRate,
       lastSelectedTrackSlot: clearTrackSlot
           ? null
           : (lastSelectedTrackSlot ?? this.lastSelectedTrackSlot),
@@ -83,6 +88,7 @@ class PrompterSettings {
           lastSelectedTrackSlotBySong ?? this.lastSelectedTrackSlotBySong,
       pitchSemitonesBySong:
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
+      tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
       showEqMeter: showEqMeter ?? this.showEqMeter,
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
@@ -108,6 +114,23 @@ class PrompterSettings {
     return copyWith(pitchSemitonesBySong: next);
   }
 
+  /// 곡·슬롯의 템포(배). 지정이 없으면 1.0(원속도).
+  double tempoForSong(String songId, int? slot) {
+    if (slot == null) return 1;
+    return tempoScaleBySong[pitchKey(songId, slot)] ?? 1;
+  }
+
+  /// 템포를 바꾼 설정. 1.0이면 항목을 지워 저장 파일이 불어나지 않게 한다.
+  PrompterSettings withSongTempo(String songId, int slot, double scale) {
+    final next = Map<String, double>.from(tempoScaleBySong);
+    if (isDefaultTempo(scale)) {
+      next.remove(pitchKey(songId, slot));
+    } else {
+      next[pitchKey(songId, slot)] = quantizeTempo(scale);
+    }
+    return copyWith(tempoScaleBySong: next);
+  }
+
   PrompterSettings withSongTrackSlot(String songId, int slot) {
     final next = Map<String, int>.from(lastSelectedTrackSlotBySong);
     next[songId] = slot;
@@ -121,13 +144,13 @@ class PrompterSettings {
     'fontSizeLevel': fontSizeLevel,
     'lineHeightLevel': lineHeightLevel,
     'volume': volume,
-    'playbackRate': playbackRate,
     'lastSelectedTrackSlot': lastSelectedTrackSlot,
     'fontFamily': fontFamily,
     'boldText': boldText,
     'customFontSizePt': customFontSizePt,
     'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
     'pitchSemitonesBySong': pitchSemitonesBySong,
+    'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
     'showEqMeter': showEqMeter,
     'showSyllableSweep': showSyllableSweep,
@@ -145,6 +168,17 @@ class PrompterSettings {
       return result;
     }
 
+    Map<String, double> readDoubleMap(Object? raw) {
+      final result = <String, double>{};
+      if (raw is Map) {
+        raw.forEach((key, value) {
+          final parsed = (value as num?)?.toDouble();
+          if (parsed != null) result['$key'] = parsed;
+        });
+      }
+      return result;
+    }
+
     final bySong = readIntMap(json['lastSelectedTrackSlotBySong']);
     final pitchBySong = readIntMap(json['pitchSemitonesBySong']);
 
@@ -152,13 +186,13 @@ class PrompterSettings {
       fontSizeLevel: (json['fontSizeLevel'] as num?)?.toDouble() ?? 3,
       lineHeightLevel: (json['lineHeightLevel'] as num?)?.toDouble() ?? 3,
       volume: (json['volume'] as num?)?.toDouble() ?? 1,
-      playbackRate: (json['playbackRate'] as num?)?.toDouble() ?? 1,
       lastSelectedTrackSlot: (json['lastSelectedTrackSlot'] as num?)?.toInt(),
       fontFamily: json['fontFamily'] as String? ?? '기본',
       boldText: json['boldText'] as bool? ?? false,
       customFontSizePt: (json['customFontSizePt'] as num?)?.toDouble(),
       lastSelectedTrackSlotBySong: bySong,
       pitchSemitonesBySong: pitchBySong,
+      tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
       displayMode: PrompterDisplayModeCodec.fromStorage(
         json['displayMode'] as String?,
       ),

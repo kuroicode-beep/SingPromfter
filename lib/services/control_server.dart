@@ -311,6 +311,8 @@ class ControlRouter {
         await app.updateSettings(app.settings.copyWith(volume: value));
         return ControlResponse.ok();
 
+      // 배속이 아니라 **템포**다. 음정을 보존하는 오프라인 렌더로 처리하므로
+      // 처음 쓰는 값은 렌더 시간만큼 걸린다. 이름과 0.5~1.5 계약은 그대로 둔다.
       case ('POST', ['playback', 'rate']):
         final value = (body['value'] as num?)?.toDouble();
         if (value == null || value < 0.5 || value > 1.5) {
@@ -320,7 +322,21 @@ class ControlRouter {
             'value(0.5~1.5)가 필요합니다.',
           );
         }
-        await app.updateSettings(app.settings.copyWith(playbackRate: value));
+        final tempoSong = app.selectedSong;
+        final tempoSlot = app.selectedTrackSlot;
+        if (tempoSong == null || tempoSlot == null) {
+          return ControlResponse.error(
+            409,
+            'no_selection',
+            '먼저 곡과 반주를 선택해 주세요.',
+          );
+        }
+        await app.setTempo(
+          tempoSong.id,
+          value,
+          slot: tempoSlot,
+          keepPosition: true,
+        );
         return ControlResponse.ok();
 
       // ── 가져오기 작업 ──
@@ -365,6 +381,7 @@ class ControlRouter {
                   ? 0
                   : app.settings.pitchForSong(song.id, snapshot.trackSlot),
               // 곡 자체의 조성과, 구운 키·사용자 키까지 얹어 지금 들리는 조성.
+              'tempo': app.settings.tempoForSong(song.id, snapshot.trackSlot),
               'musicalKey': song.musicalKey?.label,
               'soundingKey': app
                   .soundingKeyFor(song, snapshot.trackSlot)

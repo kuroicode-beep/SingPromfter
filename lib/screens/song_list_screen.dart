@@ -874,6 +874,7 @@ class _SongListScreenState extends State<SongListScreen> {
       fontFamily: PrompterSettingsService.resolvedFontFamily(_settings),
       onSettingsChanged: _updateSettings,
       onStepPitch: _app.nudgePitchDebounced,
+      onStepTempo: _app.nudgeTempoDebounced,
       pendingPitch: _app.pendingPitch,
       songKey: _app.trackBaseKeyFor(song, _selectedTrackSlot),
       soundingKey: _app.soundingKeyFor(song, _selectedTrackSlot),
@@ -931,8 +932,13 @@ class _SongListScreenState extends State<SongListScreen> {
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),
         onAdjustPitch: _adjustPitch,
+        tempoScale: _selectedSong == null
+            ? 1
+            : _app.effectiveTempoFor(_selectedSong!, _selectedTrackSlot),
+        onAdjustTempo: _app.nudgeTempoDebounced,
         onStepPitch: _app.nudgePitchDebounced,
         pendingPitch: _app.pendingPitch,
+        pendingTempo: _app.pendingTempo,
         soundingKey: _selectedSong == null
             ? null
             : _app.soundingKeyFor(_selectedSong!, _selectedTrackSlot),

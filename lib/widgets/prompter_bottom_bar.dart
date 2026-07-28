@@ -10,6 +10,8 @@ import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
+import '../utils/pitch_math.dart';
+import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
@@ -45,6 +47,12 @@ class PrompterBottomBar extends StatefulWidget {
 
   /// 곡 조성에 구운 키·사용자 키를 얹은 '지금 들리는' 조성.
   final MusicKey? soundingKey;
+
+  /// 현재 반주의 템포(배). 1.0이면 원속도.
+  final double tempoScale;
+
+  /// 템포를 한 칸씩 민다. 렌더는 손을 멈춘 뒤 한 번만 돈다.
+  final ValueChanged<double> onAdjustTempo;
   final bool isRecording;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
@@ -78,6 +86,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.soundingKey,
+    this.tempoScale = 1,
+    required this.onAdjustTempo,
     required this.isRecording,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
@@ -191,24 +201,10 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: MiniSlider(
-                  label: '속도',
-                  value: widget.settings.playbackRate,
-                  min: 0.5,
-                  max: 1.5,
-                  divisions: 10,
-                  step: 0.1,
-                  semanticValue:
-                      '현재 ${widget.settings.playbackRate.toStringAsFixed(1)} 배속',
-                  onChanged: (v) => widget.onSettingsChanged(
-                    widget.settings.copyWith(playbackRate: v),
-                  ),
-                ),
-              ),
             ],
           ),
+          const SizedBox(height: 8),
+          _TempoRow(scale: widget.tempoScale, onAdjust: widget.onAdjustTempo),
           const Divider(height: 16, thickness: 1),
           Semantics(
             label: '표시 설정',
@@ -572,6 +568,50 @@ class _PitchRow extends StatelessWidget {
         Expanded(
           child: Text(
             semitones == 0 ? '' : '처음 재생 시 변환에 잠시 걸립니다',
+            style: AppTypography.bodyMuted,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 템포 조절 줄. 슬라이더가 아니라 -/+ 인 이유는 키와 같다 —
+/// 값을 바꾸면 곡 전체를 다시 굽는 비싼 작업이 돌기 때문이다.
+class _TempoRow extends StatelessWidget {
+  final double scale;
+  final ValueChanged<double> onAdjust;
+
+  const _TempoRow({required this.scale, required this.onAdjust});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text('템포', style: AppTypography.bodyMuted),
+        const SizedBox(width: 10),
+        _OffsetButton(
+          icon: Icons.remove,
+          semanticsLabel: '템포 느리게',
+          onTap: () => onAdjust(-tempoStep),
+        ),
+        const SizedBox(width: 8),
+        Semantics(
+          label: tempoSemanticLabel(scale),
+          child: Text(formatTempoLabel(scale), style: AppTypography.mono),
+        ),
+        const SizedBox(width: 8),
+        _OffsetButton(
+          icon: Icons.add,
+          semanticsLabel: '템포 빠르게',
+          onTap: () => onAdjust(tempoStep),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            isDefaultTempo(scale) ? '' : '음정은 그대로 — 처음 재생 시 변환에 잠시 걸립니다',
             style: AppTypography.bodyMuted,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

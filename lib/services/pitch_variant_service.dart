@@ -64,46 +64,63 @@ class PitchVariantService {
   /// 이미 만들어 둔 변형본이 있으면 경로를 준다.
   Future<String?> cachedPath({
     required String sourceFileName,
-    required int semitones,
+    int semitones = 0,
+    double tempoScale = 1,
   }) async {
-    if (semitones == 0) return null;
-    final name = pitchVariantFileName(sourceFileName, semitones);
+    final name = trackVariantFileName(
+      sourceFileName,
+      semitones: semitones,
+      tempoScale: tempoScale,
+    );
+    if (name == null) return null;
     final file = File('${(await cacheDir).path}/$name');
     return await file.exists() ? file.path : null;
   }
 
   /// 변형본을 만든다(있으면 그대로 재사용).
+  ///
+  /// 키와 템포를 **한 번에** 굽는다. rubberband는 둘을 독립 처리하므로
+  /// 나눠서 두 번 걸면 아티팩트와 렌더 시간만 두 배가 된다.
   Future<PitchRenderResult> render({
     required String sourcePath,
     required String sourceFileName,
-    required int semitones,
+    int semitones = 0,
+    double tempoScale = 1,
     Duration? total,
     void Function(JobProgress progress)? onProgress,
   }) async {
     final clamped = clampSemitones(semitones);
-    if (clamped == 0) return PitchRenderResult.success(sourcePath);
+    final tempo = quantizeTempo(tempoScale);
+    final outputName = trackVariantFileName(
+      sourceFileName,
+      semitones: clamped,
+      tempoScale: tempo,
+    );
+    // 둘 다 기본이면 원본을 그대로 쓴다.
+    if (outputName == null) return PitchRenderResult.success(sourcePath);
 
     final existing = await cachedPath(
       sourceFileName: sourceFileName,
       semitones: clamped,
+      tempoScale: tempo,
     );
     if (existing != null) return PitchRenderResult.success(existing);
 
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) {
       return const PitchRenderResult.failure(
-        '키를 바꾸려면 ffmpeg가 필요합니다. 설치한 뒤 다시 시도해 주세요.',
+        '키·템포를 바꾸려면 ffmpeg가 필요합니다. 설치한 뒤 다시 시도해 주세요.',
       );
     }
 
     final rubberband = await hasRubberband();
-    final outputName = pitchVariantFileName(sourceFileName, clamped);
     final outputPath = '${(await cacheDir).path}/$outputName';
 
     final args = buildVariantArgs(
       input: sourcePath,
       output: outputPath,
       semitones: clamped,
+      tempoScale: tempo,
       hasRubberband: rubberband,
     );
 
@@ -121,7 +138,7 @@ class PitchVariantService {
         final partial = File(outputPath);
         if (await partial.exists()) await partial.delete();
       } catch (_) {}
-      return const PitchRenderResult.failure('키 변경에 실패했습니다.');
+      return const PitchRenderResult.failure('키·템포 변경에 실패했습니다.');
     }
 
     return PitchRenderResult.success(outputPath);
