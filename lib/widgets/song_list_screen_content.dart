@@ -94,7 +94,6 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
   final VoidCallback onAddSong;
-  final VoidCallback onBatchRegister;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -186,7 +185,6 @@ class SongListScreenContent extends StatelessWidget {
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
     required this.onAddSong,
-    required this.onBatchRegister,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -398,7 +396,6 @@ class SongListScreenContent extends StatelessWidget {
       ),
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,
-        onBatchRegister: onBatchRegister,
         onExportBackup: onExportBackup,
         onImportBackup: onImportBackup,
         onRunMaintenance: onRunMaintenance,

@@ -1,6 +1,6 @@
 ﻿// file: lib/widgets/settings_panel.dart
 //
-// 백업·일괄 등록·프롬프터 기본값·표시(글꼴·글자 크기)·앱 정보 설정 화면.
+// 백업·라이브러리 정리·프롬프터 기본값·표시(글꼴·글자 크기)·연습 기록·앱 정보 설정 화면.
 import 'package:flutter/material.dart';
 
 import '../constants/app_version.dart';
@@ -12,7 +12,6 @@ import 'preset_btn.dart';
 
 class SettingsPanel extends StatelessWidget {
   final List<PracticeSummary> practiceSummaries;
-  final VoidCallback onBatchRegister;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -22,7 +21,6 @@ class SettingsPanel extends StatelessWidget {
   const SettingsPanel({
     super.key,
     this.practiceSummaries = const [],
-    required this.onBatchRegister,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -37,12 +35,6 @@ class SettingsPanel extends StatelessWidget {
       children: [
         Text('데이터 관리', style: AppTypography.listTitle),
         const SizedBox(height: 8),
-        _SettingsTile(
-          icon: Icons.playlist_add,
-          title: '일괄 등록',
-          subtitle: 'txt 가사와 반주 파일을 한 번에 등록',
-          onTap: onBatchRegister,
-        ),
         _SettingsTile(
           icon: Icons.archive_outlined,
           title: '백업보내기',

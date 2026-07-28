@@ -5,7 +5,7 @@ import 'package:singpromfter_app/dialogs/add_song_dialog.dart';
 import 'package:singpromfter_app/models/mr_source_mode.dart';
 import 'package:singpromfter_app/theme/app_theme.dart';
 
-// 곡 추가의 주 경로(링크 우선)를 고정한다.
+// 곡 추가는 유튜브 링크 경로 하나뿐이다 — 파일 직접 등록 경로는 v2.2.0에서 제거됐다.
 void main() {
   setUp(() {
     // 클립보드 자동 채우기가 테스트 입력을 덮어쓰지 않도록 비워 둔다.
@@ -16,11 +16,12 @@ void main() {
         });
   });
 
-  Future<AddSongChoice?> openDialog(
+  Future<AddSongFromUrl?> openDialog(
     WidgetTester tester, {
     bool toolAvailable = true,
+    bool separatorOnline = true,
   }) async {
-    AddSongChoice? result;
+    AddSongFromUrl? result;
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.dark(),
@@ -32,8 +33,10 @@ void main() {
                   context,
                   toolAvailable: toolAvailable,
                   toolMissingReason: toolAvailable ? null : 'yt-dlp 없음',
-                  separatorStatusLabel: '분리 서버: 온라인 (GPU)',
-                  separatorOnline: true,
+                  separatorStatusLabel: separatorOnline
+                      ? '분리 서버: 온라인 (GPU)'
+                      : '분리 서버: 꺼짐',
+                  separatorOnline: separatorOnline,
                 );
               },
               child: const Text('열기'),
@@ -47,14 +50,14 @@ void main() {
     return result;
   }
 
-  testWidgets('링크 입력이 주 경로로 먼저 보인다', (tester) async {
+  testWidgets('링크 입력이 유일한 경로로 보인다', (tester) async {
     await openDialog(tester);
 
     expect(find.text('곡 추가'), findsOneWidget);
     expect(find.text('유튜브 링크'), findsOneWidget);
     expect(find.text('가져와서 추가'), findsOneWidget);
-    // 파일 등록은 보조 경로로 남아 있다
-    expect(find.text('파일로 직접 추가'), findsOneWidget);
+    // 파일 직접 등록 경로는 완전히 제거됐다
+    expect(find.text('파일로 직접 추가'), findsNothing);
   });
 
   testWidgets('유튜브가 아닌 주소는 막고 안내한다', (tester) async {
@@ -77,7 +80,7 @@ void main() {
   });
 
   testWidgets('링크를 넣으면 기본값(반주 그대로 + 가사 자동)으로 돌려준다', (tester) async {
-    AddSongChoice? captured;
+    AddSongFromUrl? captured;
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.dark(),
@@ -109,46 +112,20 @@ void main() {
     await tester.tap(find.text('가져와서 추가'));
     await tester.pumpAndSettle();
 
-    expect(captured, isA<AddSongFromUrl>());
-    final choice = captured! as AddSongFromUrl;
-    expect(choice.url, 'https://www.youtube.com/watch?v=abc');
-    expect(choice.mode, MrSourceMode.asIs);
-    expect(choice.fetchLyrics, isTrue);
+    expect(captured, isNotNull);
+    expect(captured!.url, 'https://www.youtube.com/watch?v=abc');
+    expect(captured!.mode, MrSourceMode.asIs);
+    expect(captured!.fetchLyrics, isTrue);
   });
 
-  testWidgets('파일로 직접 추가는 보조 경로 결과를 준다', (tester) async {
-    AddSongChoice? captured;
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.dark(),
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () async {
-                captured = await AddSongDialog.show(
-                  context,
-                  toolAvailable: true,
-                  toolMissingReason: null,
-                  separatorStatusLabel: '분리 서버: 꺼짐',
-                  separatorOnline: false,
-                );
-              },
-              child: const Text('열기'),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('열기'));
+  testWidgets('보컬 분리를 고르면 서버가 꺼져 있을 때 안내한다', (tester) async {
+    await openDialog(tester, separatorOnline: false);
+
+    await tester.ensureVisible(find.text(MrSourceMode.aiSeparate.label));
+    await tester.tap(find.text(MrSourceMode.aiSeparate.label));
     await tester.pumpAndSettle();
 
-    // 대화상자 내용이 스크롤되므로 보이게 한 뒤 누른다.
-    await tester.ensureVisible(find.text('파일로 직접 추가'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('파일로 직접 추가'));
-    await tester.pumpAndSettle();
-
-    expect(captured, isA<AddSongFromFiles>());
+    expect(find.textContaining('보컬 분리 서버를 먼저 켜'), findsOneWidget);
   });
 
   testWidgets('yt-dlp가 없으면 가져오기를 막고 이유를 보여준다', (tester) async {

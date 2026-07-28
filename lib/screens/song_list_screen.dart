@@ -26,7 +26,6 @@ import '../utils/pitch_math.dart';
 import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
-import '../services/batch_registration_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/pitch_variant_service.dart';
 import '../services/practice_log_service.dart';
@@ -64,7 +63,6 @@ class _SongListScreenState extends State<SongListScreen> {
   late final _bootstrapService = SongListBootstrapService(_repo);
   late final _libraryService = SongLibraryService(_repo);
   late final _backupService = BackupService(_repo);
-  late final _batchService = BatchRegistrationService(_repo, _libraryService);
   late final _songActions = SongActionCoordinator(_repo, _libraryService);
   late final _audio = PrompterAudioService(_repo);
   final _lyricsScrollController = ScrollController();
@@ -979,8 +977,8 @@ class _SongListScreenState extends State<SongListScreen> {
       return null;
     }
   }
-  /// 곡 추가의 주 경로 — 링크를 받아 파이프라인에 넘긴다.
-  /// 파일 등록은 링크가 없는 곡을 위한 보조 선택지로 남겨 둔다.
+
+  /// 곡 추가의 유일한 경로 — 링크를 받아 가져오기 파이프라인에 넘긴다.
   Future<void> _addSong() async {
     // 최신 도구·서버 상태를 반영해 대화상자에서 바로 알려준다.
     unawaited(_refreshToolAvailability());
@@ -992,19 +990,12 @@ class _SongListScreenState extends State<SongListScreen> {
       separatorOnline: _separatorOnline,
     );
     if (choice == null) return;
-
-    switch (choice) {
-      case AddSongFromUrl(:final url, :final mode, :final fetchLyrics):
-        await _startYoutubeImport(url, mode, fetchLyrics: fetchLyrics);
-      case AddSongFromFiles():
-        await _addSongFromFiles();
-    }
+    await _startYoutubeImport(
+      choice.url,
+      choice.mode,
+      fetchLyrics: choice.fetchLyrics,
+    );
   }
-
-  /// 보조 경로 — 가사 txt와 반주 파일을 직접 고른다.
-  Future<void> _addSongFromFiles() async => _applySongActionOutcome(
-    await _songActions.addSong(context: context, songs: _songs),
-  );
 
   Future<void> _editSong(Song song) async {
     final outcome = await _songActions.editSong(
@@ -1065,77 +1056,6 @@ class _SongListScreenState extends State<SongListScreen> {
     if (next != null) await _loadSong(next);
     _showSnack(
       '${result.importedCount}곡 가져오기 완료, 이름변경 ${result.renamedCount}곡',
-    );
-  }
-
-  Future<void> _batchRegister() async {
-    final matches = await _batchService.pickAndMatch();
-    if (matches == null) return;
-    if (matches.isEmpty) {
-      _showSnack('등록할 txt 파일을 찾지 못했습니다.');
-      return;
-    }
-    if (!mounted) return;
-    final confirmed = await _confirmBatchMatches(matches);
-    if (confirmed != true) return;
-
-    final result = await _batchService.register(
-      songs: _songs,
-      matches: matches,
-    );
-    if (!mounted) return;
-    setState(() {
-      _songs = result.songs;
-    });
-    final next = _selectedSong ?? (_songs.isNotEmpty ? _songs.first : null);
-    if (next != null) await _loadSong(next);
-    _showSnack(
-      '${result.importedCount}곡 일괄 등록, 중복 건너뜀 ${result.skippedCount}곡',
-    );
-  }
-
-  Future<bool?> _confirmBatchMatches(List<BatchMatch> matches) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('일괄 등록 확인'),
-        content: SizedBox(
-          width: 520,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${matches.length}개 txt 파일을 찾았습니다. 모두 등록할까요?'),
-              const SizedBox(height: 12),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 260),
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: matches.length,
-                  itemBuilder: (_, index) {
-                    final match = matches[index];
-                    return ListTile(
-                      dense: true,
-                      title: Text(match.title),
-                      subtitle: Text('반주 ${match.trackPaths.length}개 매칭'),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('등록'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1370,7 +1290,6 @@ class _SongListScreenState extends State<SongListScreen> {
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),
         onAddSong: _addSong,
-        onBatchRegister: _batchRegister,
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),

@@ -1,11 +1,6 @@
-// file: lib/services/song_library_service.dart
+﻿// file: lib/services/song_library_service.dart
 //
-// 곡 파일 읽기와 추가/수정/삭제 시 목록 갱신 규칙을 담당한다.
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
+// 곡 추가/수정/삭제 시 목록 갱신 규칙을 담당한다.
 import 'package:uuid/uuid.dart';
 
 import '../models/queue_item.dart';
@@ -17,34 +12,6 @@ class SongLibraryService {
   final SongRepository _repo;
 
   const SongLibraryService(this._repo);
-
-  Future<PickedLyricsResult> readPickedLyrics(PlatformFile picked) async {
-    if ((picked.extension ?? '').toLowerCase() != 'txt') {
-      return const PickedLyricsResult.failure('txt 파일만 선택할 수 있습니다.');
-    }
-
-    List<int>? bytes = picked.bytes;
-    if (bytes == null && picked.path != null) {
-      try {
-        bytes = await File(picked.path!).readAsBytes();
-      } catch (e, stack) {
-        debugPrint('가사 파일 바이트 읽기 실패: $e\n$stack');
-      }
-    }
-    if (bytes == null) {
-      return const PickedLyricsResult.failure('가사 파일 내용을 읽을 수 없습니다.');
-    }
-
-    try {
-      return PickedLyricsResult.success(
-        fileName: picked.name,
-        lyrics: _decodeLyricsFromBytes(bytes),
-      );
-    } catch (e, stack) {
-      debugPrint('가사 파일 디코딩 실패: $e\n$stack');
-      return const PickedLyricsResult.failure('가사 파일 읽기에 실패했습니다.');
-    }
-  }
 
   bool hasDuplicateTitle(List<Song> songs, String title, {String? excludeId}) {
     final normalized = title.trim().toLowerCase();
@@ -156,31 +123,6 @@ class SongLibraryService {
 
   Future<void> permanentlyDeleteSong(Song song) => _repo.deleteSong(song);
 
-  String _decodeLyricsFromBytes(List<int> bytes) {
-    try {
-      return utf8.decode(bytes).trim();
-    } catch (e, stack) {
-      debugPrint('UTF-8 가사 디코딩 실패, latin1 fallback 사용: $e\n$stack');
-      return latin1.decode(bytes).trim();
-    }
-  }
-}
-
-class PickedLyricsResult {
-  final String? fileName;
-  final String? lyrics;
-  final String? message;
-
-  const PickedLyricsResult._({this.fileName, this.lyrics, this.message});
-
-  const PickedLyricsResult.success({
-    required String fileName,
-    required String lyrics,
-  }) : this._(fileName: fileName, lyrics: lyrics);
-
-  const PickedLyricsResult.failure(String message) : this._(message: message);
-
-  bool get isSuccess => lyrics != null && fileName != null;
 }
 
 class AddSongResult {

@@ -1,9 +1,7 @@
-// file: lib/dialogs/add_song_dialog.dart
+﻿// file: lib/dialogs/add_song_dialog.dart
 //
-// 곡 추가의 주 경로. 유튜브 링크를 붙여넣으면 내려받기 → (필요시) 보컬 분리 →
-// 가사 자동 부착까지 한 번에 처리한다.
-//
-// 파일로 직접 등록하는 기존 방식은 링크가 없는 곡을 위한 보조 경로로 남긴다.
+// 곡 추가의 유일한 경로. 유튜브 링크를 붙여넣으면 내려받기 → (필요시) 보컬 분리 →
+// 가사 자동 부착 → 목록 등록까지 한 번에 처리한다.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -12,13 +10,8 @@ import '../models/mr_source_mode.dart';
 import '../services/youtube_import_service.dart';
 import '../theme/app_theme.dart';
 
-/// 대화상자 결과.
-sealed class AddSongChoice {
-  const AddSongChoice();
-}
-
-/// 링크로 가져오기.
-class AddSongFromUrl extends AddSongChoice {
+/// 링크로 가져오기. 곡 추가는 링크 경로 하나로만 들어온다.
+class AddSongFromUrl {
   final String url;
   final MrSourceMode mode;
   final bool fetchLyrics;
@@ -28,11 +21,6 @@ class AddSongFromUrl extends AddSongChoice {
     required this.mode,
     required this.fetchLyrics,
   });
-}
-
-/// 파일로 직접 등록(보조 경로).
-class AddSongFromFiles extends AddSongChoice {
-  const AddSongFromFiles();
 }
 
 class AddSongDialog extends StatefulWidget {
@@ -49,14 +37,14 @@ class AddSongDialog extends StatefulWidget {
     required this.separatorOnline,
   });
 
-  static Future<AddSongChoice?> show(
+  static Future<AddSongFromUrl?> show(
     BuildContext context, {
     required bool toolAvailable,
     required String? toolMissingReason,
     required String separatorStatusLabel,
     required bool separatorOnline,
   }) {
-    return showDialog<AddSongChoice>(
+    return showDialog<AddSongFromUrl>(
       context: context,
       builder: (_) => AddSongDialog(
         toolAvailable: toolAvailable,
@@ -218,26 +206,6 @@ class _AddSongDialogState extends State<AddSongDialog> {
                     ),
                   ),
                 ),
-              ),
-              const Divider(height: 28),
-              // 링크가 없는 곡을 위한 보조 경로.
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '링크가 없는 곡은 파일로 등록할 수 있습니다.',
-                      style: AppTypography.bodyMuted,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(context, const AddSongFromFiles()),
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(140, AppConstants.minTouchTarget),
-                    ),
-                    child: const Text('파일로 직접 추가'),
-                  ),
-                ],
               ),
             ],
           ),

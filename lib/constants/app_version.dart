@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.1.0';
+  static const String current = '2.2.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.2.0',
+      '2026-07-28',
+      '파일 직접 등록 경로 제거 — 곡 추가는 유튜브 링크 하나로 통일',
+    ),
     AppVersionEntry(
       '2.1.0',
       '2026-07-28',

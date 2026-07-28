@@ -1,10 +1,8 @@
-// file: lib/coordinators/song_action_coordinator.dart
+﻿// file: lib/coordinators/song_action_coordinator.dart
 //
 // 곡 추가/수정/삭제의 다이얼로그 흐름과 결과 조립을 담당한다.
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../dialogs/song_create_dialog.dart';
 import '../dialogs/song_delete_dialog.dart';
 import '../dialogs/song_edit_dialog.dart';
 import '../models/queue_item.dart';
@@ -17,52 +15,6 @@ class SongActionCoordinator {
   final SongLibraryService _libraryService;
 
   const SongActionCoordinator(this._repo, this._libraryService);
-
-  Future<SongActionOutcome?> addSong({
-    required BuildContext context,
-    required List<Song> songs,
-  }) async {
-    final lyricsFile = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['txt'],
-      dialogTitle: '가사 파일(txt) 선택',
-    );
-    if (lyricsFile == null || lyricsFile.files.isEmpty) return null;
-
-    final pickedLyrics = await _libraryService.readPickedLyrics(
-      lyricsFile.files.first,
-    );
-    if (!pickedLyrics.isSuccess) {
-      return SongActionOutcome.messageOnly(
-        pickedLyrics.message ?? '가사 파일 읽기에 실패했습니다.',
-      );
-    }
-
-    if (!context.mounted) return null;
-    final draft = await SongCreateDialog.show(context, pickedLyrics.fileName!);
-    if (draft == null) return null;
-    if (_libraryService.hasDuplicateTitle(songs, draft.title)) {
-      return const SongActionOutcome.messageOnly(
-        '같은 제목의 곡이 이미 있습니다. 제목을 바꿔 주세요.',
-      );
-    }
-
-    try {
-      final result = await _libraryService.addSong(
-        songs: songs,
-        draft: draft,
-        lyrics: pickedLyrics.lyrics!,
-      );
-      return SongActionOutcome(
-        songs: result.songs,
-        loadSong: result.song,
-        message: '곡이 추가되었습니다.',
-      );
-    } catch (e, stack) {
-      debugPrint('곡 추가 실패: $e\n$stack');
-      return SongActionOutcome.messageOnly('곡 추가 중 오류가 발생했습니다: $e');
-    }
-  }
 
   Future<SongActionOutcome?> editSong({
     required BuildContext context,
