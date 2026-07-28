@@ -84,9 +84,38 @@ void main() {
       expect(decoded.frames, original.frames);
     });
 
+    // v2.7.0까지는 "상위 버전만" 거부해서, 밴드 수를 바꿔도 이미 재생해 본
+    // 곡은 영영 옛 캐시를 돌려줬다. 이제 정확히 일치할 때만 받아들인다.
     test('상위 스키마 버전은 거부한다', () {
       expect(
         TrackLevels.decode('{"version":99,"fps":25,"bands":6,"frames":[]}'),
+        isNull,
+      );
+    });
+
+    test('하위 스키마 버전도 거부한다 — 밴드 수가 바뀌어도 알아채야 한다', () {
+      expect(
+        TrackLevels.decode('{"version":1,"fps":25,"bands":6,"frames":[]}'),
+        isNull,
+      );
+    });
+
+    test('프레임 폭이 밴드 수와 어긋나면 거부한다', () {
+      expect(
+        TrackLevels.decode(
+          '{"version":${TrackLevels.schemaVersion},"fps":25,"bands":6,'
+          '"frames":[[1,2,3]]}',
+        ),
+        isNull,
+      );
+    });
+
+    test('프레임 길이가 들쭉날쭉해도 거부한다', () {
+      expect(
+        TrackLevels.decode(
+          '{"version":${TrackLevels.schemaVersion},"fps":25,"bands":2,'
+          '"frames":[[1,2],[3]]}',
+        ),
         isNull,
       );
     });
@@ -118,6 +147,43 @@ void main() {
     test('빈 프레임은 항상 null', () {
       const empty = TrackLevels(fps: 25, bandCount: 0, frames: []);
       expect(empty.frameAt(Duration.zero), isNull);
+    });
+  });
+
+  // 25fps 데이터를 60Hz로 그리면 프레임이 2.4번씩 반복돼 계단이 보인다.
+  group('TrackLevels.sampleAt', () {
+    const levels = TrackLevels(
+      fps: 25,
+      bandCount: 2,
+      frames: [
+        [0, 100],
+        [100, 0],
+      ],
+    );
+
+    test('프레임 정각에서는 frameAt과 같은 값(0..1)', () {
+      expect(levels.sampleAt(Duration.zero), [0.0, 1.0]);
+      expect(levels.sampleAt(const Duration(milliseconds: 40)), [1.0, 0.0]);
+    });
+
+    test('프레임 사이는 선형 보간한다', () {
+      final mid = levels.sampleAt(const Duration(milliseconds: 20))!;
+      expect(mid[0], closeTo(0.5, 1e-9));
+      expect(mid[1], closeTo(0.5, 1e-9));
+    });
+
+    test('마지막 프레임을 넘어가지 않는다', () {
+      expect(levels.sampleAt(const Duration(milliseconds: 50)), [1.0, 0.0]);
+    });
+
+    test('범위 밖이면 null', () {
+      expect(levels.sampleAt(const Duration(seconds: 10)), isNull);
+      expect(levels.sampleAt(const Duration(milliseconds: -10)), isNull);
+    });
+
+    test('프레임이 없으면 null', () {
+      const empty = TrackLevels(fps: 25, bandCount: 6, frames: []);
+      expect(empty.sampleAt(Duration.zero), isNull);
     });
   });
 }

@@ -115,7 +115,11 @@ class LevelAnalysisService {
     try {
       final file = await _cacheFile(sourceFileName);
       if (!await file.exists()) return null;
-      return TrackLevels.decode(await file.readAsString());
+      final levels = TrackLevels.decode(await file.readAsString());
+      // 버전을 안 올리고 밴드 수만 바꿔도 낡은 캐시를 물지 않게 하는 안전망.
+      // 여기서 null을 주면 analyze()가 그대로 재분석해 파일을 덮어쓴다.
+      if (levels != null && levels.bandCount != levelBands.length) return null;
+      return levels;
     } catch (e) {
       debugPrint('레벨 캐시 읽기 실패: $e');
       return null;

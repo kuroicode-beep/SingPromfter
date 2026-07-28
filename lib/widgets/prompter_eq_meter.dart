@@ -28,6 +28,22 @@ double holdPeak(double previousPeak, double current, {double fall = 0.012}) {
   return next < current ? current : next;
 }
 
+/// 막대 폭과 간격. (순수 함수 — 테스트 대상)
+///
+/// 예전 식은 간격이 **전체 폭**의 3%라 밴드가 늘면 간격이 막대를 잡아먹었다
+/// (24밴드·520px에서 간격이 폭의 44%). 이제 막대 피치 비율로 잡는다.
+({double barWidth, double gap}) eqBarMetrics(double width, int count) {
+  if (count <= 0 || width <= 0) return (barWidth: 0, gap: 0);
+  if (count == 1) return (barWidth: width, gap: 0);
+  final pitch = width / count;
+  final gap = (pitch * 0.28).clamp(1.0, 6.0);
+  final barWidth = ((width - gap * (count - 1)) / count).clamp(
+    1.0,
+    double.infinity,
+  );
+  return (barWidth: barWidth, gap: gap);
+}
+
 class _EqFrame {
   final List<double> bars; // 0..1
   final List<double> peaks; // 0..1
