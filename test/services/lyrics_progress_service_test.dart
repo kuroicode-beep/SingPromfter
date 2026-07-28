@@ -210,4 +210,65 @@ void main() {
       expect(position, lessThanOrEqualTo(duration));
     });
   });
+
+  // 줄 안 진행률 — 예전에는 floor()로 버리던 소수부.
+  group('estimatedLineProgress', () {
+    LineProgress at(int seconds, {int lines = 4, int total = 40}) =>
+        LyricsProgressService.estimatedLineProgress(
+          position: Duration(seconds: seconds),
+          duration: Duration(seconds: total),
+          lineCount: lines,
+          speedLevel: LyricsProgressService.neutralSpeedLevel,
+        );
+
+    test('줄 경계에서 진행률이 0이다', () {
+      expect(at(10).index, 1);
+      expect(at(10).fraction, closeTo(0, 1e-9));
+    });
+
+    test('줄 한가운데서 0.5', () {
+      expect(at(15).index, 1);
+      expect(at(15).fraction, closeTo(0.5, 1e-9));
+    });
+
+    test('다음 줄 직전에는 1에 가깝다', () {
+      final p = at(19);
+      expect(p.index, 1);
+      expect(p.fraction, greaterThan(0.85));
+      expect(p.fraction, lessThan(1.0));
+    });
+
+    test('진행률은 0 이상 1 이하다', () {
+      for (var s = 0; s <= 40; s++) {
+        final p = at(s);
+        expect(p.fraction, inInclusiveRange(0.0, 1.0), reason: '$s초');
+      }
+    });
+
+    test('마지막 줄에 닿으면 1로 고정된다 — 되돌아가지 않게', () {
+      expect(at(35).index, 3);
+      expect(at(35).fraction, 1.0);
+      expect(at(40).fraction, 1.0);
+    });
+
+    test('줄이 하나뿐이면 진행하지 않는다', () {
+      expect(at(20, lines: 1).index, 0);
+      expect(at(20, lines: 1).fraction, 0);
+    });
+
+    test('index는 estimatedLineIndex와 언제나 같다', () {
+      for (var s = 0; s <= 40; s += 3) {
+        expect(
+          at(s).index,
+          LyricsProgressService.estimatedLineIndex(
+            position: Duration(seconds: s),
+            duration: const Duration(seconds: 40),
+            lineCount: 4,
+            speedLevel: LyricsProgressService.neutralSpeedLevel,
+          ),
+          reason: '$s초',
+        );
+      }
+    });
+  });
 }

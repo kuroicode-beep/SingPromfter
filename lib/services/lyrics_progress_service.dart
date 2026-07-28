@@ -6,6 +6,19 @@
 // 무시됐고, 같은 로직이 메인 패널과 전체화면에 중복 구현돼 서로 어긋났다.
 // 위치 기반 순수 함수로 바꿔 두 문제를 구조적으로 없앤다.
 
+/// 줄 번호와 그 줄 안에서의 진행률.
+///
+/// 예전에는 소수부를 [num.floor]로 버렸다. 그 소수부가 곧 "줄 안 어디쯤"이라
+/// 싱크 가사가 없는 곡의 진행 표시에 그대로 쓸 수 있다.
+class LineProgress {
+  final int index;
+
+  /// 0..1. 줄이 하나뿐이거나 진행이 멈춘 경우 0.
+  final double fraction;
+
+  const LineProgress(this.index, this.fraction);
+}
+
 /// 가사 줄 진행 계산.
 class LyricsProgressService {
   LyricsProgressService._();
@@ -29,10 +42,26 @@ class LyricsProgressService {
     required Duration duration,
     required int lineCount,
     required double speedLevel,
+  }) => estimatedLineProgress(
+    position: position,
+    duration: duration,
+    lineCount: lineCount,
+    speedLevel: speedLevel,
+  ).index;
+
+  /// [estimatedLineIndex]와 같은 계산이되, 줄 안 진행률까지 함께 준다.
+  ///
+  /// 마지막 줄에 닿아 인덱스가 클램프되면 진행률도 1.0으로 고정한다 —
+  /// 그러지 않으면 곡이 끝날 때까지 소수부가 계속 커져 되돌아간다.
+  static LineProgress estimatedLineProgress({
+    required Duration position,
+    required Duration duration,
+    required int lineCount,
+    required double speedLevel,
   }) {
-    if (lineCount <= 1) return 0;
-    if (speedLevel <= 0) return 0;
-    if (position <= Duration.zero) return 0;
+    if (lineCount <= 1) return const LineProgress(0, 0);
+    if (speedLevel <= 0) return const LineProgress(0, 0);
+    if (position <= Duration.zero) return const LineProgress(0, 0);
 
     final double rawIndex;
     if (duration > Duration.zero) {
@@ -44,7 +73,10 @@ class LyricsProgressService {
       rawIndex = seconds * speedLevel * linesPerSecondPerLevel;
     }
 
-    return rawIndex.floor().clamp(0, lineCount - 1);
+    final floor = rawIndex.floor();
+    if (floor >= lineCount - 1) return LineProgress(lineCount - 1, 1);
+    if (floor < 0) return const LineProgress(0, 0);
+    return LineProgress(floor, (rawIndex - floor).clamp(0.0, 1.0));
   }
 
   /// [estimatedLineIndex]의 역함수 — 그 줄이 시작되는 재생 위치.
