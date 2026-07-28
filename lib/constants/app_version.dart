@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.6.0';
+  static const String current = '2.7.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.7.0',
+      '2026-07-29',
+      '무대 조작 마무리 — 휠 모드 분리·현재 줄 강조·Home/End·Alt+휠 키 조절·조성 자동 감지',
+    ),
     AppVersionEntry(
       '2.6.0',
       '2026-07-29',

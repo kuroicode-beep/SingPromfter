@@ -1,4 +1,4 @@
-// file: lib/widgets/prompter_keyboard_scope.dart
+﻿// file: lib/widgets/prompter_keyboard_scope.dart
 //
 // 메인·전체화면 공통 키보드 단축키 포커스 범위.
 import 'package:flutter/material.dart';
@@ -14,6 +14,13 @@ class PrompterKeyboardScope extends StatefulWidget {
   final VoidCallback? onTogglePlayPause;
   final VoidCallback? onOpenPrompter;
   final VoidCallback? onClose;
+
+  /// Home — 곡 처음(트림 시작)으로.
+  final VoidCallback? onJumpToStart;
+
+  /// End — 곡 끝(트림 끝)으로.
+  final VoidCallback? onJumpToEnd;
+
   final bool enablePlaybackShortcuts;
 
   const PrompterKeyboardScope({
@@ -24,6 +31,8 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onTogglePlayPause,
     this.onOpenPrompter,
     this.onClose,
+    this.onJumpToStart,
+    this.onJumpToEnd,
     this.enablePlaybackShortcuts = true,
   });
 
@@ -61,6 +70,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {
       widget.onClose!();
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.home && widget.onJumpToStart != null) {
+      widget.onJumpToStart!();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.end && widget.onJumpToEnd != null) {
+      widget.onJumpToEnd!();
       return KeyEventResult.handled;
     }
 
@@ -121,6 +139,12 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       },
       if (widget.onClose != null)
         const SingleActivator(LogicalKeyboardKey.escape): const _CloseIntent(),
+      if (widget.onJumpToStart != null)
+        const SingleActivator(LogicalKeyboardKey.home):
+            const _JumpToStartIntent(),
+      if (widget.onJumpToEnd != null)
+        const SingleActivator(LogicalKeyboardKey.end):
+            const _JumpToEndIntent(),
     };
   }
 
@@ -182,6 +206,20 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             return null;
           },
         ),
+      if (widget.onJumpToStart != null)
+        _JumpToStartIntent: CallbackAction<_JumpToStartIntent>(
+          onInvoke: (_) {
+            widget.onJumpToStart?.call();
+            return null;
+          },
+        ),
+      if (widget.onJumpToEnd != null)
+        _JumpToEndIntent: CallbackAction<_JumpToEndIntent>(
+          onInvoke: (_) {
+            widget.onJumpToEnd?.call();
+            return null;
+          },
+        ),
     };
   }
 }
@@ -212,4 +250,12 @@ class _OpenPrompterIntent extends Intent {
 
 class _CloseIntent extends Intent {
   const _CloseIntent();
+}
+
+class _JumpToStartIntent extends Intent {
+  const _JumpToStartIntent();
+}
+
+class _JumpToEndIntent extends Intent {
+  const _JumpToEndIntent();
 }

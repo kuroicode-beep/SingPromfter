@@ -1,6 +1,7 @@
 ﻿// file: lib/widgets/song_list_screen_content.dart
 //
 // SongListScreen의 도메인 상태를 화면 패널 위젯들로 연결한다.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/playback_controller.dart';
@@ -15,6 +16,7 @@ import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../services/prompter_settings_service.dart';
+import '../utils/music_key.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
@@ -61,6 +63,16 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+
+  /// Alt+휠 경로 — 굴리는 동안은 표시만, 렌더는 손을 멈춘 뒤.
+  final void Function(int delta)? onStepPitch;
+  final ValueListenable<int?>? pendingPitch;
+
+  /// 지금 들리는 조성(곡 조성 + 구운 키 + 사용자 키).
+  final MusicKey? soundingKey;
+
+  /// 사용자 키 이전의 슬롯 조성 — 키 HUD 기준값.
+  final MusicKey? pitchBaseKey;
   final bool isRecording;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
@@ -155,6 +167,10 @@ class SongListScreenContent extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.onStepPitch,
+    this.pendingPitch,
+    this.soundingKey,
+    this.pitchBaseKey,
     required this.isRecording,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
@@ -286,6 +302,10 @@ class SongListScreenContent extends StatelessWidget {
       onAdjustLyricsOffset: onAdjustLyricsOffset,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
+      onStepPitch: onStepPitch,
+      pendingPitch: pendingPitch,
+      soundingKey: soundingKey,
+      pitchBaseKey: pitchBaseKey,
       isRecording: isRecording,
       recordingLevelLabel: recordingLevelLabel,
       recordingElapsed: recordingElapsed,

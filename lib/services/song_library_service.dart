@@ -61,11 +61,31 @@ class SongLibraryService {
       trackStartMs: draft.trackStartMs,
       trackEndMs: draft.trackEndMs,
     );
+    // 조성과 구운 키는 updateSong의 관심사(제목·가사·반주 파일)가 아니라
+    // 여기서 얹는다.
+    var withKey = draft.applyMusicalKey
+        ? updatedSong.copyWith(
+            musicalKey: draft.musicalKey,
+            clearMusicalKey: draft.musicalKey == null,
+          )
+        : updatedSong;
+    if (draft.trackBakedSemitones.isNotEmpty) {
+      withKey = withKey.copyWith(
+        backingTracks: [
+          for (final track in withKey.backingTracks)
+            draft.trackBakedSemitones.containsKey(track.slot)
+                ? track.copyWith(
+                    bakedSemitones: draft.trackBakedSemitones[track.slot],
+                  )
+                : track,
+        ],
+      );
+    }
     final nextSongs = songs
-        .map((item) => item.id == song.id ? updatedSong : item)
+        .map((item) => item.id == song.id ? withKey : item)
         .toList(growable: false);
     await _repo.saveSongs(nextSongs);
-    return EditSongResult(songs: nextSongs, song: updatedSong);
+    return EditSongResult(songs: nextSongs, song: withKey);
   }
 
   Future<EditSongResult> toggleFavorite({

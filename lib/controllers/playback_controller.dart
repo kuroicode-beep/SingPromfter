@@ -97,6 +97,11 @@ class PlaybackController {
   /// 반주의 EQ 밴드 레벨을 읽어온다(없으면 백그라운드 분석 후 늦게 도착).
   final Future<TrackLevels?> Function(Song song, int slot)? levelsLoader;
 
+  /// 반주 길이가 확정될 때마다 불린다(곡을 물릴 때·슬롯을 바꿀 때).
+  /// 길이를 알아야 표본 구간을 잡을 수 있는 조성 추정이 여기에 붙는다.
+  /// 여러 번 불릴 수 있으니 받는 쪽이 멱등해야 한다.
+  final void Function(Song song, Duration duration)? onSongReady;
+
   /// 녹음 중이면 true. 녹음 중에는 자동으로 다음 곡으로 넘어가지 않는다.
   bool Function()? isRecordingProvider;
 
@@ -145,6 +150,7 @@ class PlaybackController {
     this.timedLyricsLoader,
     this.pitchVariantResolver,
     this.levelsLoader,
+    this.onSongReady,
     this.onPracticeSessionEnded,
   });
 
@@ -155,7 +161,13 @@ class PlaybackController {
     _bindings = audio.bind(
       onPlayingChanged: _handlePlayingChanged,
       onPositionChanged: _handleNativePosition,
-      onDurationChanged: (dur) => _update(state.value.copyWith(duration: dur)),
+      onDurationChanged: (dur) {
+        _update(state.value.copyWith(duration: dur));
+        // 길이는 네이티브에서 늦게 온다. 조성 추정처럼 길이가 있어야 하는
+        // 작업은 loadSong 끝이 아니라 여기서 시작해야 한다.
+        final song = state.value.song;
+        if (song != null && dur > Duration.zero) onSongReady?.call(song, dur);
+      },
       onCompleted: onSongCompleted,
     );
     // 네이티브 이벤트가 멎어도 위치가 어긋나지 않도록 주기적으로 재동기화한다.
@@ -335,6 +347,19 @@ class PlaybackController {
 
   bool _warnedNoSeekableLyrics = false;
 
+  /// 곡 처음(트림 시작)으로. Home 단축키.
+  Future<void> jumpToStart() =>
+      seek(Duration(milliseconds: state.value.trackStartMs ?? 0));
+
+  /// 곡 끝(트림 끝)으로. End 단축키.
+  /// seek이 트림·길이로 클램프하므로 큰 값을 넘겨도 안전하다.
+  Future<void> jumpToEnd() async {
+    final end =
+        state.value.trackEndMs ?? state.value.duration.inMilliseconds;
+    if (end <= 0) return;
+    await seek(Duration(milliseconds: end));
+  }
+
   /// 이전/다음 줄로 옮긴다. (마우스 휠·단축키용)
   Future<void> stepLine(int delta) =>
       seekToLine(lineIndex.value + delta);
@@ -434,8 +459,20 @@ class PlaybackController {
     _syncTicker();
   }
 
-  Future<void> prepareAudioForSelection() async {
+  /// 반주 파일을 다시 물린다.
+  ///
+  /// [keepPosition]이면 지금 위치와 재생 여부를 그대로 이어 간다 —
+  /// 노래를 부르는 도중에 키를 바꿔도 처음으로 돌아가지 않게 하기 위해서다.
+  Future<void> prepareAudioForSelection({bool keepPosition = false}) async {
     final settings = settingsProvider();
+    final resumeAt = keepPosition ? position.value : null;
+    final wasPlaying = keepPosition && state.value.playing;
+
+    // 새 파일의 길이가 오기 전에 이전 곡 길이를 먼저 버린다.
+    // 이 초기화를 prepareSelection **뒤**에 두면, 그 사이 도착한
+    // onDurationChanged 값을 도로 0으로 덮어써 길이가 영영 0에 머문다
+    // (진행바 총 시간·End 키·가사 추정 이동이 모두 죽는다).
+    _update(state.value.copyWith(duration: Duration.zero));
 
     // 키가 지정돼 있으면 미리 렌더한 변형본을 재생한다.
     String? overridePath;
@@ -461,9 +498,29 @@ class PlaybackController {
     _clock.anchor(start);
     position.value = start;
 
-    _update(
-      state.value.copyWith(audioReady: result.ready, duration: Duration.zero),
-    );
+    _update(state.value.copyWith(audioReady: result.ready));
+
+    // 위치 유지 요청이면 원래 자리로 돌아가 이어 부른다.
+    if (resumeAt != null && result.ready) {
+      final target = LyricsSyncMath.clampToTrim(
+        resumeAt,
+        startMs: state.value.trackStartMs,
+        endMs: state.value.trackEndMs,
+      );
+      await audio.seek(target);
+      _clock.anchor(target);
+      position.value = target;
+      _recomputeLineIndex(target);
+      if (wasPlaying) {
+        await audio.play(
+          song: state.value.song,
+          audioReady: true,
+          playing: false,
+        );
+      }
+      _syncTicker();
+    }
+
     if (result.message != null) onMessage(result.message!);
   }
 

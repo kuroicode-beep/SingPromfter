@@ -1,6 +1,7 @@
 ﻿// file: lib/widgets/prompter_panel.dart
 //
 // 선택된 곡의 가사, 재생 컨트롤, 예약 큐를 함께 표시하는 패널.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/playback_controller.dart';
@@ -11,6 +12,8 @@ import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
 import '../theme/prompter_levels.dart';
+import '../utils/music_key.dart';
+import 'pitch_hud.dart';
 import 'prompter_eq_meter.dart';
 import 'prompter_lyrics_view.dart';
 import 'prompter_wheel_scope.dart';
@@ -36,6 +39,19 @@ class PrompterPanel extends StatelessWidget {
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+
+  /// Alt+휠용 — 굴리는 동안은 화면만 바꾸고 렌더는 미루는 경로.
+  /// 없으면 하단 바와 같은 즉시 적용 경로를 쓴다.
+  final void Function(int delta)? onStepPitch;
+
+  /// 적용을 기다리는 키 값. HUD가 이 값을 크게 띄운다.
+  final ValueListenable<int?>? pendingPitch;
+
+  /// 지금 들리는 조성. 하단 바 키 줄에 배지로 뜬다.
+  final MusicKey? soundingKey;
+
+  /// 사용자 키를 얹기 전의 슬롯 조성. HUD가 여기에 조절값을 더해 띄운다.
+  final MusicKey? pitchBaseKey;
   final bool isRecording;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
@@ -78,6 +94,10 @@ class PrompterPanel extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.onStepPitch,
+    this.pendingPitch,
+    this.soundingKey,
+    this.pitchBaseKey,
     required this.isRecording,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
@@ -136,30 +156,46 @@ class PrompterPanel extends StatelessWidget {
             child: PrompterWheelScope(
               onStepLine: playback.stepLine,
               onStepFontSize: _stepFontSize,
-              onStepPitch: onAdjustPitch,
+              onStepPitch: onStepPitch ?? onAdjustPitch,
               child: Container(
                 margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
                 decoration: AppShapes.panel(),
-                child: AnimatedBuilder(
-                  animation: Listenable.merge([
-                    playback.lineIndex,
-                    playback.timedLyrics,
-                    playback.autoScrollPaused,
-                  ]),
-                  builder: (context, _) => PrompterLyricsView(
-                    lyricsText: currentSong.lyricsText,
-                    timedLyrics: playback.timedLyrics.value,
-                    displayMode: settings.displayMode,
-                    fontSize: fontSize,
-                    lineHeight: lineHeight,
-                    fontFamily: fontFamily,
-                    boldText: settings.boldText,
-                    highlightLineIndex: playback.lineIndex.value,
-                    scrollController: lyricsScrollController,
-                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
-                    onLineTap: playback.seekToLine,
-                    autoFollow: !playback.autoScrollPaused.value,
-                  ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  children: [
+                    AnimatedBuilder(
+                      animation: Listenable.merge([
+                        playback.lineIndex,
+                        playback.timedLyrics,
+                        playback.autoScrollPaused,
+                      ]),
+                      builder: (context, _) => PrompterLyricsView(
+                        lyricsText: currentSong.lyricsText,
+                        timedLyrics: playback.timedLyrics.value,
+                        displayMode: settings.displayMode,
+                        fontSize: fontSize,
+                        lineHeight: lineHeight,
+                        fontFamily: fontFamily,
+                        boldText: settings.boldText,
+                        highlightLineIndex: playback.lineIndex.value,
+                        scrollController: lyricsScrollController,
+                        padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+                        onLineTap: playback.seekToLine,
+                        autoFollow: !playback.autoScrollPaused.value,
+                      ),
+                    ),
+                    // 키를 굴리는 동안 가사 위에 크게 띄운다.
+                    if (pendingPitch != null)
+                      Positioned.fill(
+                        child: ValueListenableBuilder<int?>(
+                          valueListenable: pendingPitch!,
+                          builder: (context, value, _) => PitchHud(
+                            semitones: value,
+                            songKey: pitchBaseKey,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -198,6 +234,7 @@ class PrompterPanel extends StatelessWidget {
             onAdjustLyricsOffset: onAdjustLyricsOffset,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
+            soundingKey: soundingKey,
             isRecording: isRecording,
             recordingLevelLabel: recordingLevelLabel,
             recordingElapsed: recordingElapsed,

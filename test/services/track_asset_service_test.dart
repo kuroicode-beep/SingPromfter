@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:singpromfter_app/services/key_detection_service.dart';
 import 'package:singpromfter_app/services/level_analysis_service.dart';
 import 'package:singpromfter_app/services/pitch_variant_service.dart';
 import 'package:singpromfter_app/services/track_asset_service.dart';
@@ -27,6 +28,7 @@ void main() {
   late TrackAssetService service;
   late Directory pitchDir;
   late Directory levelsDir;
+  late Directory keysDir;
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('sp_assets_');
@@ -40,10 +42,12 @@ void main() {
 
     final pitch = PitchVariantService();
     final levels = LevelAnalysisService();
-    service = TrackAssetService(pitch: pitch, levels: levels);
+    final keys = KeyDetectionService();
+    service = TrackAssetService(pitch: pitch, levels: levels, keys: keys);
 
     pitchDir = await pitch.cacheDir;
     levelsDir = await levels.cacheDir;
+    keysDir = await keys.cacheDir;
   });
 
   tearDown(() async {
@@ -76,18 +80,31 @@ void main() {
     expect(await exists(levelsDir, '밤편지_mr2.mp3.levels.json'), isFalse);
   });
 
+  test('조성 캐시를 지운다', () async {
+    await write(keysDir, '밤편지_mr2.mp3.key.json');
+
+    final removed = await service.invalidate('밤편지_mr2.mp3');
+
+    expect(removed, 1);
+    expect(await exists(keysDir, '밤편지_mr2.mp3.key.json'), isFalse);
+  });
+
   test('다른 반주·다른 슬롯의 캐시는 남긴다', () async {
     await write(pitchDir, '밤편지_mr2__p-2.m4a');
     await write(pitchDir, '밤편지_mr3__p-2.m4a');
     await write(pitchDir, '봄날_mr2__p-2.m4a');
     await write(levelsDir, '밤편지_mr2.mp3.levels.json');
     await write(levelsDir, '봄날_mr2.mp3.levels.json');
+    await write(keysDir, '밤편지_mr3.mp3.key.json');
+    await write(keysDir, '봄날_mr2.mp3.key.json');
 
     await service.invalidate('밤편지_mr2.mp3');
 
     expect(await exists(pitchDir, '밤편지_mr3__p-2.m4a'), isTrue);
     expect(await exists(pitchDir, '봄날_mr2__p-2.m4a'), isTrue);
     expect(await exists(levelsDir, '봄날_mr2.mp3.levels.json'), isTrue);
+    expect(await exists(keysDir, '밤편지_mr3.mp3.key.json'), isTrue);
+    expect(await exists(keysDir, '봄날_mr2.mp3.key.json'), isTrue);
   });
 
   test('지울 게 없으면 0', () async {

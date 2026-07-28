@@ -873,6 +873,10 @@ class _SongListScreenState extends State<SongListScreen> {
       lineHeight: _settings.effectiveLineHeight,
       fontFamily: PrompterSettingsService.resolvedFontFamily(_settings),
       onSettingsChanged: _updateSettings,
+      onStepPitch: _app.nudgePitchDebounced,
+      pendingPitch: _app.pendingPitch,
+      songKey: _app.trackBaseKeyFor(song, _selectedTrackSlot),
+      soundingKey: _app.soundingKeyFor(song, _selectedTrackSlot),
     );
   }
 
@@ -890,6 +894,8 @@ class _SongListScreenState extends State<SongListScreen> {
         final song = _selectedSong;
         if (song != null) _openPrompter(song);
       },
+      onJumpToStart: _playback.jumpToStart,
+      onJumpToEnd: _playback.jumpToEnd,
       child: SongListScreenContent(
         loading: _loading,
         destination: _destination,
@@ -924,6 +930,14 @@ class _SongListScreenState extends State<SongListScreen> {
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),
         onAdjustPitch: _adjustPitch,
+        onStepPitch: _app.nudgePitchDebounced,
+        pendingPitch: _app.pendingPitch,
+        soundingKey: _selectedSong == null
+            ? null
+            : _app.soundingKeyFor(_selectedSong!, _selectedTrackSlot),
+        pitchBaseKey: _selectedSong == null
+            ? null
+            : _app.trackBaseKeyFor(_selectedSong!, _selectedTrackSlot),
         isRecording: _recording.isRecording,
         recordingLevelLabel: _recording.levelLabel,
         recordingElapsed: _recording.elapsed,

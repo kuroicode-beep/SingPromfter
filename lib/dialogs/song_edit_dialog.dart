@@ -11,6 +11,7 @@ import '../constants/app_constants.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../theme/app_theme.dart';
+import '../utils/music_key.dart';
 
 class SongEditDialog {
   SongEditDialog._();
@@ -18,6 +19,11 @@ class SongEditDialog {
   static Future<SongEditDraft?> show(BuildContext context, Song song) {
     final titleController = TextEditingController(text: song.title);
     final artistController = TextEditingController(text: song.artist);
+    // 자동 감지값을 사람이 읽는 표기로 채워 둔다. 비우면 다시 감지한다.
+    final keyController = TextEditingController(
+      text: song.musicalKey?.label ?? '',
+    );
+    String? keyError;
     final trackPaths = <int, String?>{
       for (final slot in AppConstants.backingTrackSlots) slot: null,
     };
@@ -32,6 +38,10 @@ class SongEditDialog {
     final trackEndMs = <int, int?>{
       for (final slot in AppConstants.backingTrackSlots)
         slot: song.trackForSlot(slot)?.endMs,
+    };
+    final trackBaked = <int, int>{
+      for (final slot in AppConstants.backingTrackSlots)
+        slot: song.trackForSlot(slot)?.bakedSemitones ?? 0,
     };
     String? nextLyricsText;
     String? nextLyricsFileName;
@@ -137,6 +147,30 @@ class SongEditDialog {
                           labelStyle: TextStyle(color: AppColors.textMuted),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: keyController,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: '곡 조성 (선택) — 예: C, Am, F♯m',
+                          labelStyle: const TextStyle(
+                            color: AppColors.textMuted,
+                          ),
+                          helperText: keyError == null
+                              ? '비워 두면 반주에서 자동으로 다시 추정합니다.'
+                              : null,
+                          helperStyle: const TextStyle(
+                            color: AppColors.textMuted,
+                          ),
+                          errorText: keyError,
+                        ),
+                        onChanged: (_) {
+                          if (keyError != null) setLocal(() => keyError = null);
+                        },
+                      ),
                       const SizedBox(height: 16),
                       _LyricsPickerCard(
                         fileName: nextLyricsFileName,
@@ -170,6 +204,9 @@ class SongEditDialog {
                               trackStartMs[slot] = _parseSeconds(value),
                           onEndChanged: (value) =>
                               trackEndMs[slot] = _parseSeconds(value),
+                          bakedSemitones: trackBaked[slot] ?? 0,
+                          onBakedChanged: (value) =>
+                              trackBaked[slot] = _parseSemitones(value),
                           onPick: () => pickTrack(slot),
                           onKeep: () => setLocal(() => trackPaths[slot] = null),
                         ),
@@ -184,6 +221,13 @@ class SongEditDialog {
                 ),
                 ElevatedButton(
                   onPressed: () {
+                    // 읽을 수 없는 조성은 조용히 버리지 않고 그 자리에서 알린다.
+                    final keyText = keyController.text.trim();
+                    final parsedKey = MusicKey.parse(keyText);
+                    if (keyText.isNotEmpty && parsedKey == null) {
+                      setLocal(() => keyError = '조성을 읽을 수 없습니다. C, Am, F♯m 처럼 적어 주세요.');
+                      return;
+                    }
                     final title = titleController.text.trim().isEmpty
                         ? song.title
                         : titleController.text.trim();
@@ -217,6 +261,9 @@ class SongEditDialog {
                         trackLabels: normalizedLabels,
                         trackStartMs: normalizedStartMs,
                         trackEndMs: normalizedEndMs,
+                        applyMusicalKey: true,
+                        musicalKey: parsedKey,
+                        trackBakedSemitones: Map.of(trackBaked),
                       ),
                     );
                   },
@@ -237,6 +284,13 @@ class SongEditDialog {
       debugPrint('UTF-8 가사 디코딩 실패, latin1 fallback 사용: $e\n$stack');
       return latin1.decode(bytes).trim();
     }
+  }
+
+  /// 구운 키 입력. 비었거나 못 읽으면 0(구운 키 없음)으로 본다.
+  static int _parseSemitones(String value) {
+    final parsed = int.tryParse(value.trim());
+    if (parsed == null) return 0;
+    return parsed.clamp(-12, 12);
   }
 
   static int? _parseSeconds(String value) {
@@ -312,9 +366,11 @@ class _TrackEditRow extends StatelessWidget {
   final String labelValue;
   final int? startMs;
   final int? endMs;
+  final int bakedSemitones;
   final ValueChanged<String> onLabelChanged;
   final ValueChanged<String> onStartChanged;
   final ValueChanged<String> onEndChanged;
+  final ValueChanged<String> onBakedChanged;
   final VoidCallback onPick;
   final VoidCallback onKeep;
 
@@ -325,9 +381,11 @@ class _TrackEditRow extends StatelessWidget {
     required this.labelValue,
     required this.startMs,
     required this.endMs,
+    required this.bakedSemitones,
     required this.onLabelChanged,
     required this.onStartChanged,
     required this.onEndChanged,
+    required this.onBakedChanged,
     required this.onPick,
     required this.onKeep,
   });
@@ -423,6 +481,24 @@ class _TrackEditRow extends StatelessWidget {
                       isDense: true,
                     ),
                     onChanged: onEndChanged,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextFormField(
+                    initialValue: bakedSemitones == 0
+                        ? ''
+                        : '$bakedSemitones',
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    decoration: const InputDecoration(
+                      labelText: '구운 키(반음)',
+                      helperText: '이 파일에 이미 반영된 키. 표시용',
+                      labelStyle: TextStyle(color: AppColors.textMuted),
+                      helperStyle: TextStyle(color: AppColors.textMuted),
+                      isDense: true,
+                    ),
+                    onChanged: onBakedChanged,
                   ),
                 ),
               ],

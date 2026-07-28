@@ -364,6 +364,11 @@ class ControlRouter {
               'pitch': song.id.isEmpty
                   ? 0
                   : app.settings.pitchForSong(song.id, snapshot.trackSlot),
+              // 곡 자체의 조성과, 구운 키·사용자 키까지 얹어 지금 들리는 조성.
+              'musicalKey': song.musicalKey?.label,
+              'soundingKey': app
+                  .soundingKeyFor(song, snapshot.trackSlot)
+                  ?.label,
             },
       'playing': snapshot.playing,
       'audioReady': snapshot.audioReady,
@@ -401,6 +406,11 @@ class ControlRouter {
     'pitchBySlot': {
       for (final slot in song.availableTrackSlots)
         '$slot': app.settings.pitchForSong(song.id, slot),
+    },
+    'musicalKey': song.musicalKey?.label,
+    'soundingKeyBySlot': {
+      for (final slot in song.availableTrackSlots)
+        '$slot': app.soundingKeyFor(song, slot)?.label,
     },
     if (includeLyrics) 'lyrics': song.lyricsText,
   };

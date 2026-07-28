@@ -10,6 +10,7 @@ import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
+import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
 import 'preset_btn.dart';
@@ -41,6 +42,9 @@ class PrompterBottomBar extends StatefulWidget {
   final ValueChanged<int> onAdjustLyricsOffset;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+
+  /// 곡 조성에 구운 키·사용자 키를 얹은 '지금 들리는' 조성.
+  final MusicKey? soundingKey;
   final bool isRecording;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
@@ -73,6 +77,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onAdjustLyricsOffset,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.soundingKey,
     required this.isRecording,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
@@ -387,6 +392,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
             _PitchRow(
               semitones: widget.pitchSemitones,
               onAdjust: widget.onAdjustPitch,
+              soundingKey: widget.soundingKey,
             ),
             const SizedBox(height: 8),
             _SyncedLyricsRow(
@@ -527,10 +533,18 @@ class _PitchRow extends StatelessWidget {
   final int semitones;
   final ValueChanged<int> onAdjust;
 
-  const _PitchRow({required this.semitones, required this.onAdjust});
+  /// 지금 실제로 들리는 조성. 모르면 표시하지 않는다.
+  final MusicKey? soundingKey;
+
+  const _PitchRow({
+    required this.semitones,
+    required this.onAdjust,
+    this.soundingKey,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final key = soundingKey;
     return Row(
       children: [
         Text('키', style: AppTypography.bodyMuted),
@@ -548,6 +562,23 @@ class _PitchRow extends StatelessWidget {
           semanticsLabel: '키 한 음 올리기',
           onTap: () => onAdjust(1),
         ),
+        if (key != null) ...[
+          const SizedBox(width: 12),
+          Semantics(
+            label: '현재 조성 ${key.label}',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.tertiary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                key.label,
+                style: AppTypography.mono.copyWith(color: AppColors.tertiary),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(width: 12),
         Expanded(
           child: Text(

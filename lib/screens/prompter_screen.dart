@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,6 +10,8 @@ import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
+import '../utils/music_key.dart';
+import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/prompter_lyrics_view.dart';
@@ -34,6 +37,18 @@ class PrompterScreen extends StatefulWidget {
   final bool boldText;
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
+
+  /// Alt+휠 키 조절. null이면 무대에서 키를 바꿀 수 없다.
+  final void Function(int delta)? onStepPitch;
+
+  /// 조절 중인 키(적용 대기 값). null이면 표시하지 않는다.
+  final ValueListenable<int?>? pendingPitch;
+
+  /// 사용자 키를 얹기 전의 슬롯 조성 — HUD가 여기에 조절값을 더한다.
+  final MusicKey? songKey;
+
+  /// 지금 들리는 조성. 상단 바에 상시 표시한다.
+  final MusicKey? soundingKey;
   final ValueChanged<PrompterDisplayMode>? onDisplayModeChanged;
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
@@ -55,6 +70,10 @@ class PrompterScreen extends StatefulWidget {
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
+    this.onStepPitch,
+    this.pendingPitch,
+    this.songKey,
+    this.soundingKey,
     this.onDisplayModeChanged,
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
@@ -182,9 +201,12 @@ class _PrompterScreenState extends State<PrompterScreen> {
         enablePlaybackShortcuts: false,
         onSettingsChanged: _applyKeyboardSettings,
         onClose: () => Navigator.pop(context),
+        onJumpToStart: widget.playback.jumpToStart,
+        onJumpToEnd: widget.playback.jumpToEnd,
         child: PrompterWheelScope(
           onStepLine: widget.playback.stepLine,
           onStepFontSize: _stepFontSize,
+          onStepPitch: widget.onStepPitch,
           child: Scaffold(
             backgroundColor: Colors.black,
             // 하단 바를 Stack 오버레이가 아니라 Column 형제로 둔다.
@@ -289,6 +311,14 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
+            if (widget.pendingPitch != null)
+              Positioned.fill(
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: widget.pendingPitch!,
+                  builder: (context, pitch, _) =>
+                      PitchHud(semitones: pitch, songKey: widget.songKey),
+                ),
+              ),
             if (_sizeHintVisible)
               Positioned(
                 top: 16,
@@ -360,6 +390,30 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (widget.soundingKey != null) ...[
+                Semantics(
+                  label: '현재 조성 ${widget.soundingKey!.label}',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.tertiary.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      widget.soundingKey!.label,
+                      style: const TextStyle(
+                        fontFamily: AppFonts.mono,
+                        fontSize: 18,
+                        color: AppColors.tertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               IconButton(
                 icon: const Icon(
                   Icons.touch_app_outlined,
