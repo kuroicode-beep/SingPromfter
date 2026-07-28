@@ -1,8 +1,13 @@
 // file: lib/widgets/prompter_wheel_scope.dart
 //
-// 무대에서 마우스 휠의 뜻을 바꾼다.
-//   그냥 휠  → 이전/다음 가사 줄 (반주도 그 줄로 이동)
-//   Ctrl+휠 → 글자 크기
+// 무대·메인 창에서 마우스 휠의 뜻을 바꾼다.
+//   그냥 휠   → 이전/다음 가사 줄 (반주도 그 줄로 이동)
+//   Ctrl+휠  → 글자 크기
+//   Alt+휠   → 키(피치)
+//
+// 세 모드는 **완전히 배타적**이다. 한 이벤트는 한 모드에만 들어가고,
+// 모드가 바뀌면 이전 모드의 누적·시간 제한을 즉시 버린다. 그러지 않으면
+// Ctrl을 눌렀다 떼는 사이에 남아 있던 델타가 줄을 한 칸 밀어 버린다.
 //
 // 자식 가사 뷰가 NeverScrollableScrollPhysics를 쓰기 때문에 Scrollable이
 // 포인터 시그널을 가져가지 않고 여기까지 올라온다.
@@ -11,6 +16,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../utils/wheel_step_accumulator.dart';
+
+/// 휠 입력이 무엇을 뜻하는지. (순수 판정 — 테스트 대상)
+enum WheelMode { line, fontSize, pitch }
+
+/// 눌린 수식키로 모드를 정한다. Alt가 Ctrl보다 우선이고, 둘 다 눌리면 키가 바뀐다.
+WheelMode wheelModeFor({required bool ctrl, required bool alt}) {
+  if (alt) return WheelMode.pitch;
+  if (ctrl) return WheelMode.fontSize;
+  return WheelMode.line;
+}
 
 class PrompterWheelScope extends StatefulWidget {
   final Widget child;
@@ -21,11 +36,15 @@ class PrompterWheelScope extends StatefulWidget {
   /// +1 = 크게, -1 = 작게.
   final void Function(int sizeDelta) onStepFontSize;
 
+  /// +1 = 키 올림, -1 = 키 내림. null이면 Alt+휠은 아무 일도 하지 않는다.
+  final void Function(int pitchDelta)? onStepPitch;
+
   const PrompterWheelScope({
     super.key,
     required this.child,
     required this.onStepLine,
     required this.onStepFontSize,
+    this.onStepPitch,
   });
 
   @override
@@ -33,34 +52,53 @@ class PrompterWheelScope extends StatefulWidget {
 }
 
 class _PrompterWheelScopeState extends State<PrompterWheelScope> {
-  // Ctrl 여부에 따라 누적기를 나눈다. 하나로 쓰면 모드를 바꿀 때
-  // 직전 모드의 잔여 델타가 새어 나가 엉뚱하게 한 칸이 움직인다.
-  final _lineAccumulator = WheelStepAccumulator();
-  final _sizeAccumulator = WheelStepAccumulator();
+  // 모드마다 누적기를 따로 둔다. 하나로 쓰면 모드를 바꿀 때 직전 모드의
+  // 잔여 델타가 새어 나가 엉뚱하게 한 칸이 움직인다.
+  final _accumulators = {
+    for (final mode in WheelMode.values) mode: WheelStepAccumulator(),
+  };
 
-  /// 휠을 빠르게 굴릴 때 seek이 폭주하지 않게 막는다.
-  /// 아직 한 번도 움직이지 않았으면(null) 무조건 통과시킨다 —
-  /// 스톱워치를 생성 시점부터 돌리면 화면을 연 직후의 첫 휠이 삼켜진다.
+  /// 휠을 빠르게 굴릴 때 seek·렌더가 폭주하지 않게 막는다.
+  /// 모드별로 따로 재는다 — 공유하면 크기 변경이 줄 이동을 삼킨다.
+  final _lastStep = <WheelMode, Stopwatch>{};
   static const _minInterval = Duration(milliseconds: 60);
-  Stopwatch? _sinceLastStep;
+
+  WheelMode? _activeMode;
 
   void _handleSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
 
-    final ctrl = HardwareKeyboard.instance.isControlPressed;
-    final accumulator = ctrl ? _sizeAccumulator : _lineAccumulator;
-    final steps = accumulator.consume(event.scrollDelta.dy);
+    final keyboard = HardwareKeyboard.instance;
+    final mode = wheelModeFor(
+      ctrl: keyboard.isControlPressed,
+      alt: keyboard.isAltPressed,
+    );
+    if (mode == WheelMode.pitch && widget.onStepPitch == null) return;
+
+    // 모드가 바뀌면 이전 모드의 흔적을 전부 버린다.
+    if (_activeMode != mode) {
+      for (final acc in _accumulators.values) {
+        acc.reset();
+      }
+      _lastStep.clear();
+      _activeMode = mode;
+    }
+
+    final steps = _accumulators[mode]!.consume(event.scrollDelta.dy);
     if (steps == 0) return;
 
-    final since = _sinceLastStep;
+    final since = _lastStep[mode];
     if (since != null && since.elapsed < _minInterval) return;
-    _sinceLastStep = Stopwatch()..start();
+    _lastStep[mode] = Stopwatch()..start();
 
-    if (ctrl) {
-      // 휠을 위로 굴리면 델타가 음수 — 글자는 커지는 쪽이 자연스럽다.
-      widget.onStepFontSize(-steps);
-    } else {
-      widget.onStepLine(steps);
+    switch (mode) {
+      case WheelMode.line:
+        widget.onStepLine(steps);
+      case WheelMode.fontSize:
+        // 휠을 위로 굴리면 델타가 음수 — 글자는 커지는 쪽이 자연스럽다.
+        widget.onStepFontSize(-steps);
+      case WheelMode.pitch:
+        widget.onStepPitch!(-steps);
     }
   }
 

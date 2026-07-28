@@ -59,6 +59,30 @@ void main() {
       expect(current, greaterThan(other));
     });
 
+    testWidgets('현재 줄에만 밑줄과 배경 띠가 붙는다', (tester) async {
+      await tester.pumpWidget(wrap());
+
+      // 강조 장식을 가진 Container가 정확히 하나여야 한다.
+      final decorated = tester
+          .widgetList<Container>(find.byType(Container))
+          .where((c) {
+            final d = c.decoration;
+            return d is BoxDecoration &&
+                d.border?.bottom.color == AppColors.tertiary &&
+                d.border!.bottom.width >= 3;
+          });
+      expect(decorated, hasLength(1));
+    });
+
+    testWidgets('화살표가 글자 크기만큼 크다 — 멀리서도 보이게', (tester) async {
+      await tester.pumpWidget(wrap());
+      final icon = tester.widget<Icon>(
+        find.byIcon(Icons.play_arrow_rounded),
+      );
+      // v2.6.0에서는 0.62배라 작았다.
+      expect(icon.size, greaterThanOrEqualTo(32 * 0.9));
+    });
+
     testWidgets('줄을 누르면 그 인덱스를 준다', (tester) async {
       int? tapped;
       await tester.pumpWidget(wrap(onLineTap: (i) => tapped = i));

@@ -57,7 +57,16 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
   @override
   void didUpdateWidget(covariant PrompterLineListView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentIndex != widget.currentIndex) _followCurrent();
+    // 글자 크기·줄 간격이 바뀌면 위쪽 줄들의 높이가 전부 달라지는데
+    // 스크롤 오프셋은 그대로라 가사가 통째로 미끄러진다. 그게 "줄이 같이
+    // 움직인다"로 보였다. 줄 번호가 안 바뀌어도 다시 잡아 준다.
+    final reflowed =
+        oldWidget.fontSize != widget.fontSize ||
+        oldWidget.lineHeight != widget.lineHeight ||
+        oldWidget.lines.length != widget.lines.length;
+    if (oldWidget.currentIndex != widget.currentIndex || reflowed) {
+      _followCurrent();
+    }
   }
 
   @override
@@ -139,9 +148,10 @@ class _LineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 현재 줄은 색(오렌지)만이 아니라 ▶ 마커·글자 크기·글로우로도 구분한다.
+    // 색만으로는 약하다는 피드백에 따라 v2.7.0에서 강조를 겹쳤다:
+    // 두꺼운 밑줄 + 배경 띠 + 큰 화살표 + 크기 차이. 색을 못 봐도 구분된다.
     final size = isCurrent ? fontSize : fontSize * 0.72;
-    final gutter = fontSize * 0.9;
+    final gutter = fontSize * 1.15;
 
     return Semantics(
       selected: isCurrent,
@@ -149,10 +159,19 @@ class _LineTile extends StatelessWidget {
       label: isCurrent ? '현재 줄: $text' : text,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: fontSize * 0.18),
+        child: Container(
+          margin: EdgeInsets.symmetric(vertical: fontSize * 0.12),
+          padding: EdgeInsets.symmetric(vertical: fontSize * 0.1),
+          decoration: isCurrent
+              ? BoxDecoration(
+                  color: AppColors.tertiary.withValues(alpha: 0.12),
+                  border: const Border(
+                    bottom: BorderSide(color: AppColors.tertiary, width: 4),
+                  ),
+                )
+              : null,
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // 좌우 대칭 거터 — 마커가 붙고 떨어져도 본문이 밀리지 않는다.
               SizedBox(
@@ -160,7 +179,7 @@ class _LineTile extends StatelessWidget {
                 child: isCurrent
                     ? Icon(
                         Icons.play_arrow_rounded,
-                        size: fontSize * 0.62,
+                        size: fontSize * 1.0,
                         color: AppColors.tertiary,
                       )
                     : null,

@@ -1,4 +1,4 @@
-// file: lib/widgets/prompter_lyrics_view.dart
+﻿// file: lib/widgets/prompter_lyrics_view.dart
 //
 // 무대 가사 표시. 기본은 줄 목록이고, '줄 하이라이트' 모드만 3줄 창이다.
 //
@@ -107,39 +107,52 @@ class PrompterLyricsView extends StatelessWidget {
 
   Widget _highlightLine(String text, int index, {required bool muted}) {
     final size = muted ? fontSize * 0.82 : fontSize;
-    final child = Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        SizedBox(
-          width: fontSize * 0.9,
-          child: muted
-              ? null
-              : Icon(
-                  Icons.play_arrow_rounded,
-                  size: fontSize * 0.62,
-                  color: AppColors.tertiary,
-                ),
-        ),
-        Flexible(
-          child: Text(
-            text,
-            textAlign: TextAlign.center,
-            style: _baseStyle(size).copyWith(
-              color: muted ? mutedColor : AppColors.tertiary,
-              fontWeight: muted
-                  ? FontWeight.w500
-                  : (boldText ? FontWeight.w800 : FontWeight.w700),
-              shadows: muted
-                  ? null
-                  : const [
-                      Shadow(color: AppColors.tertiary, blurRadius: 18),
-                      Shadow(color: AppColors.tertiary, blurRadius: 8),
-                    ],
+    final gutter = fontSize * 1.15;
+    // 줄 목록 모드와 같은 강조 규칙(밑줄·배경·큰 화살표)을 쓴다.
+    final child = Container(
+      padding: EdgeInsets.symmetric(vertical: fontSize * 0.1),
+      decoration: muted
+          ? null
+          : BoxDecoration(
+              color: AppColors.tertiary.withValues(alpha: 0.12),
+              border: const Border(
+                bottom: BorderSide(color: AppColors.tertiary, width: 4),
+              ),
+            ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: gutter,
+            child: muted
+                ? null
+                : Icon(
+                    Icons.play_arrow_rounded,
+                    size: fontSize * 1.0,
+                    color: AppColors.tertiary,
+                  ),
+          ),
+          Flexible(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: _baseStyle(size).copyWith(
+                color: muted ? mutedColor : AppColors.tertiary,
+                fontWeight: muted
+                    ? FontWeight.w500
+                    : (boldText ? FontWeight.w800 : FontWeight.w700),
+                shadows: muted
+                    ? null
+                    : const [
+                        Shadow(color: AppColors.tertiary, blurRadius: 18),
+                        Shadow(color: AppColors.tertiary, blurRadius: 8),
+                      ],
+              ),
             ),
           ),
-        ),
-        SizedBox(width: fontSize * 0.9),
-      ],
+          SizedBox(width: gutter),
+        ],
+      ),
     );
 
     if (onLineTap == null) return child;

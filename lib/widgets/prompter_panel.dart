@@ -10,7 +10,10 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
+import '../theme/prompter_levels.dart';
+import 'prompter_eq_meter.dart';
 import 'prompter_lyrics_view.dart';
+import 'prompter_wheel_scope.dart';
 import 'queue_panel.dart';
 
 class PrompterPanel extends StatelessWidget {
@@ -97,6 +100,20 @@ class PrompterPanel extends StatelessWidget {
     this.showQueue = true,
   });
 
+  /// Ctrl+휠 글자 크기. 커스텀 pt가 잡혀 있으면 레벨로 환산한 뒤 옮긴다.
+  void _stepFontSize(int delta) {
+    final base = settings.customFontSizePt != null
+        ? PrompterLevels.levelForFontSize(settings.customFontSizePt!)
+        : settings.fontSizeLevel;
+    final next = (base + delta).clamp(
+      PrompterLevels.minLevel.toDouble(),
+      PrompterLevels.maxLevel.toDouble(),
+    );
+    onSettingsChanged(
+      settings.copyWith(fontSizeLevel: next, clearCustomFontSize: true),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentSong = song;
@@ -113,24 +130,60 @@ class PrompterPanel extends StatelessWidget {
       color: AppColors.background,
       child: Column(
         children: [
+          // 메인 창에서도 무대와 같은 조작을 쓴다 —
+          // 휠=줄 이동, Ctrl+휠=글자 크기, Alt+휠=키.
           Expanded(
-            child: Container(
-              margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              decoration: AppShapes.panel(),
-              child: PrompterLyricsView(
-                lyricsText: currentSong.lyricsText,
-                timedLyrics: playback.timedLyrics.value,
-                displayMode: settings.displayMode,
-                fontSize: fontSize,
-                lineHeight: lineHeight,
-                fontFamily: fontFamily,
-                boldText: settings.boldText,
-                highlightLineIndex: highlightLineIndex,
-                scrollController: lyricsScrollController,
-                padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+            child: PrompterWheelScope(
+              onStepLine: playback.stepLine,
+              onStepFontSize: _stepFontSize,
+              onStepPitch: onAdjustPitch,
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                decoration: AppShapes.panel(),
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([
+                    playback.lineIndex,
+                    playback.timedLyrics,
+                    playback.autoScrollPaused,
+                  ]),
+                  builder: (context, _) => PrompterLyricsView(
+                    lyricsText: currentSong.lyricsText,
+                    timedLyrics: playback.timedLyrics.value,
+                    displayMode: settings.displayMode,
+                    fontSize: fontSize,
+                    lineHeight: lineHeight,
+                    fontFamily: fontFamily,
+                    boldText: settings.boldText,
+                    highlightLineIndex: playback.lineIndex.value,
+                    scrollController: lyricsScrollController,
+                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+                    onLineTap: playback.seekToLine,
+                    autoFollow: !playback.autoScrollPaused.value,
+                  ),
+                ),
               ),
             ),
           ),
+          // EQ는 가사와 하단 바 사이의 형제 — 구조적으로 겹치지 않는다.
+          if (settings.showEqMeter)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: LayoutBuilder(
+                builder: (context, constraints) => SizedBox(
+                  height: 56,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: (constraints.maxWidth * 0.45).clamp(
+                        160.0,
+                        420.0,
+                      ),
+                      child: PrompterEqMeter(playback: playback),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           PrompterBottomBar(
             song: currentSong,
             playing: playing,
