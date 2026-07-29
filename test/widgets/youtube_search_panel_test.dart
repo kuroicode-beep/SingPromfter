@@ -20,7 +20,6 @@ void main() {
     ValueChanged<String>? onSearch,
     ValueChanged<YoutubeChartKind>? onChartChanged,
     ValueChanged<YoutubeVideo>? onImport,
-    ValueChanged<YoutubeVideo>? onKaraokeImport,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -31,7 +30,6 @@ void main() {
             onSearch: onSearch ?? (_) {},
             onChartChanged: onChartChanged ?? (_) {},
             onImport: onImport ?? (_) {},
-            onKaraokeImport: onKaraokeImport ?? (_) {},
           ),
         ),
       ),
@@ -39,24 +37,21 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('결과 행마다 [가져오기]와 [4번 슬롯] 버튼이 있다', (tester) async {
+  testWidgets('결과 행의 [가져오기] 버튼 하나가 구성 선택을 연다', (tester) async {
     YoutubeVideo? imported;
-    YoutubeVideo? karaoke;
     await pump(
       tester,
       state: const YoutubeSearchViewState(query: '선물', results: [video]),
       onImport: (v) => imported = v,
-      onKaraokeImport: (v) => karaoke = v,
     );
 
     expect(find.text('선물 노래방'), findsOneWidget);
     expect(find.text('3:44'), findsOneWidget);
+    // 버튼은 하나다 — 구성(기본/남자키/4번슬롯)은 팝업에서 고른다.
+    expect(find.text('4번 슬롯'), findsNothing);
 
     await tester.tap(find.text('가져오기'));
     expect(imported?.videoId, 'v1');
-
-    await tester.tap(find.text('4번 슬롯'));
-    expect(karaoke?.videoId, 'v1');
   });
 
   testWidgets('검색어가 비어 있으면 차트 칩 2개가 보이고 전환을 알린다', (tester) async {

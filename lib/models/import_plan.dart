@@ -13,12 +13,19 @@ class ImportPlan {
   /// AI 분리 결과(반주만)를 슬롯으로 남길지.
   final bool makeInstrumental;
 
+  /// MR 슬롯에 구워 넣을 반음. 0이면 분리 결과 그대로.
+  ///
+  /// v2.13.0 "남자키" 프리셋(원곡 / MR−5키 / MR−7키)을 위해 생겼다 —
+  /// 슬롯 2 자체가 키조절본이어야 하는 구성.
+  final int instrumentalSemitones;
+
   /// 키조절본을 만들 반음. null이면 만들지 않는다.
   final int? pitchSemitones;
 
   const ImportPlan({
     this.makeOriginal = false,
     this.makeInstrumental = true,
+    this.instrumentalSemitones = 0,
     this.pitchSemitones,
   });
 
@@ -26,25 +33,40 @@ class ImportPlan {
   const ImportPlan.single()
     : makeOriginal = false,
       makeInstrumental = true,
+      instrumentalSemitones = 0,
       pitchSemitones = null;
 
   /// 요구된 기본 구성 — 원곡 + MR + MR 기준 키조절.
   const ImportPlan.full({int semitones = -2})
     : makeOriginal = true,
       makeInstrumental = true,
+      instrumentalSemitones = 0,
       pitchSemitones = semitones;
 
+  /// 남자키 구성 — 원곡 + MR−5키 + MR−7키.
+  const ImportPlan.maleKey({int mrSemitones = -5, this.pitchSemitones = -7})
+    : makeOriginal = true,
+      makeInstrumental = true,
+      instrumentalSemitones = mrSemitones;
+
   bool get wantsPitch => pitchSemitones != null && pitchSemitones != 0;
+
+  bool get wantsPitchedInstrumental =>
+      makeInstrumental && instrumentalSemitones != 0;
 
   Map<String, dynamic> toJson() => {
     'makeOriginal': makeOriginal,
     'makeInstrumental': makeInstrumental,
+    'instrumentalSemitones': instrumentalSemitones,
     'pitchSemitones': pitchSemitones,
   };
 
   factory ImportPlan.fromJson(Map<String, dynamic> json) => ImportPlan(
     makeOriginal: json['makeOriginal'] as bool? ?? false,
     makeInstrumental: json['makeInstrumental'] as bool? ?? true,
+    // v2.12.0까지의 저장분에는 없다 — 0(그대로)이 옳은 기본.
+    instrumentalSemitones:
+        (json['instrumentalSemitones'] as num?)?.toInt() ?? 0,
     pitchSemitones: (json['pitchSemitones'] as num?)?.toInt(),
   );
 }
@@ -91,6 +113,7 @@ ImportPlanResult resolveImportPlan({
   Set<int> occupiedSlots = const {},
   int maxSlots = AppConstants.maxBackingTrackSlots,
   String? pitchLabel,
+  String? instrumentalLabel,
 }) {
   final wanted = <TrackVariant>[
     if (plan.makeOriginal) TrackVariant.original,
@@ -113,12 +136,17 @@ ImportPlanResult resolveImportPlan({
       PlannedTrack(
         variant: variant,
         slot: slot,
-        label: variant == TrackVariant.pitch
-            ? (pitchLabel ?? variant.label)
-            : variant.label,
-        bakedSemitones: variant == TrackVariant.pitch
-            ? (plan.pitchSemitones ?? 0)
-            : 0,
+        label: switch (variant) {
+          TrackVariant.pitch => pitchLabel ?? variant.label,
+          TrackVariant.mr when plan.wantsPitchedInstrumental =>
+            instrumentalLabel ?? variant.label,
+          _ => variant.label,
+        },
+        bakedSemitones: switch (variant) {
+          TrackVariant.pitch => plan.pitchSemitones ?? 0,
+          TrackVariant.mr => plan.instrumentalSemitones,
+          _ => 0,
+        },
       ),
     );
   }

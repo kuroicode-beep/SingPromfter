@@ -15,6 +15,7 @@ import '../dialogs/add_song_dialog.dart';
 import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../dialogs/pick_song_dialog.dart';
+import '../dialogs/youtube_import_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
@@ -707,19 +708,33 @@ class _SongListScreenState extends State<SongListScreen> {
     });
   }
 
-  /// [가져오기] — 새 곡, 기본 3슬롯(원곡/MR/−2키) + 가사 + 싱크.
-  /// 저작권 게이트·스낵바는 _startYoutubeImport가 처리한다.
-  Future<void> _importFromYoutubeSearch(YoutubeVideo video) =>
-      _startYoutubeImport(
-        video.url,
-        MrSourceMode.aiSeparate,
-        fetchLyrics: true,
-        plan: const ImportPlan.full(),
-      );
+  /// [가져오기] — 구성 팝업(기본/남자키/4번슬롯)을 띄우고 선택대로 가져온다.
+  /// 저작권 게이트·스낵바는 각 경로가 처리한다.
+  Future<void> _importFromYoutubeSearch(YoutubeVideo video) async {
+    final choice = await YoutubeImportDialog.show(
+      context,
+      videoTitle: video.title,
+    );
+    if (choice == null || !mounted) return;
 
-  /// [4번 슬롯] — 기존 곡을 골라 노래방 반주로 붙인다. 영상이 이미 반주라
-  /// 분리 없이 그대로(asIs) 받는다.
-  Future<void> _importKaraokeToSong(YoutubeVideo video) async {
+    if (choice.kind == YoutubeImportKind.karaoke) {
+      await _importKaraokeToSong(video, semitones: choice.karaokeSemitones);
+      return;
+    }
+    await _startYoutubeImport(
+      video.url,
+      MrSourceMode.aiSeparate,
+      fetchLyrics: true,
+      plan: choice.plan!,
+    );
+  }
+
+  /// 4번슬롯 — 기존 곡을 골라 노래방 반주로 붙인다. 영상이 이미 반주라
+  /// 분리 없이 그대로(asIs) 받고, 키를 골랐으면 파이프라인이 구워 넣는다.
+  Future<void> _importKaraokeToSong(
+    YoutubeVideo video, {
+    int semitones = 0,
+  }) async {
     if (_songs.isEmpty) {
       _showSnack('먼저 곡을 하나 등록해 주세요. 노래방 반주는 기존 곡에 붙습니다.');
       return;
@@ -733,6 +748,7 @@ class _SongListScreenState extends State<SongListScreen> {
       mode: MrSourceMode.asIs,
       slot: TrackVariant.karaoke.preferredSlot,
       label: TrackVariant.karaoke.label,
+      semitones: semitones,
     );
     if (!mounted) return;
     _showSnack(
@@ -1139,7 +1155,6 @@ class _SongListScreenState extends State<SongListScreen> {
         onYoutubeSearch: _searchYoutube,
         onYoutubeChartChanged: _loadYoutubeChart,
         onYoutubeImport: _importFromYoutubeSearch,
-        onYoutubeKaraokeImport: _importKaraokeToSong,
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),
         onAddSong: _addSong,

@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.12.0';
+  static const String current = '2.13.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.13.0',
+      '2026-07-30',
+      '유튜브 가져오기를 팝업 하나로 — 기본(원곡/MR/MR−2키), '
+          '남자키(원곡/MR−5키/MR−7키), 4번 노래방 슬롯(원음·−2·−5·−7 키 선택). '
+          '각 키는 수동 조절 가능, 조절 범위 ±8로 확대',
+    ),
     AppVersionEntry(
       '2.12.0',
       '2026-07-30',

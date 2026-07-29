@@ -1,8 +1,8 @@
 // file: lib/widgets/youtube_search_panel.dart
 //
 // 곡 검색 탭의 유튜브 쪽 — 검색어가 있으면 검색 결과, 비어 있으면 인기 차트
-// (인기곡 / 노래방 인기)를 보여 준다. 결과 행마다 [가져오기](새 곡, 기본
-// 3슬롯)와 [4번 슬롯](기존 곡에 노래방 반주) 두 버튼이 붙는다.
+// (인기곡 / 노래방 인기)를 보여 준다. 결과 행의 [가져오기] 버튼 하나가
+// 구성 팝업(기본/남자키/4번슬롯)을 연다 — YoutubeImportDialog.
 //
 // 검색은 Enter/버튼에서만 실행한다 — search.list가 1회 100유닛이라
 // 타이핑 즉시 검색은 하루 한도를 몇 분 만에 소진한다.
@@ -61,11 +61,8 @@ class YoutubeSearchPanel extends StatefulWidget {
   final ValueChanged<String> onSearch;
   final ValueChanged<YoutubeChartKind> onChartChanged;
 
-  /// [가져오기] — 새 곡으로 등록(기본 3슬롯 파이프라인).
+  /// [가져오기] — 팝업으로 구성(기본/남자키/4번슬롯)을 골라 가져온다.
   final ValueChanged<YoutubeVideo> onImport;
-
-  /// [4번 슬롯] — 기존 곡을 골라 노래방 반주로 붙인다.
-  final ValueChanged<YoutubeVideo> onKaraokeImport;
 
   const YoutubeSearchPanel({
     super.key,
@@ -73,7 +70,6 @@ class YoutubeSearchPanel extends StatefulWidget {
     required this.onSearch,
     required this.onChartChanged,
     required this.onImport,
-    required this.onKaraokeImport,
   });
 
   @override
@@ -221,7 +217,6 @@ class _YoutubeSearchPanelState extends State<YoutubeSearchPanel> {
       itemBuilder: (context, index) => _VideoRow(
         video: state.results[index],
         onImport: () => widget.onImport(state.results[index]),
-        onKaraokeImport: () => widget.onKaraokeImport(state.results[index]),
       ),
     );
   }
@@ -276,13 +271,8 @@ class _ChartChip extends StatelessWidget {
 class _VideoRow extends StatelessWidget {
   final YoutubeVideo video;
   final VoidCallback onImport;
-  final VoidCallback onKaraokeImport;
 
-  const _VideoRow({
-    required this.video,
-    required this.onImport,
-    required this.onKaraokeImport,
-  });
+  const _VideoRow({required this.video, required this.onImport});
 
   @override
   Widget build(BuildContext context) {
@@ -334,29 +324,18 @@ class _VideoRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          // 버튼 하나 — 누르면 구성(기본/남자키/4번슬롯) 팝업이 뜬다.
           Semantics(
-            label: '${video.title} 새 곡으로 가져오기',
-            child: OutlinedButton(
-              onPressed: onImport,
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size(84, AppConstants.minTouchTarget),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-              ),
-              child: const Text('가져오기'),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Semantics(
-            label: '${video.title} 기존 곡의 4번 노래방 슬롯으로 가져오기',
+            label: '${video.title} 가져오기 — 구성 선택 창 열기',
             child: FilledButton(
-              onPressed: onKaraokeImport,
+              onPressed: onImport,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primaryContainer,
                 foregroundColor: AppColors.onPrimaryContainer,
-                minimumSize: const Size(84, AppConstants.minTouchTarget),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
+                minimumSize: const Size(96, AppConstants.minTouchTarget),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
               ),
-              child: const Text('4번 슬롯'),
+              child: const Text('가져오기'),
             ),
           ),
         ],

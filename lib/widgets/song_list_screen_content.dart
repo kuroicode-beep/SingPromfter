@@ -130,7 +130,6 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<String> onYoutubeSearch;
   final ValueChanged<YoutubeChartKind> onYoutubeChartChanged;
   final ValueChanged<YoutubeVideo> onYoutubeImport;
-  final ValueChanged<YoutubeVideo> onYoutubeKaraokeImport;
   final VoidCallback onAddSong;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
@@ -240,7 +239,6 @@ class SongListScreenContent extends StatelessWidget {
     required this.onYoutubeSearch,
     required this.onYoutubeChartChanged,
     required this.onYoutubeImport,
-    required this.onYoutubeKaraokeImport,
     required this.onAddSong,
     required this.onExportBackup,
     required this.onImportBackup,
@@ -443,7 +441,6 @@ class SongListScreenContent extends StatelessWidget {
           onSearch: onYoutubeSearch,
           onChartChanged: onYoutubeChartChanged,
           onImport: onYoutubeImport,
-          onKaraokeImport: onYoutubeKaraokeImport,
         ),
       ),
       trainingPanel: TrainingPanel(

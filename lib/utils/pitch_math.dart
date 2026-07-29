@@ -7,9 +7,13 @@
 // 아티팩트와 렌더 시간이 둘 다 두 배가 되므로 언제나 한 번에 건다.
 import 'dart:math' as math;
 
-/// 조절 가능한 키 범위(반음). 이 이상은 음질이 급격히 나빠진다.
-const int minPitchSemitones = -6;
-const int maxPitchSemitones = 6;
+/// 조절 가능한 키 범위(반음).
+///
+/// v2.12까지는 ±6이었다. "남자키" 프리셋(MR−7키)이 필요해 ±8로 넓혔다 —
+/// rubberband는 이 범위에서도 쓸 만하게 나오지만, 극단으로 갈수록 음질이
+/// 나빠지는 건 그대로이니 UI 기본값은 여전히 작은 값을 쓴다.
+const int minPitchSemitones = -8;
+const int maxPitchSemitones = 8;
 
 /// 반음 수를 주파수 비율로 바꾼다. 예: +2 → 1.122462
 double semitonesToRatio(int semitones) =>

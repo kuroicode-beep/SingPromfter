@@ -1125,10 +1125,14 @@ class AppController extends ChangeNotifier {
         // 분리가 없거나 실패했으면 MR 슬롯을 만들 수 없다.
         makeInstrumental: plan.makeInstrumental && instrumentalPath != null,
         makeOriginal: plan.makeOriginal || instrumentalPath == null,
+        instrumentalSemitones: plan.instrumentalSemitones,
         pitchSemitones: plan.pitchSemitones,
       ),
       pitchLabel: plan.wantsPitch
           ? '키조절 ${formatKeyLabel(plan.pitchSemitones!)}'
+          : null,
+      instrumentalLabel: plan.wantsPitchedInstrumental
+          ? 'MR ${formatKeyLabel(plan.instrumentalSemitones)}'
           : null,
     );
 
@@ -1137,13 +1141,24 @@ class AppController extends ChangeNotifier {
     final slotBaked = <int, int>{};
     int? mrSlot;
     PlannedTrack? pitchPlanned;
+    PlannedTrack? mrPitchPlanned;
     for (final track in planned.tracks) {
       switch (track.variant) {
         case TrackVariant.original:
           slotPaths[track.slot] = originalPath;
         case TrackVariant.mr:
+          // 등록 시점의 파일은 분리 결과 그대로다. 키를 구워야 하는
+          // MR(남자키 프리셋)은 정직하게 0으로 등록하고 2단계에서
+          // 렌더가 성공하면 그때 라벨·구운 키를 바꾼다 — 렌더가 실패해도
+          // "MR"이라는 라벨과 파일이 일치한다.
           slotPaths[track.slot] = instrumentalPath ?? originalPath;
           mrSlot = track.slot;
+          if (track.bakedSemitones != 0) {
+            mrPitchPlanned = track;
+            slotLabels[track.slot] = TrackVariant.mr.label;
+            slotBaked[track.slot] = 0;
+            continue;
+          }
         case TrackVariant.pitch:
           // 키조절본은 리포지토리에 복사된 MR을 원본으로 삼아야
           // 캐시 키가 안정적이다. 곡 등록 뒤 2단계로 만든다.
@@ -1193,6 +1208,30 @@ class AppController extends ChangeNotifier {
         song = rendered;
       } else {
         pitchNote = ' · 키조절본 실패';
+      }
+    }
+
+    // MR 슬롯 자체의 키조절(남자키 프리셋) — 반드시 위 키조절 슬롯 **다음**에
+    // 한다. 둘 다 원본(무변조) MR을 기준으로 구워야 하는데, 이 단계가 슬롯
+    // 파일을 키조절본으로 갈아끼우기 때문이다.
+    if (mrPitchPlanned != null && mrSlot != null) {
+      onProgress(
+        JobProgress(
+          ratio: 1,
+          label: 'MR ${formatKeyLabel(mrPitchPlanned.bakedSemitones)} 만드는 중',
+        ),
+      );
+      final rendered = await _renderPitchSlot(
+        song: song,
+        baseSlot: mrSlot,
+        targetSlot: mrSlot,
+        semitones: mrPitchPlanned.bakedSemitones,
+        label: mrPitchPlanned.label,
+      );
+      if (rendered != null) {
+        song = rendered;
+      } else {
+        pitchNote += ' · MR 키조절 실패(원키 MR로 남김)';
       }
     }
 
@@ -1272,7 +1311,7 @@ class AppController extends ChangeNotifier {
     }
 
     onProgress(const JobProgress(ratio: 1, label: '반주 넣는 중'));
-    final updated = await attachTrackToSong(
+    var updated = await attachTrackToSong(
       songId: songId,
       slot: slot,
       sourcePath: audioPath,
@@ -1283,18 +1322,43 @@ class AppController extends ChangeNotifier {
       return;
     }
 
+    // 키를 구워 달라는 요청(노래방 −2/−5/−7 등)이면 같은 슬롯에 렌더로
+    // 갈아끼운다. 실패해도 원키 반주는 남는다 — 라벨이 파일과 일치한다.
+    var keyNote = '';
+    if (job.trackSemitones != 0) {
+      onProgress(
+        JobProgress(
+          ratio: 1,
+          label: '${formatKeyLabel(job.trackSemitones)} 반주 만드는 중',
+        ),
+      );
+      final baseLabel = job.trackLabel ?? TrackVariant.karaoke.label;
+      final rendered = await _renderPitchSlot(
+        song: updated,
+        baseSlot: slot,
+        targetSlot: slot,
+        semitones: job.trackSemitones,
+        label: '$baseLabel ${formatKeyLabel(job.trackSemitones)}',
+      );
+      if (rendered != null) {
+        updated = rendered;
+      } else {
+        keyNote = ' · 키조절 실패(원키로 남김)';
+      }
+    }
+
     final finished = importJobs.jobById(job.id);
     if (finished == null) return;
     final label = updated.trackForSlot(slot)?.label ?? '반주';
     importJobs.update(
       finished.copyWith(
         status: ImportJobStatus.done,
-        statusDetail: '슬롯 $slot에 "$label"을(를) 넣었습니다.',
+        statusDetail: '슬롯 $slot에 "$label"을(를) 넣었습니다.$keyNote',
         songId: updated.id,
         ratio: 1,
       ),
     );
-    _emit('"${updated.title}" 슬롯 $slot에 $label 추가');
+    _emit('"${updated.title}" 슬롯 $slot에 $label 추가$keyNote');
   }
 
   /// 이미 등록된 반주를 기준으로 키조절본을 만들어 다른 슬롯에 넣는다.
@@ -1468,6 +1532,7 @@ class AppController extends ChangeNotifier {
     required MrSourceMode mode,
     int? slot,
     String? label,
+    int semitones = 0,
   }) async {
     final song = songById(songId);
     if (song == null) {
@@ -1503,6 +1568,7 @@ class AppController extends ChangeNotifier {
       targetSongId: songId,
       targetSlot: resolved,
       trackLabel: label,
+      trackSemitones: clampSemitones(semitones),
     );
     return ImportEnqueueOutcome.ok(job.id);
   }
