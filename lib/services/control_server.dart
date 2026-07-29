@@ -104,13 +104,32 @@ class ControlRouter {
 
       case ('POST', ['songs']):
         final url = (body['url'] as String?)?.trim() ?? '';
-        final mode = MrSourceModeInfo.fromStorage(body['mode'] as String?);
         final fetchLyrics = body['fetchLyrics'] as bool? ?? true;
-        // plan이 없으면 기존 동작(반주 1개) — 하위 호환.
+        // 링크만 오면(모드·계획 둘 다 미지정) "부를 수 있는 곡"이 기본이다 —
+        // 원곡/MR/MR−2키 3슬롯 + 가사 + 싱크 보정까지. 어느 하나라도 명시한
+        // 호출은 명시한 대로 동작한다(기존 자동화와의 호환).
+        final rawMode = body['mode'] as String?;
         final rawPlan = body['plan'];
-        final plan = rawPlan is Map<String, dynamic>
+        final bareLink = rawMode == null && rawPlan == null;
+        var mode = bareLink
+            ? MrSourceMode.aiSeparate
+            : MrSourceModeInfo.fromStorage(rawMode);
+        var plan = rawPlan is Map<String, dynamic>
             ? ImportPlan.fromJson(rawPlan)
-            : const ImportPlan.single();
+            : (bareLink ? const ImportPlan.full() : const ImportPlan.single());
+        String? note;
+        if (bareLink && !app.separatorOnline) {
+          // 30초 주기 표시가 낡았을 수 있다 — 거절하기 전에 한 번은 두드린다.
+          await app.refreshToolAvailability();
+        }
+        if (bareLink && !app.separatorOnline) {
+          // 서버가 꺼져 있다고 거절하면 "링크만 주면 된다"는 계약이 서버
+          // 상태에 따라 깨진다. 원곡만이라도 남기고 무엇이 빠졌는지 알린다.
+          mode = MrSourceMode.asIs;
+          plan = const ImportPlan(makeOriginal: true, makeInstrumental: false);
+          note = '분리 서버가 꺼져 있어 원곡만 등록합니다. '
+              '서버를 켠 뒤 [+반주]로 MR을 추가해 주세요.';
+        }
         final outcome = await app.enqueueImport(
           url,
           mode,
@@ -125,7 +144,7 @@ class ControlRouter {
             outcome.message ?? '가져오기를 시작하지 못했습니다.',
           );
         }
-        return ControlResponse.ok({'jobId': outcome.jobId});
+        return ControlResponse.ok({'jobId': outcome.jobId, 'note': ?note});
 
       case ('PATCH', ['songs', final String id]):
         final updated = await app.updateSongFields(

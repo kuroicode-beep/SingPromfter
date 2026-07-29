@@ -502,23 +502,72 @@ class AppController extends ChangeNotifier {
       return false;
     }
 
-    final next = result.offsetMs.clamp(
+    final next = await _applyAlignedOffset(song.id, result.offsetMs);
+
+    final seconds = (next.abs() / 1000).toStringAsFixed(1);
+    final direction = next < 0 ? '먼저' : '늦게';
+    _emit('가사를 $seconds초 $direction 띄우도록 맞췄습니다 (${result.samples}곳 비교).');
+    return true;
+  }
+
+  /// 측정된 오프셋을 곡의 모든 반주에 적용하고, 실제 적용값(클램프 후)을 돌려준다.
+  Future<int> _applyAlignedOffset(String songId, int offsetMs) async {
+    final next = offsetMs.clamp(
       -AppConstants.maxLyricsOffsetMs,
       AppConstants.maxLyricsOffsetMs,
     );
-    final fresh = songById(song.id) ?? song;
+    final fresh = songById(songId);
+    if (fresh == null) return next;
     final updatedTracks = fresh.backingTracks
         .map((t) => t.copyWith(lyricsOffsetMs: next))
         .toList(growable: false);
     await replaceSongInList(
       fresh.copyWith(backingTracks: updatedTracks, updatedAt: DateTime.now()),
     );
-    if (selectedSong?.id == song.id) playback.applyLyricsOffset(next);
+    if (selectedSong?.id == songId) playback.applyLyricsOffset(next);
+    return next;
+  }
 
-    final seconds = (next.abs() / 1000).toStringAsFixed(1);
-    final direction = next < 0 ? '먼저' : '늦게';
-    _emit('가사를 $seconds초 $direction 띄우도록 맞췄습니다 (${result.samples}곳 비교).');
-    return true;
+  /// 가져오기의 마지막 단계 — 방금 붙인 가사의 싱크를 바로 맞춘다.
+  ///
+  /// "링크 하나 = 부를 수 있는 곡" 계약의 일부다. 가사를 붙여 놓고 싱크는
+  /// 사용자가 따로 버튼을 눌러야 한다면 절반짜리 자동화다.
+  /// 실패해도 곡 등록은 그대로 두고, 결과는 완료 메시지 꼬리표로만 알린다.
+  Future<String> _autoAlignNoteFor(Song song) async {
+    try {
+      // 측정은 원곡−MR 포락선 비교라 둘 다 있어야 한다. 없으면 조용히 넘어간다.
+      final original = song.trackForSlot(TrackVariant.original.preferredSlot);
+      final mr = song.trackForSlot(TrackVariant.mr.preferredSlot);
+      if (original == null || mr == null) return '';
+      final lyrics = await lyricsSync.loadFor(song);
+      if (lyrics == null || lyrics.isEmpty) return '';
+      final originalPath = await repo.getBackingTrackPath(original.fileName);
+      final mrPath = await repo.getBackingTrackPath(mr.fileName);
+      if (originalPath == null || mrPath == null) return '';
+
+      final outcome = await lyricsAlign.measure(
+        originalPath: originalPath,
+        mrPath: mrPath,
+        lyrics: lyrics,
+      );
+      if (_disposed) return '';
+      final result = outcome.result;
+      if (result == null) {
+        // 판본 속도가 다른 경우만 알린다 — 표본 부족은 사용자가 할 일이 없다.
+        return outcome.failure == LyricsAlignFailure.inconsistent
+            ? ' · 가사 판본 속도가 달라 싱크 자동 보정 불가'
+            : '';
+      }
+      // 이 안이면 사람 귀에 안 어긋난다 — 건드리지 않는 편이 안전하다.
+      if (result.offsetMs.abs() <= 200) return ' · 싱크 확인됨';
+      final next = await _applyAlignedOffset(song.id, result.offsetMs);
+      final seconds = (next.abs() / 1000).toStringAsFixed(1);
+      final direction = next < 0 ? '앞으로' : '뒤로';
+      return ' · 싱크 $seconds초 $direction 보정(${result.samples}곳)';
+    } catch (e) {
+      debugPrint('가져오기 싱크 자동 보정 실패: $e');
+      return '';
+    }
   }
 
   /// 못 맞춘 이유를 사람 말로. 무엇이 부족한지 알려 줘야 다음 수를 정할 수 있다.
@@ -934,6 +983,8 @@ class AppController extends ChangeNotifier {
         song = outcome.song!;
         await replaceSongInList(song);
         lyricsNote = ' · 가사 포함';
+        onProgress(const JobProgress(ratio: 1, label: '가사 싱크 맞추는 중'));
+        lyricsNote += await _autoAlignNoteFor(song);
       } else {
         lyricsNote = ' · 가사는 찾지 못함';
       }

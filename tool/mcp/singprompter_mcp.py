@@ -101,18 +101,23 @@ def _add_song(args):
     url = str(args.get("url", "")).strip()
     if not url:
         raise McpError(JSONRPC_INVALID_PARAMS, "url(유튜브 링크)이 필요합니다.")
-    mode = str(args.get("mode", "asIs"))
-    if mode not in ("asIs", "original", "reduceVocal", "aiSeparate"):
-        raise McpError(
-            JSONRPC_INVALID_PARAMS,
-            "mode는 asIs/original/reduceVocal/aiSeparate 중 하나여야 합니다.",
-        )
     body = {
         "url": url,
-        "mode": mode,
         "fetchLyrics": bool(args.get("fetch_lyrics", True)),
     }
-    # 셋 중 하나라도 지정하면 다중 슬롯 계획으로 본다. 아니면 기존 동작.
+    # mode를 항상 채워 보내면 앱이 "링크만 온 호출"을 구분할 수 없다.
+    # 링크만 오면 앱 쪽 기본(원곡/MR/−2키 3슬롯 + 가사 + 싱크)이 적용되므로,
+    # 사용자가 지정했을 때만 담는다.
+    mode = args.get("mode")
+    if mode is not None:
+        mode = str(mode)
+        if mode not in ("asIs", "original", "reduceVocal", "aiSeparate"):
+            raise McpError(
+                JSONRPC_INVALID_PARAMS,
+                "mode는 asIs/original/reduceVocal/aiSeparate 중 하나여야 합니다.",
+            )
+        body["mode"] = mode
+    # 셋 중 하나라도 지정하면 다중 슬롯 계획으로 본다.
     plan_keys = ("make_original", "make_instrumental", "pitch_semitones")
     if any(k in args for k in plan_keys):
         body["plan"] = {
@@ -295,15 +300,18 @@ TOOLS = {
     },
     "sp_add_song": {
         "description": (
-            "유튜브 링크로 곡을 추가한다 — 내려받기→(선택)보컬 분리→가사 자동 부착→목록 등록. "
-            "개인이 저작권을 소유한 링크만 사용해야 하며, 최초 1회 확인은 앱 화면에서만 가능하다."
+            "유튜브 링크로 곡을 추가한다. 링크만 주면 기본으로 원곡/MR/MR−2키 "
+            "3슬롯 + 싱크 가사 + 싱크 자동 보정까지 만든다(분리 서버가 꺼져 있으면 "
+            "원곡만 등록하고 응답의 note로 알린다). mode나 make_* 옵션을 지정하면 "
+            "그대로 동작한다. 개인이 저작권을 소유한 링크만 사용해야 하며, "
+            "최초 1회 확인은 앱 화면에서만 가능하다."
         ),
         "schema": _schema({
             "url": {"type": "string", "description": "유튜브 링크"},
             "mode": {
                 "type": "string",
                 "enum": ["asIs", "original", "reduceVocal", "aiSeparate"],
-                "description": "반주 처리: asIs=그대로(기본), aiSeparate=AI 보컬 분리",
+                "description": "반주 처리. 생략하면 3슬롯 기본(aiSeparate). asIs=받은 그대로 1개",
             },
             "fetch_lyrics": {"type": "boolean", "description": "싱크 가사 자동 검색(기본 true)"},
             "make_original": {
