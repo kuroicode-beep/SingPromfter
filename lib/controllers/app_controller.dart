@@ -490,14 +490,15 @@ class AppController extends ChangeNotifier {
     if (originalPath == null || mrPath == null) return false;
 
     _emit('노래와 가사를 맞추는 중...');
-    final result = await lyricsAlign.measure(
+    final outcome = await lyricsAlign.measure(
       originalPath: originalPath,
       mrPath: mrPath,
       lyrics: lyrics,
     );
     if (_disposed) return false;
+    final result = outcome.result;
     if (result == null) {
-      _emit('맞출 지점을 찾지 못했습니다. 손으로 조절해 주세요.');
+      _emit(_alignFailureMessage(outcome));
       return false;
     }
 
@@ -516,8 +517,24 @@ class AppController extends ChangeNotifier {
 
     final seconds = (next.abs() / 1000).toStringAsFixed(1);
     final direction = next < 0 ? '먼저' : '늦게';
-    _emit('가사를 $seconds초 $direction 띄우도록 맞췄습니다 (${result.samples}줄 비교).');
+    _emit('가사를 $seconds초 $direction 띄우도록 맞췄습니다 (${result.samples}곳 비교).');
     return true;
+  }
+
+  /// 못 맞춘 이유를 사람 말로. 무엇이 부족한지 알려 줘야 다음 수를 정할 수 있다.
+  String _alignFailureMessage(LyricsAlignOutcome outcome) {
+    switch (outcome.failure) {
+      case LyricsAlignFailure.inconsistent:
+        final spread = (outcome.spreadMs / 1000).toStringAsFixed(1);
+        return '이 가사 파일은 곡과 속도가 달라 한 값으로 맞출 수 없습니다 '
+            '(어긋남이 곡마다 $spread초까지 벌어집니다). 손으로 조절해 주세요.';
+      case LyricsAlignFailure.notEnoughSamples:
+        return '기준 삼을 지점이 부족합니다(${outcome.samples}곳). '
+            '노래가 쉬는 구간이 있어야 맞출 수 있습니다.';
+      case LyricsAlignFailure.noSignal:
+      case null:
+        return '소리를 재지 못했습니다. 원곡과 MR 파일을 확인해 주세요.';
+    }
   }
 
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.

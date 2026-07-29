@@ -107,6 +107,16 @@ class _PrompterScreenState extends State<PrompterScreen> {
   /// 무대 크기 계산에 쓴다 — 접히는 동안 밴드가 리사이즈되면 가사가 통째로
   /// 재레이아웃되기 때문에, 언제나 "열린 상태" 크기를 기준으로 잡는다.
   Animation<double>? _drawerAnim;
+
+  /// 드로어 열림 상태의 **로컬 소유본**.
+  ///
+  /// widget.controlsDrawerOpen을 그대로 쓰면 안 된다 — 무대는
+  /// `Navigator.push`의 builder로 만들어지고 그 builder는 **한 번만 돈다**.
+  /// 설정이 바뀌어도 새 PrompterScreen이 만들어지지 않으므로
+  /// widget 값은 무대에 들어온 순간에 얼어붙는다. 그래서 손잡이를 눌러도
+  /// 드로어가 꿈쩍하지 않았다(들어올 때 열려 있었으면 계속 열린 채).
+  /// _displayMode·_fontSizeLevel과 같은 방식으로 여기서 소유하고 위로 알린다.
+  late bool _drawerOpen;
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
@@ -120,6 +130,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
         widget.lineHeightLevel ?? _lineHeightToLevel(widget.lineHeight);
     _customFontSizePt = widget.customFontSizePt;
     _displayMode = widget.displayMode;
+    _drawerOpen = widget.controlsDrawerOpen;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -274,7 +285,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
         // 크기로 계산해야 애니메이션 내내 밴드·뷰포트가 상수로 남는다.
         final hidden =
             PrompterStageMetrics.stageDrawerHeight *
-            (1 - (_drawerAnim?.value ?? (widget.controlsDrawerOpen ? 1 : 0)));
+            (1 - (_drawerAnim?.value ?? (_drawerOpen ? 1 : 0)));
         final stable = PrompterStageMetrics.stableStage(
           stage,
           hiddenDrawerHeight: hidden,
@@ -466,8 +477,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
   /// 먹었다**. 이제 진짜로 접히고, 접힌 동안은 히트테스트·시맨틱이 죽는다.
   Widget _buildBottomBar() {
     return PrompterDrawer(
-      open: widget.controlsDrawerOpen,
-      onOpenChanged: (open) => widget.onControlsDrawerChanged?.call(open),
+      open: _drawerOpen,
+      onOpenChanged: (open) {
+        setState(() => _drawerOpen = open);
+        widget.onControlsDrawerChanged?.call(open);
+      },
       label: '조작판',
       palette: PrompterDrawerPalette.stage,
       fixedHeight: PrompterStageMetrics.stageDrawerHeight,
