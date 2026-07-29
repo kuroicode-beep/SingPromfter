@@ -28,7 +28,9 @@ class PrompterStageMetrics {
   ///
   /// 내용을 우리가 통제하므로 재는 대신 못박는다. 진행바 + 버튼 한 줄 +
   /// 여백 기준이며, 줄이 추가되면 위젯 테스트가 먼저 깨지도록 되어 있다.
-  static const double stageDrawerHeight = 132;
+  /// 132였을 때 진행바+버튼 줄이 24px 넘쳐 하단이 잘렸다 — 위젯 테스트가
+  /// 생기자마자 잡은 값이다.
+  static const double stageDrawerHeight = 160;
 
   /// 드로어가 여닫히는 동안 밴드·가사 뷰포트가 리사이즈되지 않도록,
   /// **드로어가 완전히 열린 상태**의 무대 크기를 기준으로 계산한다.
