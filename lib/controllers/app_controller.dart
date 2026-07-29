@@ -45,6 +45,7 @@ import '../services/vocal_segments_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
+import '../utils/lrc_retime.dart';
 import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
@@ -505,6 +506,12 @@ class AppController extends ChangeNotifier {
     if (_disposed) return false;
     final result = outcome.result;
     if (result == null) {
+      // 드리프트 곡은 오프셋으로 못 맞추지만 재타이밍으로는 맞출 수 있다.
+      final retimeNote = await _maybeRetimeDrift(song, outcome);
+      if (retimeNote != null) {
+        _emit(retimeNote);
+        return true;
+      }
       _emit(_alignFailureMessage(outcome));
       return false;
     }
@@ -560,10 +567,13 @@ class AppController extends ChangeNotifier {
       if (_disposed) return '';
       final result = outcome.result;
       if (result == null) {
-        // 판본 속도가 다른 경우만 알린다 — 표본 부족은 사용자가 할 일이 없다.
-        return outcome.failure == LyricsAlignFailure.inconsistent
-            ? ' · 가사 판본 속도가 달라 싱크 자동 보정 불가'
-            : '';
+        if (outcome.failure == LyricsAlignFailure.inconsistent) {
+          final note = await _maybeRetimeDrift(song, outcome);
+          if (note != null) return ' · $note';
+          return ' · 가사 판본 속도가 달라 싱크 자동 보정 불가';
+        }
+        // 표본 부족 등은 알리지 않는다 — 사용자가 할 일이 없다.
+        return '';
       }
       // 이 안이면 사람 귀에 안 어긋난다 — 건드리지 않는 편이 안전하다.
       if (result.offsetMs.abs() <= 200) return ' · 싱크 확인됨';
@@ -574,6 +584,48 @@ class AppController extends ChangeNotifier {
     } catch (e) {
       debugPrint('가져오기 싱크 자동 보정 실패: $e');
       return '';
+    }
+  }
+
+  /// 드리프트 곡(속도가 다른 LRC 판본)이면 재타이밍해 다시 쓴다.
+  ///
+  /// 원본은 .bak으로 백업하고, 재타이밍이 오프셋까지 흡수하므로 수동
+  /// 오프셋은 0으로 되돌린다. 보정할 수 없으면(직선이 아니거나 속도 차가
+  /// 상식 밖) null — 호출부가 기존 실패 안내를 그대로 낸다.
+  Future<String?> _maybeRetimeDrift(
+    Song song,
+    LyricsAlignOutcome outcome,
+  ) async {
+    final fit = outcome.drift;
+    if (outcome.failure != LyricsAlignFailure.inconsistent || fit == null) {
+      return null;
+    }
+    try {
+      final raw = await lyricsSync.rawFor(song);
+      if (raw == null) return null;
+      final retimed = retimeLrcContent(
+        raw,
+        scale: fit.scale,
+        offsetMs: fit.offsetMs,
+      );
+      await lyricsSync.backupLrc(song);
+      final saved = await lyricsSync.save(song, retimed);
+      if (saved == null) return null;
+      await replaceSongInList(saved);
+      await _applyAlignedOffset(saved.id, 0);
+      if (selectedSong?.id == song.id) {
+        // 재생 중인 곡이면 다시 물려 새 타임스탬프를 즉시 반영한다.
+        await playback.loadSong(
+          songById(song.id) ?? saved,
+          preferredSlot: selectedTrackSlot,
+        );
+      }
+      final pct = fit.speedDiffPercent.toStringAsFixed(1);
+      return '가사 판본의 속도 차이($pct%)를 보정해 다시 썼습니다 '
+          '(${outcome.samples}곳 기준, 원본은 .bak으로 백업).';
+    } catch (e) {
+      debugPrint('가사 재타이밍 실패: $e');
+      return null;
     }
   }
 

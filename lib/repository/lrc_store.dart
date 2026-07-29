@@ -51,6 +51,20 @@ class LrcStore {
     }
   }
 
+  /// 재타이밍 전에 원본을 남긴다. 이미 백업이 있으면 덮지 않는다 —
+  /// 첫 원본이 진짜 원본이다(재타이밍을 거듭해도 되돌아갈 곳은 하나).
+  Future<void> backup(String songId) async {
+    try {
+      final file = await fileFor(songId);
+      if (!await file.exists()) return;
+      final bak = File('${file.path}.bak');
+      if (await bak.exists()) return;
+      await file.copy(bak.path);
+    } catch (e) {
+      debugPrint('lrc 백업 실패($songId): $e');
+    }
+  }
+
   Future<void> delete(String songId) async {
     try {
       final file = await fileFor(songId);

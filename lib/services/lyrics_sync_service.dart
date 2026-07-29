@@ -104,6 +104,12 @@ class LyricsSyncService {
     }
   }
 
+  /// 저장된 LRC 원문(재타이밍 등 원문 가공용). 없으면 null.
+  Future<String?> rawFor(Song song) => _store.read(song.id);
+
+  /// 원문을 .bak으로 남긴다. 이미 백업이 있으면 덮지 않는다.
+  Future<void> backupLrc(Song song) => _store.backup(song.id);
+
   /// LRC 원문을 저장하고 파일명이 반영된 곡을 돌려준다.
   Future<Song?> save(Song song, String lrcContent) async {
     final parsed = LrcParser.parse(lrcContent);
