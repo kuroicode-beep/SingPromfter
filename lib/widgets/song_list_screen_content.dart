@@ -297,6 +297,8 @@ class SongListScreenContent extends StatelessWidget {
 
   PrompterPanel _buildPrompterPanel({required bool showQueue}) {
     return PrompterPanel(
+      onAddSong: onAddSong,
+      onStartSeparator: onStartSeparator,
       song: selectedSong,
       songs: songs,
       queue: queue,
@@ -373,19 +375,14 @@ class SongListScreenContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selected = selectedSong;
     return SongListScreenView(
       loading: loading,
       destination: destination,
       onDestinationChanged: onDestinationChanged,
-      onAddSong: onAddSong,
       selectedSong: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
       queueIsEmpty: queue.isEmpty,
-      onStartPrompter:
-          selected == null ? null : () => onOpenPrompter(selected),
-      onStartSeparator: onStartSeparator,
       homeSongListPanel: _buildSongListPanel(
         // 홈에서는 사용자가 고른 필터를 그대로 쓴다.
         filterMode: listFilterMode,

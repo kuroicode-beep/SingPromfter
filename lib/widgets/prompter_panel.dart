@@ -76,6 +76,10 @@ class PrompterPanel extends StatelessWidget {
   final VoidCallback onRestart;
   final VoidCallback onSkipNext;
   final ValueChanged<Song> onOpenPrompter;
+
+  /// 우상단에서 조작판으로 옮겨 온 곡 추가·서버 상태(v2.10.0).
+  final VoidCallback? onAddSong;
+  final Future<bool> Function()? onStartSeparator;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<PrompterSettings> onSettingsChanged;
   final VoidCallback onCustomFontSize;
@@ -126,6 +130,8 @@ class PrompterPanel extends StatelessWidget {
     required this.onRestart,
     required this.onSkipNext,
     required this.onOpenPrompter,
+    this.onAddSong,
+    this.onStartSeparator,
     required this.onSeek,
     required this.onSettingsChanged,
     required this.onCustomFontSize,
@@ -287,6 +293,8 @@ class PrompterPanel extends StatelessWidget {
             onRestart: onRestart,
             onSkipNext: onSkipNext,
             onOpenPrompter: () => onOpenPrompter(currentSong),
+            onAddSong: onAddSong,
+            onStartSeparator: onStartSeparator,
             onSeek: onSeek,
             onSettingsChanged: onSettingsChanged,
             onMessage: onMessage,

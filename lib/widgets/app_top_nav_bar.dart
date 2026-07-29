@@ -10,13 +10,11 @@ import '../theme/app_theme.dart';
 class AppTopNavBar extends StatelessWidget {
   final AppDestination destination;
   final ValueChanged<AppDestination> onDestinationChanged;
-  final VoidCallback onAddSong;
 
   const AppTopNavBar({
     super.key,
     required this.destination,
     required this.onDestinationChanged,
-    required this.onAddSong,
   });
 
   @override
@@ -52,17 +50,8 @@ class AppTopNavBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: onAddSong,
-              icon: const Icon(Icons.library_add),
-              label: const Text('곡 추가'),
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryContainer,
-                foregroundColor: AppColors.onPrimaryContainer,
-                minimumSize: const Size(112, AppConstants.minTouchTarget),
-              ),
-            ),
+            // 곡 추가는 v2.10.0에서 조작판(하단)으로 이동 — 시선과 손이
+            // 머무는 곳으로. 상단은 탭 이동만 남긴다.
           ],
         ),
       ),

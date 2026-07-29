@@ -25,6 +25,9 @@ class PrompterKeyboardScope extends StatefulWidget {
   /// v2.8.0 전에는 이 키가 가사 속도 조절이었다.
   final ValueChanged<Duration>? onSeekRelative;
 
+  /// R — 녹음 시작/중지 토글. null이면 R은 아무 일도 하지 않는다.
+  final VoidCallback? onToggleRecording;
+
   final bool enablePlaybackShortcuts;
 
   const PrompterKeyboardScope({
@@ -38,6 +41,7 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onJumpToStart,
     this.onJumpToEnd,
     this.onSeekRelative,
+    this.onToggleRecording,
     this.enablePlaybackShortcuts = true,
   });
 
@@ -75,6 +79,12 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {
       widget.onClose!();
+      return KeyEventResult.handled;
+    }
+
+    // R = 녹음 시작/중지. 텍스트 입력 중에는 위 가드가 이미 걸러 준다.
+    if (key == LogicalKeyboardKey.keyR && widget.onToggleRecording != null) {
+      widget.onToggleRecording!();
       return KeyEventResult.handled;
     }
 

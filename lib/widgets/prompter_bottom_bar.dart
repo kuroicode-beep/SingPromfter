@@ -16,6 +16,7 @@ import 'compact_btn.dart';
 import 'mini_slider.dart';
 import 'prompter_drawer.dart';
 import 'prompter_progress_bar.dart';
+import 'server_status_strip.dart';
 
 class PrompterBottomBar extends StatefulWidget {
   final Song song;
@@ -62,6 +63,11 @@ class PrompterBottomBar extends StatefulWidget {
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
 
+  /// v2.10.0: 우상단에 있던 곡 추가·서버 상태를 조작판으로 옮겼다 —
+  /// 시선이 아래(조작판)에 머무는 앱이라 위로 손을 뻗을 일을 없앤다.
+  final VoidCallback? onAddSong;
+  final Future<bool> Function()? onStartSeparator;
+
   const PrompterBottomBar({
     super.key,
     required this.song,
@@ -96,6 +102,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
+    this.onAddSong,
+    this.onStartSeparator,
   });
 
   @override
@@ -147,15 +155,23 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 },
               ),
               const SizedBox(width: 6),
-              CompactBtn(
-                icon: Icons.fullscreen,
-                semanticsLabel: '전체화면 프롬프터 열기',
-                onTap: widget.onOpenPrompter,
+              // 우상단에서 옮겨 온 '곡 시작' — 아이콘 전용이던 전체화면 버튼을
+              // 라벨 있는 버튼으로 바꿨다(저시력: 텍스트 라벨 원칙).
+              FilledButton.icon(
+                onPressed: widget.onOpenPrompter,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryContainer,
+                  foregroundColor: AppColors.onPrimaryContainer,
+                  minimumSize: const Size(96, AppConstants.minTouchTarget),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+                icon: const Icon(Icons.fullscreen, size: 20),
+                label: const Text('곡 시작'),
               ),
               const SizedBox(width: 6),
               CompactBtn(
                 icon: widget.isRecording ? Icons.stop_circle : Icons.mic,
-                semanticsLabel: widget.isRecording ? '녹음 정지' : '녹음 시작',
+                semanticsLabel: widget.isRecording ? '녹음 정지 (R)' : '녹음 시작 (R)',
                 toggled: widget.isRecording,
                 onTap: widget.onToggleRecording,
               ),
@@ -174,6 +190,22 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   style: AppTypography.bodyMuted,
                 ),
               ],
+              const Spacer(),
+              // 우상단에서 옮겨 온 서버 상태·곡 추가.
+              if (widget.onStartSeparator != null) ...[
+                ServerStatusChip(onStartServer: widget.onStartSeparator),
+                const SizedBox(width: 6),
+              ],
+              if (widget.onAddSong != null)
+                OutlinedButton.icon(
+                  onPressed: widget.onAddSong,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(96, AppConstants.minTouchTarget),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  icon: const Icon(Icons.library_add_outlined, size: 20),
+                  label: const Text('곡 추가'),
+                ),
             ],
           ),
           const SizedBox(height: 8),

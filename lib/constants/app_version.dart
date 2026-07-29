@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.9.0';
+  static const String current = '2.10.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.10.0',
+      '2026-07-30',
+      '곡 추가·곡 시작·서버 상태를 조작판으로 이동 · 라인시드 글꼴 기본 적용 '
+          '및 글꼴 목록 추가 · R 키로 녹음 시작/중지',
+    ),
     AppVersionEntry(
       '2.9.0',
       '2026-07-30',

@@ -894,6 +894,7 @@ class _SongListScreenState extends State<SongListScreen> {
       settings: _settings,
       onSettingsChanged: _updateSettings,
       onTogglePlayPause: _togglePlayPause,
+      onToggleRecording: _toggleRecording,
       onOpenPrompter: () {
         final song = _selectedSong;
         if (song != null) _openPrompter(song);

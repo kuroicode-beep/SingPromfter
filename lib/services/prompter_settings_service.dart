@@ -8,6 +8,7 @@ class PrompterSettingsService {
 
   static const Map<String, String?> fontOptions = {
     'System Default': null,
+    '라인시드': 'LINESeedKR',
     'Malgun Gothic': 'MalgunGothic',
     'Segoe UI': 'SegoeUI',
     '교보손글씨2019': 'KyoboHandwriting2019',

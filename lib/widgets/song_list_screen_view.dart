@@ -15,13 +15,10 @@ class SongListScreenView extends StatelessWidget {
   final bool loading;
   final AppDestination destination;
   final ValueChanged<AppDestination> onDestinationChanged;
-  final VoidCallback onAddSong;
   final Song? selectedSong;
   final int? selectedTrackSlot;
   final bool playing;
   final bool queueIsEmpty;
-  final VoidCallback? onStartPrompter;
-  final Future<bool> Function()? onStartSeparator;
   final Widget homeSongListPanel;
   final Widget favoritesSongListPanel;
   final Widget prompterPanel;
@@ -38,13 +35,10 @@ class SongListScreenView extends StatelessWidget {
     required this.loading,
     required this.destination,
     required this.onDestinationChanged,
-    required this.onAddSong,
     required this.selectedSong,
     required this.selectedTrackSlot,
     required this.playing,
     required this.queueIsEmpty,
-    required this.onStartPrompter,
-    this.onStartSeparator,
     required this.homeSongListPanel,
     required this.favoritesSongListPanel,
     required this.prompterPanel,
@@ -65,7 +59,6 @@ class SongListScreenView extends StatelessWidget {
           AppTopNavBar(
             destination: destination,
             onDestinationChanged: onDestinationChanged,
-            onAddSong: onAddSong,
           ),
           Expanded(
             child: loading
@@ -110,8 +103,6 @@ class SongListScreenView extends StatelessWidget {
       song: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
-      onStartPrompter: onStartPrompter,
-      onStartSeparator: onStartSeparator,
     );
 
     if (wide) {

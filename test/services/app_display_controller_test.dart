@@ -10,9 +10,11 @@ void main() {
     AppDisplayController.notifier.value = const AppDisplaySettings();
   });
 
-  test('familyFor maps known keys, falls back to brand', () {
+  test('familyFor maps known keys, falls back to lineSeed', () {
+    // v2.10.0: 앱 기본 글꼴이 라인시드로 바뀌었다 — 폴백도 함께 따라간다.
+    expect(AppDisplayController.familyFor('라인시드'), AppFonts.lineSeed);
     expect(AppDisplayController.familyFor('맑은 고딕'), AppFonts.legible);
-    expect(AppDisplayController.familyFor('없는 글꼴'), AppFonts.brand);
+    expect(AppDisplayController.familyFor('없는 글꼴'), AppFonts.lineSeed);
   });
 
   test('labelForScale maps scale to step label', () {
