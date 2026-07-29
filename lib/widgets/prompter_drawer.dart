@@ -167,6 +167,10 @@ class _PrompterDrawerState extends State<PrompterDrawer>
         ClipRect(
           child: SizeTransition(
             sizeFactor: _size,
+            // Flutter 3.41부터 alignment로 대체됐다. 이 저장소의 로컬 SDK는
+            // 3.38이라 새 인자가 아직 없어, 올리기 전까지는 이대로 둔다.
+            // SDK를 올릴 때 `alignment: Alignment.topCenter`로 바꾸고 이 줄을 지운다.
+            // ignore: deprecated_member_use
             axisAlignment: -1,
             child: FadeTransition(
               opacity: _fade,
