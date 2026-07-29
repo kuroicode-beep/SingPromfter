@@ -558,7 +558,12 @@ class AppController extends ChangeNotifier {
     return true;
   }
 
-  /// 측정된 오프셋을 곡의 모든 반주에 적용하고, 실제 적용값(클램프 후)을 돌려준다.
+  /// 측정된 오프셋을 **원곡 녹음을 쓰는 슬롯(1·2·3)에만** 적용하고,
+  /// 실제 적용값(클램프 후)을 돌려준다.
+  ///
+  /// 측정 자체가 원곡−MR 비교라 그 녹음에만 유효한 값이다. 노래방(4번)은
+  /// 다른 녹음이므로 여기 쓰면 안 된다 — 예전에는 전 슬롯에 덮어써서,
+  /// 사용자가 노래방 슬롯에 T로 맞춰 둔 싱크를 자동 맞춤이 지웠다.
   Future<int> _applyAlignedOffset(String songId, int offsetMs) async {
     final next = offsetMs.clamp(
       -AppConstants.maxLyricsOffsetMs,
@@ -566,13 +571,14 @@ class AppController extends ChangeNotifier {
     );
     final fresh = songById(songId);
     if (fresh == null) return next;
-    final updatedTracks = fresh.backingTracks
-        .map((t) => t.copyWith(lyricsOffsetMs: next))
-        .toList(growable: false);
-    await replaceSongInList(
-      fresh.copyWith(backingTracks: updatedTracks, updatedAt: DateTime.now()),
-    );
-    if (selectedSong?.id == songId) playback.applyLyricsOffset(next);
+    final basisSlot = TrackVariant.original.preferredSlot;
+    await replaceSongInList(fresh.withLyricsOffsetForSlot(basisSlot, next));
+    // 지금 듣는 슬롯이 그 녹음일 때만 화면에 반영한다 — 노래방을 듣는 중에
+    // 다른 녹음의 값을 얹으면 눈앞의 싱크가 틀어진다.
+    if (selectedSong?.id == songId &&
+        lyricsSyncSlotGroup(basisSlot).contains(selectedTrackSlot)) {
+      playback.applyLyricsOffset(next);
+    }
     return next;
   }
 
@@ -624,8 +630,10 @@ class AppController extends ChangeNotifier {
   /// 드리프트 곡(속도가 다른 LRC 판본)이면 재타이밍해 다시 쓴다.
   ///
   /// 원본은 .bak으로 백업하고, 재타이밍이 오프셋까지 흡수하므로 수동
-  /// 오프셋은 0으로 되돌린다. 보정할 수 없으면(직선이 아니거나 속도 차가
-  /// 상식 밖) null — 호출부가 기존 실패 안내를 그대로 낸다.
+  /// 오프셋은 0으로 되돌린다(원곡 녹음 슬롯 1·2·3만 — 노래방 슬롯의 수동
+  /// 싱크는 자동 처리가 건드리지 않는다는 규약. LRC 시간축이 바뀌었으니
+  /// 노래방 쪽은 사용자가 T로 다시 잡는다). 보정할 수 없으면(직선이
+  /// 아니거나 속도 차가 상식 밖) null — 호출부가 기존 실패 안내를 그대로 낸다.
   Future<String?> _maybeRetimeDrift(
     Song song,
     LyricsAlignOutcome outcome,
@@ -1324,13 +1332,25 @@ class AppController extends ChangeNotifier {
   }
 
   /// 목록의 곡을 최신 인스턴스로 갈아끼우고 저장한다.
+  /// songs.json 저장 직렬화 사슬. 겹치면 완료 순서가 뒤바뀌어 늦게 끝난
+  /// **낡은** 스냅샷이 디스크에 남을 수 있다 — `.`/`/` 연타(실시간 싱크
+  /// 조절)가 이 경로를 초당 여러 번 태우면서 실제 위험이 됐다.
+  Future<void> _songsSaveChain = Future.value();
+
   Future<void> replaceSongInList(Song song) async {
     if (_disposed) return;
     songs = songs
         .map((s) => s.id == song.id ? song : s)
         .toList(growable: false);
     _notify();
-    await repo.saveSongs(songs);
+    // 저장이 돌 때 최신 목록을 읽도록 사슬 안에서 songs를 다시 참조한다 —
+    // 연달아 불리면 마지막 저장이 언제나 최신 상태를 쓴다.
+    // 앞선 실패는 삼킨다(그 오류는 그 호출자가 이미 받았다) — 안 그러면
+    // 한 번의 디스크 오류가 사슬을 영영 끊는다.
+    _songsSaveChain = _songsSaveChain
+        .catchError((_) {})
+        .then((_) => repo.saveSongs(songs));
+    await _songsSaveChain;
   }
 
   void _failJob(ImportJob job, String message) {

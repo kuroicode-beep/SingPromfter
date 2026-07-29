@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.11.0';
+  static const String current = '2.11.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.11.1',
+      '2026-07-30',
+      '자동 싱크 맞춤·재타이밍이 노래방(4번) 슬롯의 수동 싱크까지 덮어쓰던 '
+          '문제 — 이제 원곡 녹음 슬롯(1·2·3)만 만진다 · 싱크 연타 시 '
+          '저장 순서가 뒤바뀔 수 있던 틈 직렬화',
+    ),
     AppVersionEntry(
       '2.11.0',
       '2026-07-30',
