@@ -73,6 +73,12 @@ class ImportEnqueueOutcome {
 
 class AppController extends ChangeNotifier {
   static const _kYtNoticeAckKey = 'yt_notice_ack';
+  static const _kSeparatorCmdKey = 'separator_start_command';
+
+  /// 이 PC의 분리 서버 기동 스크립트. 부팅 시 값이 없으면 이걸 심는다.
+  /// 값을 비우면 자동 기동을 끈 것으로 본다.
+  static const defaultSeparatorStartCommand =
+      r'C:\Projects\svil-ai-work\separator_system\start.bat';
 
   // ── 서비스 (전부 헤드리스) ──────────────────────────────
   final SongRepository repo = SongRepository.instance;
@@ -203,6 +209,12 @@ class AppController extends ChangeNotifier {
 
     unawaited(refreshToolAvailability());
     _startStatusRefresh();
+
+    // 분리 서버 자동 기동 명령 — 처음이면 이 PC의 기본 경로를 심는다.
+    final prefs = await SharedPreferences.getInstance();
+    if (!prefs.containsKey(_kSeparatorCmdKey)) {
+      await prefs.setString(_kSeparatorCmdKey, defaultSeparatorStartCommand);
+    }
 
     final schemaError = repo.schemaLoadError;
     if (schemaError != null) _emit(schemaError);
@@ -796,6 +808,74 @@ class AppController extends ChangeNotifier {
     });
   }
 
+  /// 분리 서버 기동 명령(빈 문자열이면 자동 기동 없음).
+  Future<String> separatorStartCommand() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getString(_kSeparatorCmdKey) ?? '').trim();
+  }
+
+  Future<void> setSeparatorStartCommand(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kSeparatorCmdKey, path.trim());
+  }
+
+  /// 기동 명령이 등록돼 있고 실제 파일이 있는가.
+  Future<bool> canAutoStartSeparator() async {
+    final cmd = await separatorStartCommand();
+    if (cmd.isEmpty) return false;
+    return File(cmd).exists();
+  }
+
+  bool _separatorStarting = false;
+
+  /// 분리 서버가 꺼져 있으면 등록된 명령으로 켜고 온라인까지 기다린다.
+  ///
+  /// demucs 모델 로드가 있어 첫 기동은 오래 걸린다 — 넉넉히 기다린다.
+  /// 이미 켜는 중이면 프로세스를 또 띄우지 않고 기다리기만 한다.
+  Future<bool> ensureSeparatorOnline({
+    Duration timeout = const Duration(seconds: 120),
+  }) async {
+    await _refreshSeparatorStatus();
+    if (separatorOnline) return true;
+    final cmd = await separatorStartCommand();
+    if (cmd.isEmpty || !await File(cmd).exists()) return false;
+
+    if (!_separatorStarting) {
+      _separatorStarting = true;
+      try {
+        await Process.start(
+          cmd,
+          const [],
+          workingDirectory: File(cmd).parent.path,
+          mode: ProcessStartMode.detached,
+          runInShell: true, // .bat은 셸이 있어야 돈다.
+        );
+      } catch (e) {
+        debugPrint('분리 서버 기동 실패: $e');
+        _separatorStarting = false;
+        return false;
+      }
+    }
+
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (_disposed) break;
+      await _refreshSeparatorStatus();
+      if (separatorOnline) break;
+    }
+    _separatorStarting = false;
+    return separatorOnline;
+  }
+
+  Future<void> _refreshSeparatorStatus() async {
+    final status = await separation.status();
+    if (_disposed) return;
+    separatorStatusLabel = status.label;
+    separatorOnline = status.online;
+    _notify();
+  }
+
   Future<void> refreshToolAvailability() async {
     final tool = await toolLocator.locate(ExternalTool.ytDlp, refresh: true);
     final separator = await separation.status();
@@ -869,10 +949,13 @@ class AppController extends ChangeNotifier {
     }
     if (plan.makeInstrumental &&
         mode == MrSourceMode.aiSeparate &&
-        !separatorOnline) {
+        !separatorOnline &&
+        !await canAutoStartSeparator()) {
+      // 자동 기동이 가능하면 거절하지 않는다 — 파이프라인이 켜고 기다린다.
       return const ImportEnqueueOutcome.error(
         'separator_offline',
-        '분리 서버가 꺼져 있어 MR을 만들 수 없습니다. SAW에서 켜 주세요.',
+        '분리 서버가 꺼져 있어 MR을 만들 수 없습니다. 서버를 켜거나 '
+        '설정에 시작 명령을 등록해 주세요.',
       );
     }
     final job = importJobs.enqueue(
@@ -945,6 +1028,13 @@ class AppController extends ChangeNotifier {
     String? instrumentalPath;
     var separationNote = '';
     if (job.mode == MrSourceMode.aiSeparate) {
+      if (!separatorOnline) {
+        // 서버가 꺼져 있으면 여기서 켜고 기다린다 — 큐 작업이라 블로킹해도
+        // 진행 표시가 사용자를 안심시킨다. 실패하면 아래 분리 실패 폴백
+        // (원곡만 등록)이 그대로 받아 준다.
+        onProgress(const JobProgress(label: '분리 서버 켜는 중 (최대 2분)'));
+        await ensureSeparatorOnline();
+      }
       onProgress(const JobProgress(label: 'AI 보컬 분리 중 (수십 초 걸립니다)'));
       final separated = await separation.separate(originalPath);
       if (separated.success && separated.instrumentalPath != null) {

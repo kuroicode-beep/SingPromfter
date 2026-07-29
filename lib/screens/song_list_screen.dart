@@ -903,6 +903,7 @@ class _SongListScreenState extends State<SongListScreen> {
       onSeekRelative: _playback.seekRelative,
       child: SongListScreenContent(
         loading: _loading,
+        onStartSeparator: _app.ensureSeparatorOnline,
         destination: _destination,
         onDestinationChanged: (next) => setState(() => _destination = next),
         songs: _songs,

@@ -21,6 +21,7 @@ class SongListScreenView extends StatelessWidget {
   final bool playing;
   final bool queueIsEmpty;
   final VoidCallback? onStartPrompter;
+  final Future<bool> Function()? onStartSeparator;
   final Widget homeSongListPanel;
   final Widget favoritesSongListPanel;
   final Widget prompterPanel;
@@ -43,6 +44,7 @@ class SongListScreenView extends StatelessWidget {
     required this.playing,
     required this.queueIsEmpty,
     required this.onStartPrompter,
+    this.onStartSeparator,
     required this.homeSongListPanel,
     required this.favoritesSongListPanel,
     required this.prompterPanel,
@@ -109,6 +111,7 @@ class SongListScreenView extends StatelessWidget {
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
       onStartPrompter: onStartPrompter,
+      onStartSeparator: onStartSeparator,
     );
 
     if (wide) {

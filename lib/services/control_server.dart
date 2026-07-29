@@ -122,9 +122,12 @@ class ControlRouter {
           // 30초 주기 표시가 낡았을 수 있다 — 거절하기 전에 한 번은 두드린다.
           await app.refreshToolAvailability();
         }
-        if (bareLink && !app.separatorOnline) {
-          // 서버가 꺼져 있다고 거절하면 "링크만 주면 된다"는 계약이 서버
-          // 상태에 따라 깨진다. 원곡만이라도 남기고 무엇이 빠졌는지 알린다.
+        if (bareLink &&
+            !app.separatorOnline &&
+            !await app.canAutoStartSeparator()) {
+          // 서버가 꺼져 있고 자동 기동도 불가능하면, 거절하는 대신 원곡만
+          // 남긴다 — "링크만 주면 된다"는 계약이 서버 상태에 따라 깨지지
+          // 않게. 자동 기동이 가능하면 파이프라인이 알아서 켠다.
           mode = MrSourceMode.asIs;
           plan = const ImportPlan(makeOriginal: true, makeInstrumental: false);
           note = '분리 서버가 꺼져 있어 원곡만 등록합니다. '

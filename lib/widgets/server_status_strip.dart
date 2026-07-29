@@ -14,7 +14,10 @@ import '../services/vocal_separation_client.dart';
 import '../theme/app_theme.dart';
 
 class ServerStatusChip extends StatefulWidget {
-  const ServerStatusChip({super.key});
+  /// 꺼져 있을 때 누르면 서버를 켠다. null이면 예전처럼 새로고침만 한다.
+  final Future<bool> Function()? onStartServer;
+
+  const ServerStatusChip({super.key, this.onStartServer});
 
   @override
   State<ServerStatusChip> createState() => _ServerStatusChipState();
@@ -25,6 +28,7 @@ class _ServerStatusChipState extends State<ServerStatusChip> {
   Timer? _timer;
   SeparationServerStatus _status = const SeparationServerStatus(online: false);
   bool _checking = false;
+  bool _starting = false;
 
   @override
   void initState() {
@@ -50,17 +54,36 @@ class _ServerStatusChipState extends State<ServerStatusChip> {
     setState(() => _status = status);
   }
 
+  /// 꺼져 있고 켤 수단이 있으면 켠다. 아니면 상태만 다시 확인한다.
+  Future<void> _onTap() async {
+    if (_starting) return;
+    final start = widget.onStartServer;
+    if (!_status.online && start != null) {
+      setState(() => _starting = true);
+      await start();
+      if (!mounted) return;
+      setState(() => _starting = false);
+    }
+    await _refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     final online = _status.online;
+    final canStart = !online && widget.onStartServer != null;
+    final label = _starting ? '분리 서버 켜는 중…' : _status.label;
     return Semantics(
-      label: _status.label,
+      label: label,
       button: true,
       child: Tooltip(
-        message: '${_status.label} (눌러서 새로고침)',
+        message: _starting
+            ? '분리 서버를 켜는 중입니다 (최대 2분)'
+            : canStart
+            ? '$label (눌러서 서버 켜기)'
+            : '$label (눌러서 새로고침)',
         child: InkWell(
           borderRadius: AppShapes.controlRadius,
-          onTap: _refresh,
+          onTap: _onTap,
           child: Container(
             height: AppConstants.minTouchTarget,
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -68,13 +91,17 @@ class _ServerStatusChipState extends State<ServerStatusChip> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  online ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                  _starting
+                      ? Icons.cloud_sync_outlined
+                      : online
+                      ? Icons.cloud_done_outlined
+                      : Icons.cloud_off_outlined,
                   size: 15,
                   color: online ? AppColors.positive : AppColors.textMuted,
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  _status.label,
+                  label,
                   style: AppTypography.caption,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

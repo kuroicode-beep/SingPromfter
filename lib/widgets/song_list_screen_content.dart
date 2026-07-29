@@ -73,6 +73,9 @@ class SongListScreenContent extends StatelessWidget {
 
   /// Alt+휠 경로 — 굴리는 동안은 표시만, 렌더는 손을 멈춘 뒤.
   final void Function(int delta)? onStepPitch;
+
+  /// 분리 서버가 꺼져 있을 때 홈 상태 칩으로 켠다.
+  final Future<bool> Function()? onStartSeparator;
   final ValueListenable<int?>? pendingPitch;
   final ValueListenable<double?>? pendingTempo;
 
@@ -178,6 +181,7 @@ class SongListScreenContent extends StatelessWidget {
     this.tempoScale = 1,
     required this.onAdjustTempo,
     this.onStepPitch,
+    this.onStartSeparator,
     this.pendingPitch,
     this.pendingTempo,
     this.soundingKey,
@@ -381,6 +385,7 @@ class SongListScreenContent extends StatelessWidget {
       queueIsEmpty: queue.isEmpty,
       onStartPrompter:
           selected == null ? null : () => onOpenPrompter(selected),
+      onStartSeparator: onStartSeparator,
       homeSongListPanel: _buildSongListPanel(
         // 홈에서는 사용자가 고른 필터를 그대로 쓴다.
         filterMode: listFilterMode,

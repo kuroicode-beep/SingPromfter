@@ -17,12 +17,16 @@ class HomeNowPlayingBar extends StatelessWidget {
   final bool playing;
   final VoidCallback? onStartPrompter;
 
+  /// 분리 서버가 꺼져 있을 때 상태 칩을 누르면 켠다.
+  final Future<bool> Function()? onStartSeparator;
+
   const HomeNowPlayingBar({
     super.key,
     required this.song,
     required this.selectedTrackSlot,
     required this.playing,
     required this.onStartPrompter,
+    this.onStartSeparator,
   });
 
   @override
@@ -59,7 +63,7 @@ class HomeNowPlayingBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          const ServerStatusChip(),
+          ServerStatusChip(onStartServer: onStartSeparator),
           const SizedBox(width: 4),
           FilledButton(
             onPressed: current == null ? null : onStartPrompter,
