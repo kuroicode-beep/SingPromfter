@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/services/process/external_tool_locator.dart';
 import 'package:singpromfter_app/services/youtube_import_service.dart';
@@ -64,7 +66,9 @@ void main() {
         ExternalTool.node,
         environment: {'ProgramFiles': r'C:\Program Files'},
       );
-      expect(paths, contains(r'C:\Program Files\nodejs\node.exe'));
+      // 실행 파일명은 플랫폼을 따른다 — CI(리눅스)에서는 확장자가 없다.
+      final exe = Platform.isWindows ? 'node.exe' : 'node';
+      expect(paths, contains('C:\\Program Files\\nodejs\\$exe'));
     });
 
     test('설치 안내 명령이 있다', () {
