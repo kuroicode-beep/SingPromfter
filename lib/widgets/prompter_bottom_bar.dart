@@ -15,6 +15,7 @@ import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
 import 'prompter_drawer.dart';
+import 'prompter_keyboard_scope.dart' show lyricsNudgeStepMs;
 import 'prompter_progress_bar.dart';
 import 'server_status_strip.dart';
 
@@ -399,18 +400,20 @@ class _SyncedLyricsRow extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // 걸음은 . / 단축키와 같은 상수를 쓴다 — 걸음이 두 개면
+                // 키보드로 맞춘 값과 버튼으로 맞춘 값이 서로 안 맞는다.
                 _OffsetButton(
                   icon: Icons.remove,
-                  semanticsLabel: '가사를 0.2초 더 먼저 띄우기',
-                  onTap: () => onAdjust(-200),
+                  semanticsLabel: '가사를 0.2초 더 먼저 띄우기 (.)',
+                  onTap: () => onAdjust(-lyricsNudgeStepMs),
                 ),
                 const SizedBox(width: 8),
                 Text(formatOffset(offsetMs), style: AppTypography.mono),
                 const SizedBox(width: 8),
                 _OffsetButton(
                   icon: Icons.add,
-                  semanticsLabel: '가사를 0.2초 더 늦게 띄우기',
-                  onTap: () => onAdjust(200),
+                  semanticsLabel: '가사를 0.2초 더 늦게 띄우기 (/)',
+                  onTap: () => onAdjust(lyricsNudgeStepMs),
                 ),
               ],
             ),
