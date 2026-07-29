@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.8.1';
+  static const String current = '2.8.2';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.8.2',
+      '2026-07-29',
+      '가사 자동 맞춤 정확도 수정 · 전체화면 조작판이 안 열리던 문제 · '
+          '한글 폴더에서 유튜브 가져오기가 실패하던 문제',
+    ),
     AppVersionEntry(
       '2.8.1',
       '2026-07-29',
