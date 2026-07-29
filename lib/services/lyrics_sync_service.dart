@@ -59,20 +59,30 @@ class LyricsSyncService {
       if (candidate == null || !candidate.hasSynced) {
         final query = '${song.title} ${song.artist}'.trim();
         final results = await _client.search(query: query);
-        candidate = _pickBest(results, duration: duration);
+        candidate = pickLyricsCandidate(
+          results,
+          duration: duration,
+          artist: song.artist,
+        );
       }
 
       // 가수가 채널명 등으로 오염됐을 수 있어 제목만으로 한 번 더 찾는다.
+      // 이 결과는 동명 곡투성이라 아래 picker의 근거 요구가 특히 중요하다.
       if ((candidate == null || !candidate.hasSynced) &&
           song.artist.trim().isNotEmpty) {
         final results = await _client.search(query: song.title.trim());
-        candidate = _pickBest(results, duration: duration);
+        candidate = pickLyricsCandidate(
+          results,
+          duration: duration,
+          artist: song.artist,
+        );
       }
 
       if (candidate == null || !candidate.hasSynced) {
         return const LyricsFetchOutcome(
           success: false,
-          message: '싱크 가사를 찾지 못했습니다. .lrc 파일을 직접 가져올 수 있습니다.',
+          message: '싱크 가사를 찾지 못했습니다. '
+              '곡 수정에서 가사를 붙여넣거나 .lrc 파일을 가져올 수 있습니다.',
         );
       }
 
@@ -117,29 +127,54 @@ class LyricsSyncService {
         durationTolerance.inMilliseconds;
   }
 
-  /// 길이가 가장 비슷하고 싱크가 있는 결과를 고른다. (순수 로직)
-  /// 허용 오차(±7초)를 넘는 후보는 엉뚱한 가사보다 못 찾음이 낫다.
-  static LyricsCandidate? _pickBest(
+  /// 검색 결과에서 후보를 고른다. (순수 로직 — 테스트 대상)
+  ///
+  /// 검색 결과는 동명 곡이 섞인다. 「선물」처럼 흔한 제목은 가수가 전혀 다른
+  /// 곡이 첫 결과로 오기도 한다. 그래서 **근거 없이는 채택하지 않는다**:
+  /// 길이가 ±7초 안에서 맞거나, 가수가 겹쳐야 한다. 길이도 모르고 가수도
+  /// 안 맞으면 못 찾은 것으로 처리한다 — 엉뚱한 가사보다 못 찾음이 낫다.
+  /// (예전엔 길이를 모르면 첫 결과를 그냥 받았고, 그게 사고의 원인이었다.)
+  static LyricsCandidate? pickLyricsCandidate(
     List<LyricsCandidate> results, {
     Duration? duration,
+    String artist = '',
   }) {
     final synced = results.where((r) => r.hasSynced).toList();
     if (synced.isEmpty) return null;
-    if (duration == null || duration <= Duration.zero) return synced.first;
 
-    synced.sort((a, b) {
-      final da = (a.duration - duration).inMilliseconds.abs();
-      final db = (b.duration - duration).inMilliseconds.abs();
-      return da.compareTo(db);
-    });
-    final best = synced.first;
-    return _withinTolerance(best, duration) ? best : null;
+    final hasDuration = duration != null && duration > Duration.zero;
+    if (hasDuration) {
+      synced.sort((a, b) {
+        final da = (a.duration - duration).inMilliseconds.abs();
+        final db = (b.duration - duration).inMilliseconds.abs();
+        return da.compareTo(db);
+      });
+      // 가수까지 겹치는 후보가 있으면 그 안에서 길이가 가장 가까운 것.
+      final withArtist = synced
+          .where((c) => artistLooksSame(artist, c.artistName))
+          .toList();
+      final best = (withArtist.isNotEmpty ? withArtist : synced).first;
+      return _withinTolerance(best, duration) ? best : null;
+    }
+
+    // 길이를 모르면 가수라도 맞아야 한다.
+    for (final c in synced) {
+      if (artistLooksSame(artist, c.artistName)) return c;
+    }
+    return null;
   }
 
-  /// 테스트용 공개 래퍼.
+  /// 두 가수 이름이 같은 사람으로 보이는지.
+  /// 공백·구두점·괄호를 걷어낸 뒤 한쪽이 다른 쪽을 포함하면 같다고 본다
+  /// ("윤후" ↔ "윤후 (Yoon Hoo)"). 빈 이름은 근거가 될 수 없다.
   @visibleForTesting
-  static LyricsCandidate? pickBestForTest(
-    List<LyricsCandidate> results, {
-    Duration? duration,
-  }) => _pickBest(results, duration: duration);
+  static bool artistLooksSame(String a, String b) {
+    final na = _normalizeArtist(a);
+    final nb = _normalizeArtist(b);
+    if (na.isEmpty || nb.isEmpty) return false;
+    return na.contains(nb) || nb.contains(na);
+  }
+
+  static String _normalizeArtist(String s) =>
+      s.toLowerCase().replaceAll(RegExp(r'''[\s\-_.,·'"()\[\]]'''), '');
 }
