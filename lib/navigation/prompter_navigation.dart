@@ -1,4 +1,4 @@
-// file: lib/navigation/prompter_navigation.dart
+﻿// file: lib/navigation/prompter_navigation.dart
 //
 // 전체화면 프롬프터 라우팅 구성을 담당한다.
 //
@@ -9,12 +9,14 @@
 // 설정도 값이 아니라 provider로 받는다. 값으로 캡처하면 라우트를 연 시점의
 // 스냅샷 위에 copyWith가 얹혀, 글자 크기를 바꾼 뒤 속도를 바꾸면 크기가
 // 조용히 되돌아갔다. Ctrl+휠은 이 경로를 연달아 타므로 특히 치명적이다.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/playback_controller.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../screens/prompter_screen.dart';
+import '../utils/music_key.dart';
 
 class PrompterNavigation {
   PrompterNavigation._();
@@ -28,6 +30,11 @@ class PrompterNavigation {
     required double lineHeight,
     required String? fontFamily,
     required ValueChanged<PrompterSettings> onSettingsChanged,
+    void Function(int delta)? onStepPitch,
+    void Function(double delta)? onStepTempo,
+    ValueListenable<int?>? pendingPitch,
+    MusicKey? songKey,
+    MusicKey? soundingKey,
   }) {
     final initial = settingsProvider();
 
@@ -47,12 +54,20 @@ class PrompterNavigation {
           fontSizeLevel: initial.fontSizeLevel,
           lineHeightLevel: initial.lineHeightLevel,
           customFontSizePt: initial.customFontSizePt,
-          speedLevel: initial.speedLevel,
           volume: initial.volume,
           fontFamily: fontFamily,
           boldText: initial.boldText,
           displayMode: initial.displayMode,
           showEqMeter: initial.showEqMeter,
+          showSyllableSweep: initial.showSyllableSweep,
+          controlsDrawerOpen: initial.controlsDrawerOpen,
+          onControlsDrawerChanged: (open) =>
+              update((s) => s.copyWith(controlsDrawerOpen: open)),
+          onStepPitch: onStepPitch,
+          onStepTempo: onStepTempo,
+          pendingPitch: pendingPitch,
+          songKey: songKey,
+          soundingKey: soundingKey,
           onDisplayModeChanged: (mode) =>
               update((s) => s.copyWith(displayMode: mode)),
           onFontSizeLevelChanged: (value) => update(
@@ -60,8 +75,6 @@ class PrompterNavigation {
           ),
           onLineHeightLevelChanged: (value) =>
               update((s) => s.copyWith(lineHeightLevel: value)),
-          onSpeedLevelChanged: (value) =>
-              update((s) => s.copyWith(speedLevel: value)),
           onVolumeChanged: (value) => update((s) => s.copyWith(volume: value)),
         ),
       ),

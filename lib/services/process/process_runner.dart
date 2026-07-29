@@ -9,6 +9,20 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+/// 외부 도구 출력 디코더. **엄격한 utf8.decoder를 쓰면 안 된다.**
+///
+/// yt-dlp(파이썬)는 stdout이 파이프일 때 로케일 코드페이지로 인코딩한다.
+/// 이 PC는 cp949라, 내려받기 대상 경로에 한글이 있으면
+/// `[download] Destination: C:\...\OneDrive\문서\...` 줄이 cp949 바이트로 나온다.
+/// 엄격한 UTF-8 디코더는 여기서 FormatException을 던지고, forEach가 끊기면서
+/// **파이프를 더 이상 비우지 않는다.** 그러면 yt-dlp가 stdout 쓰기에서 막히다
+/// `[Errno 22] Invalid argument`로 죽는다 — 실제로 한글 데이터 폴더에서
+/// 가져오기가 통째로 실패하던 원인이 이것이었다.
+///
+/// 파싱이 필요한 값(진행률·`ERROR:` 접두사)은 전부 ASCII라, 깨진 바이트를
+/// 대체 문자로 흘려보내도 동작에는 영향이 없다. 던지지 않는 것이 핵심이다.
+const Utf8Decoder toolOutputDecoder = Utf8Decoder(allowMalformed: true);
+
 /// 실행 중인 외부 프로세스 하나에 대한 핸들.
 class JobHandle {
   /// stdout + stderr을 줄 단위로 합친 스트림.
@@ -91,11 +105,11 @@ class SystemProcessRunner implements ProcessRunner {
       }
 
       final stdoutDone = started.stdout
-          .transform(utf8.decoder)
+          .transform(toolOutputDecoder)
           .transform(const LineSplitter())
           .forEach(controller.add);
       final stderrDone = started.stderr
-          .transform(utf8.decoder)
+          .transform(toolOutputDecoder)
           .transform(const LineSplitter())
           .forEach(controller.add);
 

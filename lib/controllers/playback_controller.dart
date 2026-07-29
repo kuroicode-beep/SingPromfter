@@ -34,6 +34,12 @@ class PlaybackSnapshot {
   /// 현재 반주에 맞춘 가사 오프셋(ms). 음수면 가사를 먼저 띄운다.
   final int lyricsOffsetMs;
 
+  /// 지금 재생 중인 파일에 구워진 템포(배). 1.0이면 원속도다.
+  ///
+  /// 트림 지점은 이미 이 축으로 환산돼 있고, 가사 시각은 원본 축이라
+  /// 비교하려면 이 값이 필요하다(lyrics_sync_math의 축 규약 참고).
+  final double tempoScale;
+
   const PlaybackSnapshot({
     this.song,
     this.trackSlot,
@@ -43,6 +49,7 @@ class PlaybackSnapshot {
     this.audioReady = false,
     this.duration = Duration.zero,
     this.lyricsOffsetMs = 0,
+    this.tempoScale = 1,
   });
 
   PlaybackSnapshot copyWith({
@@ -54,6 +61,7 @@ class PlaybackSnapshot {
     bool? audioReady,
     Duration? duration,
     int? lyricsOffsetMs,
+    double? tempoScale,
     bool clearSong = false,
     bool clearTrack = false,
   }) {
@@ -66,6 +74,7 @@ class PlaybackSnapshot {
       audioReady: audioReady ?? this.audioReady,
       duration: duration ?? this.duration,
       lyricsOffsetMs: clearTrack ? 0 : (lyricsOffsetMs ?? this.lyricsOffsetMs),
+      tempoScale: clearTrack ? 1 : (tempoScale ?? this.tempoScale),
     );
   }
 
@@ -90,12 +99,22 @@ class PlaybackController {
   /// 곡의 싱크 가사를 읽어온다. 없으면 null.
   final Future<TimedLyrics?> Function(Song song)? timedLyricsLoader;
 
-  /// 키를 바꾼 반주 경로를 준비한다. 0이거나 실패하면 null(원본 사용).
-  final Future<String?> Function(Song song, int slot, int semitones)?
-  pitchVariantResolver;
+  /// 키·템포를 바꿔 구운 반주 경로를 준비한다. 기본값이거나 실패하면 null.
+  final Future<String?> Function(
+    Song song,
+    int slot,
+    int semitones,
+    double tempoScale,
+  )?
+  trackVariantResolver;
 
   /// 반주의 EQ 밴드 레벨을 읽어온다(없으면 백그라운드 분석 후 늦게 도착).
   final Future<TrackLevels?> Function(Song song, int slot)? levelsLoader;
+
+  /// 반주 길이가 확정될 때마다 불린다(곡을 물릴 때·슬롯을 바꿀 때).
+  /// 길이를 알아야 표본 구간을 잡을 수 있는 조성 추정이 여기에 붙는다.
+  /// 여러 번 불릴 수 있으니 받는 쪽이 멱등해야 한다.
+  final void Function(Song song, Duration duration)? onSongReady;
 
   /// 녹음 중이면 true. 녹음 중에는 자동으로 다음 곡으로 넘어가지 않는다.
   bool Function()? isRecordingProvider;
@@ -143,8 +162,9 @@ class PlaybackController {
     required this.onQueueChanged,
     required this.onMessage,
     this.timedLyricsLoader,
-    this.pitchVariantResolver,
+    this.trackVariantResolver,
     this.levelsLoader,
+    this.onSongReady,
     this.onPracticeSessionEnded,
   });
 
@@ -155,7 +175,13 @@ class PlaybackController {
     _bindings = audio.bind(
       onPlayingChanged: _handlePlayingChanged,
       onPositionChanged: _handleNativePosition,
-      onDurationChanged: (dur) => _update(state.value.copyWith(duration: dur)),
+      onDurationChanged: (dur) {
+        _update(state.value.copyWith(duration: dur));
+        // 길이는 네이티브에서 늦게 온다. 조성 추정처럼 길이가 있어야 하는
+        // 작업은 loadSong 끝이 아니라 여기서 시작해야 한다.
+        final song = state.value.song;
+        if (song != null && dur > Duration.zero) onSongReady?.call(song, dur);
+      },
       onCompleted: onSongCompleted,
     );
     // 네이티브 이벤트가 멎어도 위치가 어긋나지 않도록 주기적으로 재동기화한다.
@@ -265,25 +291,91 @@ class PlaybackController {
         playerPosition: current,
         trackStartMs: state.value.trackStartMs,
         lyricsOffsetMs: state.value.lyricsOffsetMs,
+        tempoScale: state.value.tempoScale,
       );
       final next = synced.indexAt(songTime);
       if (next != lineIndex.value) lineIndex.value = next;
       return;
     }
 
-    // 추정 진행은 속도가 0이면 계산 자체가 0을 돌려준다.
-    // 그대로 쓰면 줄이 첫 줄로 튀므로, 이 경우엔 현재 줄을 유지한다.
-    final speedLevel = settingsProvider().speedLevel;
-    if (speedLevel <= 0) return;
-
     final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
     final next = LyricsProgressService.estimatedLineIndex(
       position: current,
       duration: state.value.duration,
       lineCount: lines,
-      speedLevel: speedLevel,
     );
     if (next != lineIndex.value) lineIndex.value = next;
+  }
+
+  /// 가사 줄이 끝나는 기준이 되는 곡 끝. 트림 끝을 우선하고 없으면 곡 길이.
+  /// 마지막 줄의 끝을 정하는 데만 쓴다.
+  Duration? get lyricsTrackEnd {
+    final tempo = state.value.tempoScale;
+    final endMs = state.value.trackEndMs;
+    if (endMs != null && endMs > 0) {
+      // 트림 끝은 렌더 축이므로 가사와 같은 원본 축으로 되돌린다.
+      return LyricsSyncMath.toSource(Duration(milliseconds: endMs), tempo);
+    }
+    final duration = state.value.duration;
+    if (duration <= Duration.zero) return null;
+    return LyricsSyncMath.toSource(duration, tempo);
+  }
+
+  /// 현재 줄 안에서의 진행률(0..1). 스윕할 수 없는 상황이면 null.
+  ///
+  /// ValueNotifier로 노출하지 않는 것은 의도다 — 60Hz 값이 notifier가 되는
+  /// 순간 누군가 AnimatedBuilder에 물릴 위험이 생긴다. "위치는 구독 위젯이
+  /// 직접 받는다"는 v2.6.0 규약을 여기서도 지킨다. 스윕 위젯이 자기 Ticker에서
+  /// 이 메서드를 직접 부른다.
+  double? currentLineFraction() {
+    final song = state.value.song;
+    if (song == null) return null;
+
+    final synced = timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      final index = lineIndex.value;
+      if (index < 0 || index >= synced.lines.length) return null;
+      final start = synced.lines[index].time;
+      final end = index + 1 < synced.lines.length
+          ? synced.lines[index + 1].time
+          : lyricsTrackEnd;
+      if (end == null) return null;
+
+      final lyricsTime = LyricsSyncMath.lyricsTimeFor(
+        playerPosition: position.value,
+        lyrics: synced,
+        trackStartMs: state.value.trackStartMs,
+        lyricsOffsetMs: state.value.lyricsOffsetMs,
+        tempoScale: state.value.tempoScale,
+      );
+      return LyricsSyncMath.lineProgress(
+        lyricsTime: lyricsTime,
+        start: start,
+        end: end,
+        maxSweep: LyricsSyncMath.sweepWindow(
+          synced.lines[index].text,
+          end - start,
+        ),
+      );
+    }
+
+    // 싱크 가사가 없으면 스윕하지 않는다.
+    //
+    // 추정 진행률은 있지만(LyricsProgressService.estimatedLineProgress),
+    // 그건 "곡 길이에 줄을 고르게 뿌린" 값이라 실제 노래와 맞을 이유가 없다.
+    // 그 값으로 개별 글자를 켜면 **자신 있게 틀린 음절**을 가리키게 된다 —
+    // 아무 표시도 없느니만 못하다. 줄 단위 강조(화살표·밑줄·배경·색)는
+    // 그대로 남으므로 어느 줄인지는 여전히 알 수 있다.
+    return null;
+  }
+
+  /// 원본 축 트림 지점을 렌더 축으로 옮긴다. 값이 없으면 그대로 null.
+  static int? _toRenderedMs(int? sourceMs, double tempoScale) {
+    if (sourceMs == null) return null;
+    return LyricsSyncMath.toRendered(
+      Duration(milliseconds: sourceMs),
+      tempoScale,
+    ).inMilliseconds;
   }
 
   /// 지금 곡의 줄 수. 싱크 가사가 있으면 그 줄 목록 기준이다.
@@ -310,6 +402,7 @@ class PlaybackController {
           index: clamped,
           trackStartMs: state.value.trackStartMs,
           lyricsOffsetMs: state.value.lyricsOffsetMs,
+          tempoScale: state.value.tempoScale,
         ),
       );
       return;
@@ -319,7 +412,6 @@ class PlaybackController {
       index: clamped,
       duration: state.value.duration,
       lineCount: total,
-      speedLevel: settingsProvider().speedLevel,
     );
     if (estimated != null) {
       await seek(estimated + Duration(milliseconds: state.value.trackStartMs ?? 0));
@@ -334,6 +426,23 @@ class PlaybackController {
   }
 
   bool _warnedNoSeekableLyrics = false;
+
+  /// 곡 처음(트림 시작)으로. Home 단축키.
+  Future<void> jumpToStart() =>
+      seek(Duration(milliseconds: state.value.trackStartMs ?? 0));
+
+  /// 현재 위치에서 [delta]만큼 건너뛴다. ←/→ 단축키.
+  /// seek이 트림·길이로 클램프하므로 곡 밖으로 나가지 않는다.
+  Future<void> seekRelative(Duration delta) => seek(position.value + delta);
+
+  /// 곡 끝(트림 끝)으로. End 단축키.
+  /// seek이 트림·길이로 클램프하므로 큰 값을 넘겨도 안전하다.
+  Future<void> jumpToEnd() async {
+    final end =
+        state.value.trackEndMs ?? state.value.duration.inMilliseconds;
+    if (end <= 0) return;
+    await seek(Duration(milliseconds: end));
+  }
 
   /// 이전/다음 줄로 옮긴다. (마우스 휠·단축키용)
   Future<void> stepLine(int delta) =>
@@ -434,24 +543,61 @@ class PlaybackController {
     _syncTicker();
   }
 
-  Future<void> prepareAudioForSelection() async {
+  /// 반주 파일을 다시 물린다.
+  ///
+  /// [keepPosition]이면 지금 위치와 재생 여부를 그대로 이어 간다 —
+  /// 노래를 부르는 도중에 키를 바꿔도 처음으로 돌아가지 않게 하기 위해서다.
+  Future<void> prepareAudioForSelection({bool keepPosition = false}) async {
     final settings = settingsProvider();
+    final resumeAt = keepPosition ? position.value : null;
+    final wasPlaying = keepPosition && state.value.playing;
+    // 스냅샷을 덮어쓰기 **전에** 잡아 둔다. 템포가 바뀌면 같은 "노래의 지점"이
+    // 다른 재생 위치가 되므로, 옛 축으로 원본 시각을 구한 뒤 새 축으로
+    // 되돌려야 한다. 렌더 위치를 그대로 재사용하면 0.8배에서 25% 뒤로 튄다.
+    final oldTempo = state.value.tempoScale;
+    final oldStartMs = state.value.trackStartMs ?? 0;
 
-    // 키가 지정돼 있으면 미리 렌더한 변형본을 재생한다.
+    // 새 파일의 길이가 오기 전에 이전 곡 길이를 먼저 버린다.
+    // 이 초기화를 prepareSelection **뒤**에 두면, 그 사이 도착한
+    // onDurationChanged 값을 도로 0으로 덮어써 길이가 영영 0에 머문다
+    // (진행바 총 시간·End 키·가사 추정 이동이 모두 죽는다).
+    _update(state.value.copyWith(duration: Duration.zero));
+
+    // 키·템포가 지정돼 있으면 미리 렌더한 변형본을 재생한다.
     String? overridePath;
     final song = state.value.song;
     final slot = state.value.trackSlot;
     final semitones = song == null ? 0 : settings.pitchForSong(song.id, slot);
-    if (song != null && slot != null && semitones != 0) {
-      overridePath = await pitchVariantResolver?.call(song, slot, semitones);
+    final tempo = song == null ? 1.0 : settings.tempoForSong(song.id, slot);
+    if (song != null && slot != null && (semitones != 0 || tempo != 1)) {
+      overridePath = await trackVariantResolver?.call(
+        song,
+        slot,
+        semitones,
+        tempo,
+      );
     }
+
+    // 템포가 바뀌면 파일 길이 자체가 달라지므로 트림 지점을 렌더 축으로 옮긴다.
+    final track = song?.trackForSlot(slot ?? -1);
+    _update(
+      state.value.copyWith(
+        tempoScale: tempo,
+        trackStartMs: _toRenderedMs(track?.startMs, tempo),
+        trackEndMs: _toRenderedMs(track?.endMs, tempo),
+      ),
+    );
 
     final result = await audio.prepareSelection(
       overridePath: overridePath,
       song: state.value.song,
       selectedTrackSlot: state.value.trackSlot,
       volume: settings.volume,
-      playbackRate: settings.playbackRate,
+      // 템포는 파일에 구워져 있으므로 플레이어 배속은 언제나 1.0이다.
+      // Windows의 setPlaybackRate는 IMFMediaEngine을 그대로 불러 음정이
+      // 딸려 올라간다 — 키를 오프라인으로 뺀 이유와 같다. 1.0으로 고정하면
+      // setPlaybackRate와 _clock.setRate의 짝이 어긋날 여지도 사라진다.
+      playbackRate: 1,
       startMs: state.value.trackStartMs,
     );
     if (_disposed) return;
@@ -461,9 +607,35 @@ class PlaybackController {
     _clock.anchor(start);
     position.value = start;
 
-    _update(
-      state.value.copyWith(audioReady: result.ready, duration: Duration.zero),
-    );
+    _update(state.value.copyWith(audioReady: result.ready));
+
+    // 위치 유지 요청이면 원래 자리로 돌아가 이어 부른다.
+    if (resumeAt != null && result.ready) {
+      final newStartMs = state.value.trackStartMs ?? 0;
+      final sourceAt = LyricsSyncMath.toSource(
+        resumeAt - Duration(milliseconds: oldStartMs),
+        oldTempo,
+      );
+      final target = LyricsSyncMath.clampToTrim(
+        LyricsSyncMath.toRendered(sourceAt, tempo) +
+            Duration(milliseconds: newStartMs),
+        startMs: state.value.trackStartMs,
+        endMs: state.value.trackEndMs,
+      );
+      await audio.seek(target);
+      _clock.anchor(target);
+      position.value = target;
+      _recomputeLineIndex(target);
+      if (wasPlaying) {
+        await audio.play(
+          song: state.value.song,
+          audioReady: true,
+          playing: false,
+        );
+      }
+      _syncTicker();
+    }
+
     if (result.message != null) onMessage(result.message!);
   }
 
@@ -472,6 +644,8 @@ class PlaybackController {
     if (song == null) return;
     if (!song.availableTrackSlots.contains(slot)) return;
     final track = song.trackForSlot(slot);
+    // 트림 지점의 렌더 축 환산은 prepareAudioForSelection이 템포를 알고 나서
+    // 다시 한다. 여기서는 원본 값으로 두고 슬롯만 바꾼다.
     _update(
       state.value.copyWith(
         trackSlot: slot,
@@ -570,8 +744,9 @@ class PlaybackController {
   /// 볼륨·배속 등 설정 변경을 재생에 반영한다.
   Future<void> applySettings(PrompterSettings next) async {
     await audio.setVolume(next.volume);
-    await audio.setPlaybackRate(next.playbackRate);
-    _clock.setRate(next.playbackRate);
+    // 템포는 파일에 구워지므로 플레이어 배속은 손대지 않는다.
+    // setPlaybackRate와 _clock.setRate는 반드시 짝으로 움직여야 하는데,
+    // 둘 다 부르지 않는 것이 그 짝을 지키는 가장 확실한 방법이다.
     _syncTicker();
   }
 

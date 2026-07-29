@@ -2,6 +2,13 @@
 //
 // 앱 전역에서 공유하는 의미 있는 수치 상수.
 class AppConstants {
+  /// 가사 선행/지연 오프셋의 한계(ms).
+  ///
+  /// v2.7.0까지는 ±3초였는데, LRCLIB이 인트로 길이가 다른 판본을 물어 오면
+  /// 4초 넘게 어긋나는 일이 있다(실측: "넌 언제나" LRC가 보컬보다 3.96초 늦음).
+  /// 그런 곡은 ±3초 안에서는 **아예 맞출 수가 없다**. 10초까지 열어 둔다.
+  static const int maxLyricsOffsetMs = 10000;
+
   AppConstants._();
 
   static const double wideLayoutBreakpoint = 980;
@@ -16,7 +23,11 @@ class AppConstants {
   /// 조작 요소 최소 높이.
   /// v2.5.0에서 정보 밀도를 위해 축소했다(사용자 요청). 무대 전체화면의
   /// 큰 조작부는 자체 크기를 쓰므로 이 값의 영향을 받지 않는다.
-  static const double minTouchTarget = 34;
+  /// 최소 터치·클릭 타깃(dp).
+  ///
+  /// SVIL 접근성 기준은 50 이상인데 v2.8.0까지 34였다. 저시력 사용자에게
+  /// 34dp 버튼은 조준이 필요한 크기라 기준대로 올렸다.
+  static const double minTouchTarget = 50;
 
   /// 목록 행처럼 더 촘촘해도 되는 곳.
   static const double denseTouchTarget = 28;

@@ -14,7 +14,12 @@ class PrompterLine {
   /// 이 줄이 시작되는 곡 시각. 싱크 가사가 없으면 null.
   final Duration? time;
 
-  const PrompterLine({required this.text, this.time});
+  /// 다음 줄이 시작되는 시각 = 이 줄이 끝나는 시각.
+  /// 마지막 줄은 곡 끝을 알 때만 채워진다. 모르면 null이고 스윕하지 않는다 —
+  /// 끝점을 지어낸 스윕은 없느니만 못하다.
+  final Duration? end;
+
+  const PrompterLine({required this.text, this.time, this.end});
 }
 
 class PrompterLines {
@@ -36,16 +41,26 @@ class PrompterLines {
 ///
 /// 싱크 가사가 있으면 그 줄 목록을 그대로 쓴다(시각 포함). 없으면 일반
 /// 가사를 줄 단위로 나눈다. 가사가 아예 없으면 안내 한 줄을 돌려준다.
+///
+/// [trackEnd]는 **마지막 줄의 끝**을 정하는 데만 쓴다(트림 끝 또는 곡 길이,
+/// 가사와 같은 원본 시간축). 주지 않으면 마지막 줄은 끝을 모르는 채로 둔다.
 PrompterLines buildPrompterLines({
   required String lyricsText,
   TimedLyrics? timedLyrics,
+  Duration? trackEnd,
 }) {
   final synced = timedLyrics;
   if (synced != null && !synced.isEmpty) {
+    final source = synced.lines;
     return PrompterLines(
-      lines: synced.lines
-          .map((l) => PrompterLine(text: l.text, time: l.time))
-          .toList(growable: false),
+      lines: [
+        for (var i = 0; i < source.length; i++)
+          PrompterLine(
+            text: source[i].text,
+            time: source[i].time,
+            end: i + 1 < source.length ? source[i + 1].time : trackEnd,
+          ),
+      ],
       seekable: true,
     );
   }

@@ -10,7 +10,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/prompter_lines.dart';
-import '../theme/app_theme.dart';
+import 'prompter_current_line.dart';
 
 class PrompterLineListView extends StatefulWidget {
   final PrompterLines lines;
@@ -29,6 +29,9 @@ class PrompterLineListView extends StatefulWidget {
   /// 현재 줄을 화면 안으로 따라오게 할지.
   final bool autoFollow;
 
+  /// 현재 줄을 한 글자씩 밝히는 렌더러. null이면 평범한 Text.
+  final Widget Function(PrompterLine line, TextStyle style)? sweepBuilder;
+
   final ScrollController? scrollController;
 
   const PrompterLineListView({
@@ -44,6 +47,7 @@ class PrompterLineListView extends StatefulWidget {
     this.mutedColor = Colors.white70,
     this.onLineTap,
     this.autoFollow = true,
+    this.sweepBuilder,
     this.scrollController,
   });
 
@@ -57,7 +61,16 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
   @override
   void didUpdateWidget(covariant PrompterLineListView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentIndex != widget.currentIndex) _followCurrent();
+    // 글자 크기·줄 간격이 바뀌면 위쪽 줄들의 높이가 전부 달라지는데
+    // 스크롤 오프셋은 그대로라 가사가 통째로 미끄러진다. 그게 "줄이 같이
+    // 움직인다"로 보였다. 줄 번호가 안 바뀌어도 다시 잡아 준다.
+    final reflowed =
+        oldWidget.fontSize != widget.fontSize ||
+        oldWidget.lineHeight != widget.lineHeight ||
+        oldWidget.lines.length != widget.lines.length;
+    if (oldWidget.currentIndex != widget.currentIndex || reflowed) {
+      _followCurrent();
+    }
   }
 
   @override
@@ -96,101 +109,25 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < lines.length; i++)
-            _LineTile(
+            PrompterCurrentLine(
               key: _keys.putIfAbsent(i, GlobalKey.new),
               text: lines[i].text,
               isCurrent: i == current,
               fontSize: widget.fontSize,
+              mutedScale: listMutedScale,
               lineHeight: widget.lineHeight,
               fontFamily: widget.fontFamily,
               boldText: widget.boldText,
               mutedColor: widget.mutedColor,
+              margin: EdgeInsets.symmetric(vertical: widget.fontSize * 0.12),
+              sweepBuilder: widget.sweepBuilder == null
+                  ? null
+                  : (style) => widget.sweepBuilder!(lines[i], style),
               onTap: widget.onLineTap == null
                   ? null
                   : () => widget.onLineTap!(i),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _LineTile extends StatelessWidget {
-  final String text;
-  final bool isCurrent;
-  final double fontSize;
-  final double lineHeight;
-  final String? fontFamily;
-  final bool boldText;
-  final Color mutedColor;
-  final VoidCallback? onTap;
-
-  const _LineTile({
-    super.key,
-    required this.text,
-    required this.isCurrent,
-    required this.fontSize,
-    required this.lineHeight,
-    required this.fontFamily,
-    required this.boldText,
-    required this.mutedColor,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // 현재 줄은 색(오렌지)만이 아니라 ▶ 마커·글자 크기·글로우로도 구분한다.
-    final size = isCurrent ? fontSize : fontSize * 0.72;
-    final gutter = fontSize * 0.9;
-
-    return Semantics(
-      selected: isCurrent,
-      button: onTap != null,
-      label: isCurrent ? '현재 줄: $text' : text,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: fontSize * 0.18),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 좌우 대칭 거터 — 마커가 붙고 떨어져도 본문이 밀리지 않는다.
-              SizedBox(
-                width: gutter,
-                child: isCurrent
-                    ? Icon(
-                        Icons.play_arrow_rounded,
-                        size: fontSize * 0.62,
-                        color: AppColors.tertiary,
-                      )
-                    : null,
-              ),
-              Expanded(
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: size,
-                    height: lineHeight,
-                    // 무대는 고가독 고딕으로 폴백한다(저시력 우선).
-                    fontFamily: fontFamily ?? AppFonts.legible,
-                    color: isCurrent ? AppColors.tertiary : mutedColor,
-                    fontWeight: isCurrent
-                        ? (boldText ? FontWeight.w800 : FontWeight.w700)
-                        : FontWeight.w500,
-                    shadows: isCurrent
-                        ? const [
-                            Shadow(color: AppColors.tertiary, blurRadius: 18),
-                            Shadow(color: AppColors.tertiary, blurRadius: 8),
-                          ]
-                        : null,
-                  ),
-                ),
-              ),
-              SizedBox(width: gutter),
-            ],
-          ),
-        ),
       ),
     );
   }

@@ -12,9 +12,37 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.6.0';
+  static const String current = '2.8.3';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.8.3',
+      '2026-07-29',
+      '제목·가수를 고치면 키조절 반주의 구운 키가 지워져 조성이 틀리게 '
+          '표시되던 문제',
+    ),
+    AppVersionEntry(
+      '2.8.2',
+      '2026-07-29',
+      '가사 자동 맞춤 정확도 수정 · 전체화면 조작판이 안 열리던 문제 · '
+          '한글 폴더에서 유튜브 가져오기가 실패하던 문제',
+    ),
+    AppVersionEntry(
+      '2.8.1',
+      '2026-07-29',
+      '가사 싱크 자동 맞춤(원곡·MR 비교) + 버튼·터치 영역 확대(34→50)',
+    ),
+    AppVersionEntry(
+      '2.8.0',
+      '2026-07-29',
+      '한 글자씩 가사 스윕 · 조작판 드로어 · 속도→템포(음정 보존) · '
+          '표시 설정 이동 · EQ 24밴드. 재생 배속 설정은 템포로 대체됐습니다',
+    ),
+    AppVersionEntry(
+      '2.7.0',
+      '2026-07-29',
+      '무대 조작 마무리 — 휠 모드 분리·현재 줄 강조·Home/End·Alt+휠 키 조절·조성 자동 감지',
+    ),
     AppVersionEntry(
       '2.6.0',
       '2026-07-29',

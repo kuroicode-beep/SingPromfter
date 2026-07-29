@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,9 +10,14 @@ import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
+import '../utils/music_key.dart';
+import '../utils/pitch_math.dart';
+import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
+import '../widgets/prompter_drawer.dart';
 import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/prompter_lyrics_view.dart';
+import '../widgets/prompter_sweep_line.dart';
 import '../widgets/prompter_progress_bar.dart';
 import '../widgets/prompter_keyboard_scope.dart';
 import '../widgets/prompter_wheel_scope.dart';
@@ -28,16 +34,36 @@ class PrompterScreen extends StatefulWidget {
   final double? fontSizeLevel;
   final double? lineHeightLevel;
   final double? customFontSizePt;
-  final double speedLevel;
   final double volume;
   final String? fontFamily;
   final bool boldText;
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
+
+  /// Shift+휠 — 템포. null이면 아무 일도 하지 않는다.
+  final void Function(double delta)? onStepTempo;
+
+  /// 하단 조작판을 펼쳐 둘지. 접혀도 손잡이는 항상 보인다.
+  final bool controlsDrawerOpen;
+  final ValueChanged<bool>? onControlsDrawerChanged;
+
+  /// 현재 줄을 한 글자씩 밝힐지.
+  final bool showSyllableSweep;
+
+  /// Alt+휠 키 조절. null이면 무대에서 키를 바꿀 수 없다.
+  final void Function(int delta)? onStepPitch;
+
+  /// 조절 중인 키(적용 대기 값). null이면 표시하지 않는다.
+  final ValueListenable<int?>? pendingPitch;
+
+  /// 사용자 키를 얹기 전의 슬롯 조성 — HUD가 여기에 조절값을 더한다.
+  final MusicKey? songKey;
+
+  /// 지금 들리는 조성. 상단 바에 상시 표시한다.
+  final MusicKey? soundingKey;
   final ValueChanged<PrompterDisplayMode>? onDisplayModeChanged;
   final ValueChanged<double>? onFontSizeLevelChanged;
   final ValueChanged<double>? onLineHeightLevelChanged;
-  final ValueChanged<double>? onSpeedLevelChanged;
   final ValueChanged<double>? onVolumeChanged;
 
   const PrompterScreen({
@@ -49,16 +75,22 @@ class PrompterScreen extends StatefulWidget {
     this.fontSizeLevel,
     this.lineHeightLevel,
     this.customFontSizePt,
-    this.speedLevel = 0,
     this.volume = 1,
     this.fontFamily,
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
+    this.showSyllableSweep = true,
+    this.controlsDrawerOpen = false,
+    this.onControlsDrawerChanged,
+    this.onStepPitch,
+    this.onStepTempo,
+    this.pendingPitch,
+    this.songKey,
+    this.soundingKey,
     this.onDisplayModeChanged,
     this.onFontSizeLevelChanged,
     this.onLineHeightLevelChanged,
-    this.onSpeedLevelChanged,
     this.onVolumeChanged,
   });
 
@@ -70,10 +102,24 @@ class _PrompterScreenState extends State<PrompterScreen> {
   final _scrollController = ScrollController();
 
   bool _controlsVisible = true;
+
+  /// 드로어 애니메이션 진행도(0=닫힘, 1=열림).
+  /// 무대 크기 계산에 쓴다 — 접히는 동안 밴드가 리사이즈되면 가사가 통째로
+  /// 재레이아웃되기 때문에, 언제나 "열린 상태" 크기를 기준으로 잡는다.
+  Animation<double>? _drawerAnim;
+
+  /// 드로어 열림 상태의 **로컬 소유본**.
+  ///
+  /// widget.controlsDrawerOpen을 그대로 쓰면 안 된다 — 무대는
+  /// `Navigator.push`의 builder로 만들어지고 그 builder는 **한 번만 돈다**.
+  /// 설정이 바뀌어도 새 PrompterScreen이 만들어지지 않으므로
+  /// widget 값은 무대에 들어온 순간에 얼어붙는다. 그래서 손잡이를 눌러도
+  /// 드로어가 꿈쩍하지 않았다(들어올 때 열려 있었으면 계속 열린 채).
+  /// _displayMode·_fontSizeLevel과 같은 방식으로 여기서 소유하고 위로 알린다.
+  late bool _drawerOpen;
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
-  late double _speedLevel;
   late PrompterDisplayMode _displayMode;
 
   @override
@@ -83,8 +129,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _lineHeightLevel =
         widget.lineHeightLevel ?? _lineHeightToLevel(widget.lineHeight);
     _customFontSizePt = widget.customFontSizePt;
-    _speedLevel = widget.speedLevel;
     _displayMode = widget.displayMode;
+    _drawerOpen = widget.controlsDrawerOpen;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -99,7 +145,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
   PrompterSettings get _keyboardSettings => PrompterSettings(
     fontSizeLevel: _fontSizeLevel,
     lineHeightLevel: _lineHeightLevel,
-    speedLevel: _speedLevel,
     volume: widget.volume,
     fontFamily: widget.fontFamily ?? '기본',
     boldText: widget.boldText,
@@ -110,9 +155,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
   void _applyKeyboardSettings(PrompterSettings next) {
     if (next.volume != widget.volume) {
       widget.onVolumeChanged?.call(next.volume);
-    }
-    if (next.speedLevel != _speedLevel) {
-      _updateSpeedLevel(next.speedLevel);
     }
   }
 
@@ -163,11 +205,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
     widget.onLineHeightLevelChanged?.call(value);
   }
 
-  void _updateSpeedLevel(double value) {
-    setState(() => _speedLevel = value);
-    widget.onSpeedLevelChanged?.call(value);
-  }
-
   void _toggleControls() =>
       setState(() => _controlsVisible = !_controlsVisible);
 
@@ -182,9 +219,16 @@ class _PrompterScreenState extends State<PrompterScreen> {
         enablePlaybackShortcuts: false,
         onSettingsChanged: _applyKeyboardSettings,
         onClose: () => Navigator.pop(context),
+        onJumpToStart: widget.playback.jumpToStart,
+        onJumpToEnd: widget.playback.jumpToEnd,
+        onSeekRelative: widget.playback.seekRelative,
         child: PrompterWheelScope(
           onStepLine: widget.playback.stepLine,
           onStepFontSize: _stepFontSize,
+          onStepPitch: widget.onStepPitch,
+          onStepTempo: widget.onStepTempo == null
+              ? null
+              : (delta) => widget.onStepTempo!(delta * tempoStep),
           child: Scaffold(
             backgroundColor: Colors.black,
             // 하단 바를 Stack 오버레이가 아니라 Column 형제로 둔다.
@@ -237,18 +281,32 @@ class _PrompterScreenState extends State<PrompterScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final stage = Size(constraints.maxWidth, constraints.maxHeight);
-        final band = PrompterStageMetrics.bandHeight(
+        // 드로어가 접힌 만큼 무대가 더 커져 있다. 그 몫을 빼 "열린 상태"
+        // 크기로 계산해야 애니메이션 내내 밴드·뷰포트가 상수로 남는다.
+        final hidden =
+            PrompterStageMetrics.stageDrawerHeight *
+            (1 - (_drawerAnim?.value ?? (_drawerOpen ? 1 : 0)));
+        final stable = PrompterStageMetrics.stableStage(
           stage,
+          hiddenDrawerHeight: hidden,
+        );
+        final band = PrompterStageMetrics.bandHeight(
+          stable,
           showEq: widget.showEqMeter,
         );
         final meter = PrompterStageMetrics.meterSize(
-          stage,
+          stable,
           showEq: widget.showEqMeter,
         );
         return Stack(
           children: [
-            Positioned.fill(
-              bottom: band,
+            // Positioned.fill(bottom:)이 아니라 상단 고정 + 명시 높이.
+            // 무대가 커지는 동안에도 가사 뷰포트가 흔들리지 않는다.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: (stable.height - band).clamp(0.0, double.infinity),
               child: AnimatedBuilder(
                 // 줄 번호뿐 아니라 가사 도착·따라가기 토글에도 다시 그린다.
                 animation: Listenable.merge([
@@ -276,6 +334,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   mutedColor: Colors.white70,
                   onLineTap: widget.playback.seekToLine,
                   autoFollow: !widget.playback.autoScrollPaused.value,
+                  trackEnd: widget.playback.lyricsTrackEnd,
+                  sweepBuilder: prompterSweepBuilder(
+                    playback: widget.playback,
+                    enabled: widget.showSyllableSweep,
+                  ),
                 ),
               ),
             ),
@@ -289,6 +352,14 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
+            if (widget.pendingPitch != null)
+              Positioned.fill(
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: widget.pendingPitch!,
+                  builder: (context, pitch, _) =>
+                      PitchHud(semitones: pitch, songKey: widget.songKey),
+                ),
+              ),
             if (_sizeHintVisible)
               Positioned(
                 top: 16,
@@ -360,6 +431,30 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (widget.soundingKey != null) ...[
+                Semantics(
+                  label: '현재 조성 ${widget.soundingKey!.label}',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.tertiary.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      widget.soundingKey!.label,
+                      style: const TextStyle(
+                        fontFamily: AppFonts.mono,
+                        fontSize: 18,
+                        color: AppColors.tertiary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               IconButton(
                 icon: const Icon(
                   Icons.touch_app_outlined,
@@ -376,12 +471,28 @@ class _PrompterScreenState extends State<PrompterScreen> {
     );
   }
 
+  /// 무대 하단 조작판.
+  ///
+  /// v2.7.0까지는 AnimatedOpacity(→0.2)라 **숨겨져도 자리를 먹고 클릭도
+  /// 먹었다**. 이제 진짜로 접히고, 접힌 동안은 히트테스트·시맨틱이 죽는다.
   Widget _buildBottomBar() {
-    return AnimatedOpacity(
-      opacity: _controlsVisible ? 1.0 : 0.2,
-      duration: const Duration(milliseconds: 200),
+    return PrompterDrawer(
+      open: _drawerOpen,
+      onOpenChanged: (open) {
+        setState(() => _drawerOpen = open);
+        widget.onControlsDrawerChanged?.call(open);
+      },
+      label: '조작판',
+      palette: PrompterDrawerPalette.stage,
+      fixedHeight: PrompterStageMetrics.stageDrawerHeight,
+      onAnimationReady: (anim) {
+        _drawerAnim = anim;
+        anim.addListener(() {
+          if (mounted) setState(() {});
+        });
+      },
       child: Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.76),
@@ -457,15 +568,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
                       max: 7,
                       divisions: 6,
                       onChanged: _updateLineHeightLevel,
-                    ),
-                    const SizedBox(width: 10),
-                    _InlineSlider(
-                      label: '속도',
-                      value: _speedLevel,
-                      min: 0,
-                      max: 10,
-                      divisions: 20,
-                      onChanged: _updateSpeedLevel,
                     ),
                     const SizedBox(width: 10),
                     _BarIconButton(

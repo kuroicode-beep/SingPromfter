@@ -11,14 +11,20 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'key_detection_service.dart';
 import 'level_analysis_service.dart';
 import 'pitch_variant_service.dart';
 
 class TrackAssetService {
   final PitchVariantService pitch;
   final LevelAnalysisService levels;
+  final KeyDetectionService keys;
 
-  const TrackAssetService({required this.pitch, required this.levels});
+  const TrackAssetService({
+    required this.pitch,
+    required this.levels,
+    required this.keys,
+  });
 
   /// [backingTrackFileName]에서 파생된 캐시를 모두 지운다.
   /// 다른 반주의 캐시는 건드리지 않는다.
@@ -27,6 +33,7 @@ class TrackAssetService {
     var removed = 0;
     removed += await _clearPitchVariants(backingTrackFileName);
     removed += await _clearLevels(backingTrackFileName);
+    removed += await _clearKey(backingTrackFileName);
     return removed;
   }
 
@@ -62,6 +69,19 @@ class TrackAssetService {
       return 1;
     } catch (e) {
       debugPrint('레벨 캐시 정리 실패($fileName): $e');
+      return 0;
+    }
+  }
+
+  Future<int> _clearKey(String fileName) async {
+    try {
+      final dir = await keys.cacheDir;
+      final file = File('${dir.path}/$fileName.key.json');
+      if (!await file.exists()) return 0;
+      await file.delete();
+      return 1;
+    } catch (e) {
+      debugPrint('조성 캐시 정리 실패($fileName): $e');
       return 0;
     }
   }

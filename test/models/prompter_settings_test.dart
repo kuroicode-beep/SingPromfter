@@ -16,10 +16,8 @@ void main() {
       const original = PrompterSettings(
         fontSizeLevel: 5,
         lineHeightLevel: 4,
-        speedLevel: 3,
-        volume: 0.7,
-        playbackRate: 1.25,
-        lastSelectedTrackSlot: 2,
+          volume: 0.7,
+          lastSelectedTrackSlot: 2,
         fontFamily: 'Malgun Gothic',
         boldText: true,
         customFontSizePt: 40,
@@ -33,7 +31,6 @@ void main() {
       expect(restored.fontSizeLevel, 5);
       expect(restored.lineHeightLevel, 4);
       expect(restored.volume, 0.7);
-      expect(restored.playbackRate, 1.25);
       expect(restored.boldText, isTrue);
       expect(restored.trackSlotForSong('song-1'), 2);
       expect(restored.customFontSizePt, 40);

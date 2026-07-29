@@ -1,20 +1,37 @@
 ﻿// file: lib/widgets/settings_panel.dart
 //
-// 백업·라이브러리 정리·프롬프터 기본값·표시(글꼴·글자 크기)·연습 기록·앱 정보 설정 화면.
+// 백업·라이브러리 정리·무대 가사 표시·앱 화면·연습 기록·앱 정보 설정 화면.
+//
+// v2.8.0에서 무대의 표시 설정(글자 크기·줄 간격·글꼴·굵게·표시 모드)이
+// 하단 조작판에서 이리로 왔다. 노래하는 동안 만질 값이 아니기 때문이다.
+// 조작판에는 볼륨·템포·키·싱크 오프셋·녹음만 남는다.
+//
+// 섹션 이름 주의: '앱 화면'은 앱 전체 글꼴·배율(AppDisplayController)이고,
+// '무대 가사 표시'는 프롬프터 가사(PrompterSettings)다. 둘 다 '표시'라고
+// 부르면 구분이 안 돼 이름을 실체대로 바꿨다.
 import 'package:flutter/material.dart';
 
 import '../constants/app_version.dart';
 import '../models/practice_session.dart';
+import '../models/prompter_display_mode.dart';
+import '../models/prompter_settings.dart';
 import '../services/app_display_controller.dart';
 import '../theme/app_theme.dart';
+import '../theme/prompter_levels.dart';
 import '../utils/key_label.dart';
 import 'preset_btn.dart';
 
 class SettingsPanel extends StatelessWidget {
   final List<PracticeSummary> practiceSummaries;
   final String? ytDlpVersion;
-  final bool showEqMeter;
-  final ValueChanged<bool> onToggleEqMeter;
+  /// 무대 가사 표시 설정 전체. showEqMeter 하나만 따로 받던 것을 대체한다 —
+  /// 쓰기 경로가 둘이면 반드시 어긋난다.
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onSettingsChanged;
+
+  /// 글꼴 이름 → 폰트 패밀리. 없으면 시스템 기본.
+  final Map<String, String?> fontOptions;
+
   final String separatorStatusLabel;
   final VoidCallback onUpdateYtDlp;
   final VoidCallback onExportBackup;
@@ -27,8 +44,9 @@ class SettingsPanel extends StatelessWidget {
     super.key,
     this.practiceSummaries = const [],
     this.ytDlpVersion,
-    this.showEqMeter = true,
-    required this.onToggleEqMeter,
+    this.settings = const PrompterSettings(),
+    required this.onSettingsChanged,
+    this.fontOptions = const {},
     this.separatorStatusLabel = '',
     required this.onUpdateYtDlp,
     required this.onExportBackup,
@@ -93,54 +111,15 @@ class SettingsPanel extends StatelessWidget {
           Text(separatorStatusLabel, style: AppTypography.bodyMuted),
         ],
         const SizedBox(height: 24),
-        Text('프롬프터 기본값', style: AppTypography.listTitle),
-        const SizedBox(height: 8),
-        Text(
-          '접근성 프리셋을 선택하면 글자 크기·줄 간격·속도가 함께 적용됩니다.',
-          style: AppTypography.bodyMuted,
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            PresetBtn(
-              label: '기본',
-              onTap: () => onAccessibilityPreset('standard'),
-            ),
-            PresetBtn(
-              label: '추천',
-              onTap: () => onAccessibilityPreset('recommended'),
-            ),
-            PresetBtn(label: '무대', onTap: () => onAccessibilityPreset('stage')),
-            PresetBtn(
-              label: '글자 크기',
-              semanticsLabel: '사용자 지정 글자 크기',
-              onTap: onCustomFontSize,
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        // 상태를 색·스위치만으로 구분하지 않도록 켜짐/꺼짐 텍스트를 병기한다.
-        Semantics(
-          label: '무대 EQ 애니메이션',
-          toggled: showEqMeter,
-          child: SwitchListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            title: Text('무대 EQ 애니메이션', style: AppTypography.body),
-            subtitle: Text(
-              showEqMeter
-                  ? '켜짐 — 전체화면 좌측 아래에 음악 반응 미터 표시'
-                  : '꺼짐 — 움직임이 신경 쓰이면 꺼 둘 수 있습니다',
-              style: AppTypography.bodyMuted,
-            ),
-            value: showEqMeter,
-            activeThumbColor: AppColors.primary,
-            onChanged: onToggleEqMeter,
-          ),
+        _StageDisplaySection(
+          settings: settings,
+          onChanged: onSettingsChanged,
+          fontOptions: fontOptions,
+          onCustomFontSize: onCustomFontSize,
+          onAccessibilityPreset: onAccessibilityPreset,
         ),
         const SizedBox(height: 24),
-        const _DisplaySettingsSection(),
+        const _AppDisplaySection(),
         const SizedBox(height: 24),
         _PracticeLogSection(summaries: practiceSummaries),
         const SizedBox(height: 32),
@@ -177,8 +156,220 @@ class SettingsPanel extends StatelessWidget {
 }
 
 /// SVIL 설정 표준: 앱 글꼴 선택 + 글자 크기 3단계.
-class _DisplaySettingsSection extends StatelessWidget {
-  const _DisplaySettingsSection();
+/// 무대 가사 표시 — 프롬프터에서 가사가 어떻게 보일지.
+///
+/// 컨트롤은 슬라이더가 아니라 칩이다. 저시력에는 "지금 몇 단계인지"가
+/// 눈금이 아니라 **글자**로 보이는 쪽이 훨씬 낫고, 터치 타깃도 커진다.
+class _StageDisplaySection extends StatelessWidget {
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onChanged;
+  final Map<String, String?> fontOptions;
+  final VoidCallback onCustomFontSize;
+  final ValueChanged<String> onAccessibilityPreset;
+
+  const _StageDisplaySection({
+    required this.settings,
+    required this.onChanged,
+    required this.fontOptions,
+    required this.onCustomFontSize,
+    required this.onAccessibilityPreset,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final level = settings.customFontSizePt == null
+        ? settings.fontSizeLevel.round()
+        : PrompterLevels.levelForFontSize(settings.customFontSizePt!).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('무대 가사 표시', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Text(
+          '프롬프터에서 가사가 보이는 방식입니다. '
+          '무대에서는 Ctrl+휠로 글자 크기를 바로 바꿀 수도 있습니다.',
+          style: AppTypography.bodyMuted,
+        ),
+        const SizedBox(height: 12),
+
+        Text('접근성 프리셋', style: AppTypography.body),
+        const SizedBox(height: 6),
+        Text(
+          '고르면 글자 크기·줄 간격·글꼴이 함께 적용됩니다.',
+          style: AppTypography.bodyMuted,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            PresetBtn(
+              label: '기본',
+              onTap: () => onAccessibilityPreset('standard'),
+            ),
+            PresetBtn(
+              label: '추천',
+              onTap: () => onAccessibilityPreset('recommended'),
+            ),
+            PresetBtn(label: '무대', onTap: () => onAccessibilityPreset('stage')),
+            PresetBtn(
+              label: '직접 지정',
+              semanticsLabel: '사용자 지정 글자 크기',
+              onTap: onCustomFontSize,
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        Text('글자 크기', style: AppTypography.body),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var i = PrompterLevels.minLevel.toInt();
+                i <= PrompterLevels.maxLevel.toInt();
+                i++)
+              _SelectChip(
+                label: '${PrompterLevels.fontSizeForLevel(i.toDouble()).round()}pt',
+                selected: settings.customFontSizePt == null && level == i,
+                onTap: () => onChanged(
+                  settings.copyWith(
+                    fontSizeLevel: i.toDouble(),
+                    clearCustomFontSize: true,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 20),
+
+        Text('줄 간격', style: AppTypography.body),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var i = PrompterLevels.minLevel.toInt();
+                i <= PrompterLevels.maxLevel.toInt();
+                i++)
+              _SelectChip(
+                label: PrompterLevels.lineHeightForLevel(
+                  i.toDouble(),
+                ).toStringAsFixed(2),
+                selected: settings.lineHeightLevel.round() == i,
+                onTap: () =>
+                    onChanged(settings.copyWith(lineHeightLevel: i.toDouble())),
+              ),
+          ],
+        ),
+        if (fontOptions.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text('글꼴', style: AppTypography.body),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in fontOptions.entries)
+                _SelectChip(
+                  label: entry.key,
+                  selected: settings.fontFamily == entry.key,
+                  labelStyle: TextStyle(fontFamily: entry.value),
+                  onTap: () =>
+                      onChanged(settings.copyWith(fontFamily: entry.key)),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 20),
+
+        Text('표시 모드', style: AppTypography.body),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final mode in PrompterDisplayMode.values)
+              _SelectChip(
+                label: mode.label,
+                selected: settings.displayMode == mode,
+                onTap: () => onChanged(settings.copyWith(displayMode: mode)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '줄 하이라이트는 앞·현재·뒤 세 줄만 크게 보여 줍니다.',
+          style: AppTypography.bodyMuted,
+        ),
+        const SizedBox(height: 8),
+
+        _SettingSwitch(
+          title: '굵게',
+          value: settings.boldText,
+          onLabel: '켜짐 — 가사를 더 굵게 표시',
+          offLabel: '꺼짐 — 기본 굵기',
+          onChanged: (v) => onChanged(settings.copyWith(boldText: v)),
+        ),
+        _SettingSwitch(
+          title: '한 글자씩 따라가기',
+          value: settings.showSyllableSweep,
+          onLabel: '켜짐 — 부른 글자가 왼쪽부터 밝아집니다(싱크 가사 필요)',
+          offLabel: '꺼짐 — 줄 단위로만 표시',
+          onChanged: (v) => onChanged(settings.copyWith(showSyllableSweep: v)),
+        ),
+        _SettingSwitch(
+          title: '무대 EQ 애니메이션',
+          value: settings.showEqMeter,
+          onLabel: '켜짐 — 가사 아래에 음악 반응 미터 표시',
+          offLabel: '꺼짐 — 움직임이 신경 쓰이면 꺼 둘 수 있습니다',
+          onChanged: (v) => onChanged(settings.copyWith(showEqMeter: v)),
+        ),
+      ],
+    );
+  }
+}
+
+/// 상태를 색·스위치만으로 구분하지 않도록 켜짐/꺼짐 텍스트를 병기한다.
+class _SettingSwitch extends StatelessWidget {
+  final String title;
+  final bool value;
+  final String onLabel;
+  final String offLabel;
+  final ValueChanged<bool> onChanged;
+
+  const _SettingSwitch({
+    required this.title,
+    required this.value,
+    required this.onLabel,
+    required this.offLabel,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: title,
+      toggled: value,
+      child: SwitchListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+        title: Text(title, style: AppTypography.body),
+        subtitle: Text(
+          value ? onLabel : offLabel,
+          style: AppTypography.bodyMuted,
+        ),
+        value: value,
+        activeThumbColor: AppColors.primary,
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+class _AppDisplaySection extends StatelessWidget {
+  const _AppDisplaySection();
 
   @override
   Widget build(BuildContext context) {
@@ -188,7 +379,7 @@ class _DisplaySettingsSection extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('표시', style: AppTypography.listTitle),
+            Text('앱 화면', style: AppTypography.listTitle),
             const SizedBox(height: 8),
             Text('앱 글꼴', style: AppTypography.bodyMuted),
             const SizedBox(height: 8),

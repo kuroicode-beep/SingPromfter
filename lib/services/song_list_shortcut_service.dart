@@ -11,7 +11,15 @@ class SongListShortcutService {
   SongListShortcutService._();
 
   static const double volumeStep = 0.1;
-  static const double speedStep = 0.5;
+
+  /// ←/→ 로 건너뛰는 폭. Shift를 누르면 [seekStepLarge].
+  ///
+  /// v2.8.0에서 이 키가 가사 속도 조절이었다가 이동으로 바뀌었다. 속도는 이제
+  /// 음악 템포 하나뿐이고, 템포는 조작판의 -/+ 와 Shift+휠이 맡는다.
+  /// adjustSettings는 순수 함수라 디바운스가 필요한 템포 렌더를 부를 수 없다 —
+  /// 케이스를 비틀지 말고 빼는 쪽이 맞다.
+  static const Duration seekStep = Duration(seconds: 5);
+  static const Duration seekStepLarge = Duration(seconds: 30);
 
   static bool isTextInputFocused() {
     final primaryFocus = FocusManager.instance.primaryFocus;
@@ -26,6 +34,7 @@ class SongListShortcutService {
     required VoidCallback onTogglePlayPause,
     required ValueChanged<Song> onOpenPrompter,
     required ValueChanged<PrompterSettings> onSettingsChanged,
+    ValueChanged<Duration>? onSeekRelative,
   }) {
     if (event is! KeyDownEvent) return false;
     if (isTextInputFocused()) {
@@ -33,6 +42,11 @@ class SongListShortcutService {
     }
 
     final key = event.logicalKey;
+    final seek = seekDeltaFor(key, shift: HardwareKeyboard.instance.isShiftPressed);
+    if (seek != null) {
+      if (onSeekRelative != null) onSeekRelative(seek);
+      return true;
+    }
     if (key == LogicalKeyboardKey.space) {
       onTogglePlayPause();
       return true;
@@ -65,16 +79,14 @@ class SongListShortcutService {
         volume: (settings.volume - volumeStep).clamp(0.0, 1.0),
       );
     }
-    if (key == LogicalKeyboardKey.arrowRight) {
-      return settings.copyWith(
-        speedLevel: (settings.speedLevel + speedStep).clamp(0.0, 10.0),
-      );
-    }
-    if (key == LogicalKeyboardKey.arrowLeft) {
-      return settings.copyWith(
-        speedLevel: (settings.speedLevel - speedStep).clamp(0.0, 10.0),
-      );
-    }
+    return null;
+  }
+
+  /// ←/→ 로 건너뛸 시간. 다른 키면 null.
+  static Duration? seekDeltaFor(LogicalKeyboardKey key, {bool shift = false}) {
+    final step = shift ? seekStepLarge : seekStep;
+    if (key == LogicalKeyboardKey.arrowRight) return step;
+    if (key == LogicalKeyboardKey.arrowLeft) return -step;
     return null;
   }
 }

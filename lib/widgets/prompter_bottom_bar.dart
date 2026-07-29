@@ -1,18 +1,20 @@
-﻿// file: lib/widgets/prompter_bottom_bar.dart
+// file: lib/widgets/prompter_bottom_bar.dart
 //
 // 메인 화면 하단 재생 바(항상 표시) + 표시 설정(접이식).
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
 import '../controllers/playback_controller.dart';
-import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
+import '../utils/pitch_math.dart';
+import '../utils/tempo_label.dart';
+import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
-import 'preset_btn.dart';
+import 'prompter_drawer.dart';
 import 'prompter_progress_bar.dart';
 
 class PrompterBottomBar extends StatefulWidget {
@@ -23,7 +25,11 @@ class PrompterBottomBar extends StatefulWidget {
   final Duration duration;
   final PlaybackController playback;
   final PrompterSettings settings;
-  final Map<String, String?> fontOptions;
+
+  /// 조작판을 펼쳐 둘지. 전송 버튼과 진행바는 접혀도 항상 보인다 —
+  /// 닫힌 채로도 일시정지는 눌러야 한다.
+  final bool drawerOpen;
+  final ValueChanged<bool> onDrawerChanged;
   final VoidCallback onStop;
   final VoidCallback onTogglePlayPause;
   final VoidCallback onRestart;
@@ -31,16 +37,26 @@ class PrompterBottomBar extends StatefulWidget {
   final VoidCallback onOpenPrompter;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<PrompterSettings> onSettingsChanged;
-  final VoidCallback onCustomFontSize;
-  final ValueChanged<String> onAccessibilityPreset;
   final ValueChanged<String> onMessage;
   final bool hasSyncedLyrics;
   final int lyricsOffsetMs;
   final VoidCallback onFetchSyncedLyrics;
   final VoidCallback onImportLrcFile;
   final ValueChanged<int> onAdjustLyricsOffset;
+
+  /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다. 조건이 안 되면 null.
+  final VoidCallback? onAutoAlignLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+
+  /// 곡 조성에 구운 키·사용자 키를 얹은 '지금 들리는' 조성.
+  final MusicKey? soundingKey;
+
+  /// 현재 반주의 템포(배). 1.0이면 원속도.
+  final double tempoScale;
+
+  /// 템포를 한 칸씩 민다. 렌더는 손을 멈춘 뒤 한 번만 돈다.
+  final ValueChanged<double> onAdjustTempo;
   final bool isRecording;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
@@ -55,7 +71,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.duration,
     required this.playback,
     required this.settings,
-    required this.fontOptions,
+    this.drawerOpen = false,
+    required this.onDrawerChanged,
     required this.onStop,
     required this.onTogglePlayPause,
     required this.onRestart,
@@ -63,16 +80,18 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onOpenPrompter,
     required this.onSeek,
     required this.onSettingsChanged,
-    required this.onCustomFontSize,
-    required this.onAccessibilityPreset,
     required this.onMessage,
     required this.hasSyncedLyrics,
     required this.lyricsOffsetMs,
     required this.onFetchSyncedLyrics,
     required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
+    this.onAutoAlignLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.soundingKey,
+    this.tempoScale = 1,
+    required this.onAdjustTempo,
     required this.isRecording,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
@@ -84,8 +103,6 @@ class PrompterBottomBar extends StatefulWidget {
 }
 
 class _PrompterBottomBarState extends State<PrompterBottomBar> {
-  bool _displaySettingsExpanded = false;
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -170,239 +187,62 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               onSeek: widget.onSeek,
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: MiniSlider(
-                  label: '볼륨',
-                  value: widget.settings.volume,
-                  min: 0,
-                  max: 1,
-                  divisions: 10,
-                  step: 0.1,
-                  onChanged: (v) => widget.onSettingsChanged(
-                    widget.settings.copyWith(volume: v),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: MiniSlider(
-                  label: '재생속도',
-                  value: widget.settings.playbackRate,
-                  min: 0.5,
-                  max: 1.5,
-                  divisions: 10,
-                  step: 0.1,
-                  semanticValue:
-                      '현재 ${widget.settings.playbackRate.toStringAsFixed(1)} 배속',
-                  onChanged: (v) => widget.onSettingsChanged(
-                    widget.settings.copyWith(playbackRate: v),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const Divider(height: 16, thickness: 1),
-          Semantics(
-            label: '표시 설정',
-            button: true,
-            expanded: _displaySettingsExpanded,
-            child: InkWell(
-              onTap: () => setState(
-                () => _displaySettingsExpanded = !_displaySettingsExpanded,
-              ),
-              borderRadius: AppShapes.controlRadius,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
+          PrompterDrawer(
+            open: widget.drawerOpen,
+            onOpenChanged: widget.onDrawerChanged,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                Row(
                   children: [
-                    Text('표시 설정', style: AppTypography.body),
-                    const Spacer(),
-                    Icon(
-                      _displaySettingsExpanded
-                          ? Icons.expand_less
-                          : Icons.expand_more,
-                      color: AppColors.textMuted,
+                    Expanded(
+                      child: MiniSlider(
+                        label: '볼륨',
+                        value: widget.settings.volume,
+                        min: 0,
+                        max: 1,
+                        divisions: 10,
+                        step: 0.1,
+                        onChanged: (v) => widget.onSettingsChanged(
+                          widget.settings.copyWith(volume: v),
+                        ),
+                      ),
                     ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                _TempoRow(
+                  scale: widget.tempoScale,
+                  onAdjust: widget.onAdjustTempo,
+                ),
+                const Divider(height: 16, thickness: 1),
+                // 표시 설정(글자 크기·줄 간격·글꼴·굵게·표시 모드)은 v2.8.0에서
+                // 설정 화면으로 옮겼다. 여기 남은 것은 노래하는 동안 손대야 하는
+                // 값들뿐이다 — 키와 싱크 오프셋.
+                _PitchRow(
+                  semitones: widget.pitchSemitones,
+                  onAdjust: widget.onAdjustPitch,
+                  soundingKey: widget.soundingKey,
+                ),
+                const SizedBox(height: 8),
+                _SyncedLyricsRow(
+                  hasSyncedLyrics: widget.hasSyncedLyrics,
+                  offsetMs: widget.lyricsOffsetMs,
+                  onFetch: widget.onFetchSyncedLyrics,
+                  onImportFile: widget.onImportLrcFile,
+                  onAdjust: widget.onAdjustLyricsOffset,
+                  onAutoAlign: widget.onAutoAlignLyrics,
+                ),
+              ],
             ),
           ),
-          if (_displaySettingsExpanded) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: MiniSlider(
-                    label: '크기',
-                    value: widget.settings.fontSizeLevel,
-                    min: 1,
-                    max: 7,
-                    divisions: 6,
-                    semanticValue:
-                        '현재 ${widget.settings.effectiveFontSizePt.round()} 포인트',
-                    onChanged: (v) => widget.onSettingsChanged(
-                      widget.settings.copyWith(
-                        fontSizeLevel: v,
-                        clearCustomFontSize: true,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: MiniSlider(
-                    label: '줄간격',
-                    value: widget.settings.lineHeightLevel,
-                    min: 1,
-                    max: 7,
-                    divisions: 6,
-                    onChanged: (v) => widget.onSettingsChanged(
-                      widget.settings.copyWith(lineHeightLevel: v),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            MiniSlider(
-              label: '속도',
-              value: widget.settings.speedLevel,
-              min: 0,
-              max: 10,
-              divisions: 20,
-              onChanged: (v) => widget.onSettingsChanged(
-                widget.settings.copyWith(speedLevel: v),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                PresetBtn(
-                  label: widget.settings.customFontSizePt == null
-                      ? '직접'
-                      : '${widget.settings.customFontSizePt!.round()}pt',
-                  semanticsLabel: '사용자 정의 글자 크기',
-                  onTap: widget.onCustomFontSize,
-                ),
-                PresetBtn(
-                  label: '표준',
-                  semanticsLabel: '표준 접근성 프리셋',
-                  onTap: () => widget.onAccessibilityPreset('standard'),
-                ),
-                PresetBtn(
-                  label: '저시력',
-                  semanticsLabel: '저시력 추천 프리셋',
-                  onTap: () => widget.onAccessibilityPreset('recommended'),
-                ),
-                PresetBtn(
-                  label: '원거리',
-                  semanticsLabel: '원거리 무대 프리셋',
-                  onTap: () => widget.onAccessibilityPreset('stage'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButton<String>(
-                    isExpanded: true,
-                    value: widget.fontOptions.containsKey(widget.settings.fontFamily)
-                        ? widget.settings.fontFamily
-                        : 'System Default',
-                    dropdownColor: AppColors.surface,
-                    style: AppTypography.body,
-                    items: widget.fontOptions.keys
-                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
-                        .toList(growable: false),
-                    onChanged: (v) {
-                      if (v == null) return;
-                      widget.onSettingsChanged(
-                        widget.settings.copyWith(fontFamily: v),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Semantics(
-                  label: '굵은 글씨',
-                  checked: widget.settings.boldText,
-                  child: SizedBox(
-                    width: AppConstants.minTouchTarget,
-                    height: AppConstants.minTouchTarget,
-                    child: Checkbox(
-                      value: widget.settings.boldText,
-                      onChanged: (v) => widget.onSettingsChanged(
-                        widget.settings.copyWith(boldText: v ?? false),
-                      ),
-                    ),
-                  ),
-                ),
-                Text('굵게', style: AppTypography.body),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButton<PrompterDisplayMode>(
-                    isExpanded: true,
-                    value: widget.settings.displayMode,
-                    dropdownColor: AppColors.surface,
-                    style: AppTypography.body,
-                    items: PrompterDisplayMode.values
-                        .map(
-                          (mode) => DropdownMenuItem(
-                            value: mode,
-                            child: Text(mode.label),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (mode) {
-                      if (mode == null) return;
-                      widget.onSettingsChanged(
-                        widget.settings.copyWith(displayMode: mode),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 4),
-                const Tooltip(
-                  message: '줄 하이라이트는 재생 위치 기준 추정, 싱크 가사는 실제 타임스탬프로 이동합니다.',
-                  child: Icon(
-                    Icons.info_outline,
-                    size: 20,
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _PitchRow(
-              semitones: widget.pitchSemitones,
-              onAdjust: widget.onAdjustPitch,
-            ),
-            const SizedBox(height: 8),
-            _SyncedLyricsRow(
-              hasSyncedLyrics: widget.hasSyncedLyrics,
-              offsetMs: widget.lyricsOffsetMs,
-              onFetch: widget.onFetchSyncedLyrics,
-              onImportFile: widget.onImportLrcFile,
-              onAdjust: widget.onAdjustLyricsOffset,
-            ),
-          ],
         ],
       ),
     );
   }
 }
-
 
 /// 싱크 가사 가져오기 + 선행/지연 오프셋 조절.
 /// 슬라이더 대신 큰 -/+ 버튼을 쓰고 현재 값을 모노 숫자로 함께 보여준다.
@@ -413,12 +253,16 @@ class _SyncedLyricsRow extends StatelessWidget {
   final VoidCallback onImportFile;
   final ValueChanged<int> onAdjust;
 
+  /// 원곡과 MR을 비교해 오프셋을 자동으로 맞춘다. 조건이 안 되면 null.
+  final VoidCallback? onAutoAlign;
+
   const _SyncedLyricsRow({
     required this.hasSyncedLyrics,
     required this.offsetMs,
     required this.onFetch,
     required this.onImportFile,
     required this.onAdjust,
+    this.onAutoAlign,
   });
 
   /// 음수는 가사를 먼저 띄운다는 뜻이라 사용자 표현도 '먼저'로 쓴다.
@@ -447,10 +291,7 @@ class _SyncedLyricsRow extends StatelessWidget {
               label: const Text('가사 가져오기'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(150, AppConstants.minTouchTarget),
-                side: const BorderSide(
-                  color: AppColors.borderStrong,
-                  width: 2,
-                ),
+                side: const BorderSide(color: AppColors.borderStrong, width: 2),
               ),
             ),
             const SizedBox(width: 8),
@@ -458,10 +299,7 @@ class _SyncedLyricsRow extends StatelessWidget {
               onPressed: onImportFile,
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(110, AppConstants.minTouchTarget),
-                side: const BorderSide(
-                  color: AppColors.borderStrong,
-                  width: 2,
-                ),
+                side: const BorderSide(color: AppColors.borderStrong, width: 2),
               ),
               child: const Text('.lrc 파일'),
             ),
@@ -472,6 +310,22 @@ class _SyncedLyricsRow extends StatelessWidget {
           children: [
             Text('가사 표시 시점', style: AppTypography.bodyMuted),
             const SizedBox(width: 10),
+            if (onAutoAlign != null) ...[
+              OutlinedButton.icon(
+                // 싱크 가사가 없으면 맞출 대상이 없다.
+                onPressed: hasSyncedLyrics ? onAutoAlign : null,
+                icon: const Icon(Icons.auto_fix_high, size: 20),
+                label: const Text('자동 맞춤'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(120, AppConstants.minTouchTarget),
+                  side: const BorderSide(
+                    color: AppColors.borderStrong,
+                    width: 2,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
             _OffsetButton(
               icon: Icons.remove,
               semanticsLabel: '가사를 0.2초 더 먼저 띄우기',
@@ -527,10 +381,18 @@ class _PitchRow extends StatelessWidget {
   final int semitones;
   final ValueChanged<int> onAdjust;
 
-  const _PitchRow({required this.semitones, required this.onAdjust});
+  /// 지금 실제로 들리는 조성. 모르면 표시하지 않는다.
+  final MusicKey? soundingKey;
+
+  const _PitchRow({
+    required this.semitones,
+    required this.onAdjust,
+    this.soundingKey,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final key = soundingKey;
     return Row(
       children: [
         Text('키', style: AppTypography.bodyMuted),
@@ -548,10 +410,71 @@ class _PitchRow extends StatelessWidget {
           semanticsLabel: '키 한 음 올리기',
           onTap: () => onAdjust(1),
         ),
+        if (key != null) ...[
+          const SizedBox(width: 12),
+          Semantics(
+            label: '현재 조성 ${key.label}',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.tertiary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                key.label,
+                style: AppTypography.mono.copyWith(color: AppColors.tertiary),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(width: 12),
         Expanded(
           child: Text(
             semitones == 0 ? '' : '처음 재생 시 변환에 잠시 걸립니다',
+            style: AppTypography.bodyMuted,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 템포 조절 줄. 슬라이더가 아니라 -/+ 인 이유는 키와 같다 —
+/// 값을 바꾸면 곡 전체를 다시 굽는 비싼 작업이 돌기 때문이다.
+class _TempoRow extends StatelessWidget {
+  final double scale;
+  final ValueChanged<double> onAdjust;
+
+  const _TempoRow({required this.scale, required this.onAdjust});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text('템포', style: AppTypography.bodyMuted),
+        const SizedBox(width: 10),
+        _OffsetButton(
+          icon: Icons.remove,
+          semanticsLabel: '템포 느리게',
+          onTap: () => onAdjust(-tempoStep),
+        ),
+        const SizedBox(width: 8),
+        Semantics(
+          label: tempoSemanticLabel(scale),
+          child: Text(formatTempoLabel(scale), style: AppTypography.mono),
+        ),
+        const SizedBox(width: 8),
+        _OffsetButton(
+          icon: Icons.add,
+          semanticsLabel: '템포 빠르게',
+          onTap: () => onAdjust(tempoStep),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            isDefaultTempo(scale) ? '' : '음정은 그대로 — 처음 재생 시 변환에 잠시 걸립니다',
             style: AppTypography.bodyMuted,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

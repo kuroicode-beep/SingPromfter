@@ -1,6 +1,7 @@
 ﻿// file: lib/widgets/song_list_screen_content.dart
 //
 // SongListScreen의 도메인 상태를 화면 패널 위젯들로 연결한다.
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/playback_controller.dart';
@@ -15,6 +16,7 @@ import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../services/prompter_settings_service.dart';
+import '../utils/music_key.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
@@ -59,8 +61,26 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<RecordingTake> onPlayTakeMix;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
+
+  /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
+  final VoidCallback? onAutoAlignLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
+
+  /// 현재 반주의 템포(배)와 조절 콜백.
+  final double tempoScale;
+  final ValueChanged<double> onAdjustTempo;
+
+  /// Alt+휠 경로 — 굴리는 동안은 표시만, 렌더는 손을 멈춘 뒤.
+  final void Function(int delta)? onStepPitch;
+  final ValueListenable<int?>? pendingPitch;
+  final ValueListenable<double?>? pendingTempo;
+
+  /// 지금 들리는 조성(곡 조성 + 구운 키 + 사용자 키).
+  final MusicKey? soundingKey;
+
+  /// 사용자 키 이전의 슬롯 조성 — 키 HUD 기준값.
+  final MusicKey? pitchBaseKey;
   final bool isRecording;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
@@ -116,7 +136,6 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<PrompterSettings> onSettingsChanged;
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
-  final ValueChanged<bool> onToggleEqMeter;
   final ValueChanged<String> onMessage;
   final VoidCallback onClearQueue;
   final void Function(int oldIndex, int newIndex) onReorderQueue;
@@ -153,8 +172,16 @@ class SongListScreenContent extends StatelessWidget {
     required this.onPlayTakeMix,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
+    this.onAutoAlignLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
+    this.tempoScale = 1,
+    required this.onAdjustTempo,
+    this.onStepPitch,
+    this.pendingPitch,
+    this.pendingTempo,
+    this.soundingKey,
+    this.pitchBaseKey,
     required this.isRecording,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
@@ -210,7 +237,6 @@ class SongListScreenContent extends StatelessWidget {
     required this.onSettingsChanged,
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
-    required this.onToggleEqMeter,
     required this.onMessage,
     required this.onClearQueue,
     required this.onReorderQueue,
@@ -284,8 +310,16 @@ class SongListScreenContent extends StatelessWidget {
       onFetchSyncedLyrics: onFetchSyncedLyrics,
       onImportLrcFile: onImportLrcFile,
       onAdjustLyricsOffset: onAdjustLyricsOffset,
+      onAutoAlignLyrics: onAutoAlignLyrics,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
+      onStepPitch: onStepPitch,
+      pendingPitch: pendingPitch,
+      pendingTempo: pendingTempo,
+      soundingKey: soundingKey,
+      pitchBaseKey: pitchBaseKey,
+      tempoScale: tempoScale,
+      onAdjustTempo: onAdjustTempo,
       isRecording: isRecording,
       recordingLevelLabel: recordingLevelLabel,
       recordingElapsed: recordingElapsed,
@@ -422,8 +456,9 @@ class SongListScreenContent extends StatelessWidget {
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,
         ytDlpVersion: ytDlpVersion,
-        showEqMeter: settings.showEqMeter,
-        onToggleEqMeter: onToggleEqMeter,
+        settings: settings,
+        onSettingsChanged: onSettingsChanged,
+        fontOptions: PrompterSettingsService.fontOptions,
         separatorStatusLabel: separatorStatusLabel,
         onUpdateYtDlp: onUpdateYtDlp,
         onExportBackup: onExportBackup,

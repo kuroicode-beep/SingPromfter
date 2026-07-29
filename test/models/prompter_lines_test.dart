@@ -54,4 +54,34 @@ void main() {
     expect(lines.texts.first, LyricsLineUtils.emptyPlaceholder);
     expect(lines.seekable, isFalse);
   });
+
+  // 줄 끝 시각 — 한 글자씩 스윕이 이 값 없이는 돌 수 없다.
+  group('줄 끝 시각', () {
+    test('다음 줄 시작이 이 줄의 끝이다', () {
+      final lines = buildPrompterLines(lyricsText: '', timedLyrics: synced);
+      expect(lines.lines[0].end, const Duration(seconds: 5));
+    });
+
+    test('마지막 줄은 trackEnd로 끝을 잡는다', () {
+      final lines = buildPrompterLines(
+        lyricsText: '',
+        timedLyrics: synced,
+        trackEnd: const Duration(seconds: 200),
+      );
+      expect(lines.lines.last.end, const Duration(seconds: 200));
+    });
+
+    test('trackEnd가 없으면 마지막 줄의 끝은 모른다', () {
+      final lines = buildPrompterLines(lyricsText: '', timedLyrics: synced);
+      expect(lines.lines.last.end, isNull);
+    });
+
+    test('싱크 가사가 없으면 시각도 끝도 없다', () {
+      final lines = buildPrompterLines(
+        lyricsText: '첫 줄\n둘째 줄',
+        trackEnd: const Duration(seconds: 200),
+      );
+      expect(lines.lines.every((l) => l.time == null && l.end == null), isTrue);
+    });
+  });
 }

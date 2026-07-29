@@ -31,7 +31,6 @@ class PrompterSettingsService {
         return settings.copyWith(
           fontSizeLevel: 5,
           lineHeightLevel: 5,
-          speedLevel: 3,
           fontFamily: 'Malgun Gothic',
           boldText: true,
           clearCustomFontSize: true,
@@ -40,7 +39,6 @@ class PrompterSettingsService {
         return settings.copyWith(
           fontSizeLevel: 7,
           lineHeightLevel: 6,
-          speedLevel: 2,
           fontFamily: 'Malgun Gothic',
           boldText: true,
           clearCustomFontSize: true,
@@ -49,7 +47,6 @@ class PrompterSettingsService {
         return settings.copyWith(
           fontSizeLevel: 3,
           lineHeightLevel: 3,
-          speedLevel: 2,
           fontFamily: 'System Default',
           boldText: false,
           clearCustomFontSize: true,

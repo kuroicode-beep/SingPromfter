@@ -110,4 +110,53 @@ void main() {
       );
     });
   });
+
+  // 드로어가 여닫히는 동안 밴드가 흔들리면 가사 줄이 통째로 재레이아웃된다.
+  group('stableStage', () {
+    test('접힌 드로어 높이를 빼 준다', () {
+      const stage = Size(1920, 1080);
+      expect(
+        PrompterStageMetrics.stableStage(stage, hiddenDrawerHeight: 132).height,
+        948,
+      );
+    });
+
+    test('애니메이션 내내 밴드 높이가 상수다', () {
+      // 드로어가 접힐수록 무대는 커지고 hidden은 줄어든다 — 합은 늘 같다.
+      const openStageHeight = 948.0;
+      double bandAt(double progress) {
+        final hidden = PrompterStageMetrics.stageDrawerHeight * (1 - progress);
+        final stage = Size(1920, openStageHeight + hidden);
+        return PrompterStageMetrics.bandHeight(
+          PrompterStageMetrics.stableStage(stage, hiddenDrawerHeight: hidden),
+          showEq: true,
+        );
+      }
+
+      final expected = bandAt(1);
+      for (final p in [0.0, 0.25, 0.5, 0.75, 1.0]) {
+        expect(bandAt(p), closeTo(expected, 0.001), reason: 'progress=$p');
+      }
+    });
+
+    test('폭은 건드리지 않는다', () {
+      expect(
+        PrompterStageMetrics.stableStage(
+          const Size(1280, 720),
+          hiddenDrawerHeight: 132,
+        ).width,
+        1280,
+      );
+    });
+
+    test('드로어가 무대보다 크면 0으로 막는다', () {
+      expect(
+        PrompterStageMetrics.stableStage(
+          const Size(1280, 100),
+          hiddenDrawerHeight: 400,
+        ).height,
+        0,
+      );
+    });
+  });
 }

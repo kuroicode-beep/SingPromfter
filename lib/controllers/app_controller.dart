@@ -27,7 +27,9 @@ import '../models/song_draft.dart';
 import '../models/track_levels.dart';
 import '../models/track_variant.dart';
 import '../repository/song_repository.dart';
+import '../services/key_detection_service.dart';
 import '../services/level_analysis_service.dart';
+import '../services/lyrics_align_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/pitch_variant_service.dart';
 import '../services/track_asset_service.dart';
@@ -41,6 +43,8 @@ import '../services/song_queue_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
+import '../utils/tempo_label.dart';
+import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
 import '../utils/youtube_title_cleaner.dart';
 import 'import_job_controller.dart';
@@ -81,9 +85,16 @@ class AppController extends ChangeNotifier {
   late final LevelAnalysisService levelAnalysis = LevelAnalysisService(
     locator: toolLocator,
   );
+  late final KeyDetectionService keyDetection = KeyDetectionService(
+    locator: toolLocator,
+  );
+  late final LyricsAlignService lyricsAlign = LyricsAlignService(
+    locator: toolLocator,
+  );
   late final TrackAssetService trackAssets = TrackAssetService(
     pitch: pitchVariants,
     levels: levelAnalysis,
+    keys: keyDetection,
   );
   late final YoutubeImportService youtubeImport = YoutubeImportService(
     tmpDirProvider: repo.getTmpDir,
@@ -130,8 +141,10 @@ class AppController extends ChangeNotifier {
       },
       onMessage: _emit,
       timedLyricsLoader: lyricsSync.loadFor,
-      pitchVariantResolver: _resolvePitchVariant,
+      trackVariantResolver: _resolveTrackVariant,
       levelsLoader: loadTrackLevels,
+      onSongReady: (song, duration) =>
+          unawaited(ensureSongKey(song, duration: duration)),
       onPracticeSessionEnded: (snapshot, played) =>
           onPracticeSessionEnded?.call(snapshot, played),
     )..init();
@@ -142,6 +155,10 @@ class AppController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _statusRefreshTimer?.cancel();
+    _pitchApplyTimer?.cancel();
+    _tempoApplyTimer?.cancel();
+    pendingPitch.dispose();
+    pendingTempo.dispose();
     importJobs.dispose();
     playback.dispose();
     audio.dispose();
@@ -183,7 +200,6 @@ class AppController extends ChangeNotifier {
     if (schemaError != null) _emit(schemaError);
 
     await audio.setVolume(settings.volume);
-    await audio.setPlaybackRate(settings.playbackRate);
     final initialSong = initial.initialSong;
     if (initialSong != null) {
       await playback.loadSong(
@@ -215,10 +231,12 @@ class AppController extends ChangeNotifier {
   // ── 키(피치) ────────────────────────────────────────────
 
   /// 키를 바꾼 반주를 준비한다. 처음 쓰는 키는 여기서 렌더링된다.
-  Future<String?> _resolvePitchVariant(
+  /// 키·템포를 구운 반주 경로. 캐시가 있으면 즉시, 없으면 렌더 후 반환.
+  Future<String?> _resolveTrackVariant(
     Song song,
     int slot,
     int semitones,
+    double tempoScale,
   ) async {
     final track = song.trackForSlot(slot);
     if (track == null) return null;
@@ -228,21 +246,99 @@ class AppController extends ChangeNotifier {
     final cached = await pitchVariants.cachedPath(
       sourceFileName: track.fileName,
       semitones: semitones,
+      tempoScale: tempoScale,
     );
     if (cached != null) return cached;
 
-    _emit('${formatKeyLabel(semitones)} 반주를 준비하는 중...');
+    _emit('${_variantLabel(semitones, tempoScale)} 반주를 준비하는 중...');
     final result = await pitchVariants.render(
       sourcePath: sourcePath,
       sourceFileName: track.fileName,
       semitones: semitones,
+      tempoScale: tempoScale,
       total: playback.snapshot.duration,
     );
     if (!result.success) {
-      _emit(result.message ?? '키 변경에 실패했습니다.');
+      _emit(result.message ?? '키·템포 변경에 실패했습니다.');
       return null;
     }
     return result.path;
+  }
+
+  /// 준비 안내에 쓸 짧은 이름. 둘 다 바뀌었으면 함께 적는다.
+  String _variantLabel(int semitones, double tempoScale) {
+    final parts = <String>[
+      if (semitones != 0) formatKeyLabel(semitones),
+      if (!isDefaultTempo(tempoScale)) formatTempoLabel(tempoScale),
+    ];
+    return parts.isEmpty ? '원본' : parts.join(' · ');
+  }
+
+  // ── 템포 ────────────────────────────────────────────────
+
+  /// 휠로 굴리는 동안 화면에 보여 줄 임시 템포. 키와 같은 구조다.
+  final ValueNotifier<double?> pendingTempo = ValueNotifier(null);
+  Timer? _tempoApplyTimer;
+
+  /// 지금 화면에 보여 줄 템포 — 적용 대기 중이면 그 값이 우선.
+  double effectiveTempoFor(Song song, int? slot) {
+    final pending = pendingTempo.value;
+    if (pending != null && selectedSong?.id == song.id) return pending;
+    return settings.tempoForSong(song.id, slot);
+  }
+
+  /// 현재 선택 곡·슬롯의 템포를 [delta]만큼 밀되, 적용은 미룬다.
+  ///
+  /// 키와 같은 이유로 디바운스한다 — 한 칸마다 렌더하면 곡 전체를 몇 번이고
+  /// 다시 인코딩하게 된다. 화면에는 즉시 반영되고 오디오는 손을 멈춘 뒤 바뀐다.
+  void nudgeTempoDebounced(double delta) {
+    final song = selectedSong;
+    final slot = selectedTrackSlot;
+    if (song == null || slot == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return;
+    }
+    final base = pendingTempo.value ?? settings.tempoForSong(song.id, slot);
+    final next = quantizeTempo(base + delta);
+    pendingTempo.value = next;
+
+    _tempoApplyTimer?.cancel();
+    _tempoApplyTimer = Timer(_pitchApplyDelay, () async {
+      final target = pendingTempo.value;
+      if (target == null) return;
+      await setTempo(song.id, target, slot: slot, keepPosition: true);
+      if (!_disposed) pendingTempo.value = null;
+    });
+  }
+
+  /// 절대값으로 템포를 지정한다 (0.5~1.5 클램프). MCP 제어의 기본형.
+  Future<bool> setTempo(
+    String songId,
+    double scale, {
+    int? slot,
+    bool keepPosition = false,
+  }) async {
+    final song = songById(songId);
+    if (song == null) return false;
+    final resolvedSlot =
+        slot ??
+        (selectedSong?.id == songId ? selectedTrackSlot : null) ??
+        settings.trackSlotForSong(songId) ??
+        (song.availableTrackSlots.isNotEmpty
+            ? song.availableTrackSlots.first
+            : null);
+    if (resolvedSlot == null) return false;
+
+    final next = quantizeTempo(scale);
+    final current = settings.tempoForSong(songId, resolvedSlot);
+    if ((next - current).abs() < tempoStep / 2) return true;
+
+    await updateSettings(settings.withSongTempo(songId, resolvedSlot, next));
+    if (selectedSong?.id == songId && selectedTrackSlot == resolvedSlot) {
+      await playback.prepareAudioForSelection(keepPosition: keepPosition);
+    }
+    _emit('템포: ${formatTempoLabel(next)}');
+    return true;
   }
 
   Future<void> adjustPitch(int delta) async {
@@ -257,7 +353,12 @@ class AppController extends ChangeNotifier {
   }
 
   /// 절대값으로 키를 지정한다 (±6 반음 클램프). MCP 제어의 기본형.
-  Future<bool> setPitch(String songId, int semitones, {int? slot}) async {
+  Future<bool> setPitch(
+    String songId,
+    int semitones, {
+    int? slot,
+    bool keepPosition = false,
+  }) async {
     final song = songById(songId);
     if (song == null) return false;
     final resolvedSlot =
@@ -276,10 +377,46 @@ class AppController extends ChangeNotifier {
     await updateSettings(settings.withSongPitch(songId, resolvedSlot, next));
     // 지금 재생 중인 곡·슬롯이면 새 키로 다시 준비한다(필요 시 렌더링).
     if (selectedSong?.id == songId && selectedTrackSlot == resolvedSlot) {
-      await playback.prepareAudioForSelection();
+      await playback.prepareAudioForSelection(keepPosition: keepPosition);
     }
     _emit('키: ${formatKeyLabel(next)}');
     return true;
+  }
+
+  /// 휠로 굴리는 동안 화면에 보여 줄 임시 키 값.
+  /// 실제 렌더는 손을 멈춘 뒤에 한 번만 한다(한 단계마다 렌더하면
+  /// 곡 전체를 몇 번이고 다시 인코딩하게 된다).
+  final ValueNotifier<int?> pendingPitch = ValueNotifier(null);
+  Timer? _pitchApplyTimer;
+  static const _pitchApplyDelay = Duration(milliseconds: 550);
+
+  /// 현재 선택 곡·슬롯의 키를 [delta]만큼 밀되, 적용은 미룬다.
+  /// 화면에는 즉시 반영되고 오디오는 손을 멈춘 뒤 바뀐다.
+  void nudgePitchDebounced(int delta) {
+    final song = selectedSong;
+    final slot = selectedTrackSlot;
+    if (song == null || slot == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return;
+    }
+    final base = pendingPitch.value ?? settings.pitchForSong(song.id, slot);
+    final next = clampSemitones(base + delta);
+    pendingPitch.value = next;
+
+    _pitchApplyTimer?.cancel();
+    _pitchApplyTimer = Timer(_pitchApplyDelay, () async {
+      final target = pendingPitch.value;
+      if (target == null) return;
+      await setPitch(song.id, target, slot: slot, keepPosition: true);
+      if (!_disposed) pendingPitch.value = null;
+    });
+  }
+
+  /// 지금 화면에 보여 줄 키 — 적용 대기 중이면 그 값이 우선.
+  int effectivePitchFor(Song song, int? slot) {
+    final pending = pendingPitch.value;
+    if (pending != null && selectedSong?.id == song.id) return pending;
+    return settings.pitchForSong(song.id, slot);
   }
 
   // ── 싱크 가사 ───────────────────────────────────────────
@@ -321,6 +458,85 @@ class AppController extends ChangeNotifier {
     return outcome;
   }
 
+  /// 원곡과 MR을 비교해 가사 오프셋을 자동으로 맞춘다.
+  ///
+  /// 보컬 = 원곡 − MR 이라는 점을 이용해 실제 발성 시작을 찾아 LRC 줄 시각과
+  /// 비교한다. 원곡·MR 두 슬롯이 모두 있고 싱크 가사가 있어야 한다.
+  ///
+  /// 여러 줄에서 못 찾거나 편차가 크면 값을 밀어 넣지 않고 그대로 둔다 —
+  /// 잘못 맞춘 싱크는 안 맞춘 것보다 나쁘다.
+  Future<bool> autoAlignLyrics({String? songId}) async {
+    final song = songId == null ? selectedSong : songById(songId);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return false;
+    }
+    final lyrics = await lyricsSync.loadFor(song);
+    if (lyrics == null || lyrics.isEmpty) {
+      _emit('싱크 가사가 있어야 자동으로 맞출 수 있습니다.');
+      return false;
+    }
+
+    final originalSlot = TrackVariant.original.preferredSlot;
+    final mrSlot = TrackVariant.mr.preferredSlot;
+    final original = song.trackForSlot(originalSlot);
+    final mr = song.trackForSlot(mrSlot);
+    if (original == null || mr == null) {
+      _emit('원곡과 MR이 모두 있어야 합니다. 둘을 비교해 목소리를 찾습니다.');
+      return false;
+    }
+    final originalPath = await repo.getBackingTrackPath(original.fileName);
+    final mrPath = await repo.getBackingTrackPath(mr.fileName);
+    if (originalPath == null || mrPath == null) return false;
+
+    _emit('노래와 가사를 맞추는 중...');
+    final outcome = await lyricsAlign.measure(
+      originalPath: originalPath,
+      mrPath: mrPath,
+      lyrics: lyrics,
+    );
+    if (_disposed) return false;
+    final result = outcome.result;
+    if (result == null) {
+      _emit(_alignFailureMessage(outcome));
+      return false;
+    }
+
+    final next = result.offsetMs.clamp(
+      -AppConstants.maxLyricsOffsetMs,
+      AppConstants.maxLyricsOffsetMs,
+    );
+    final fresh = songById(song.id) ?? song;
+    final updatedTracks = fresh.backingTracks
+        .map((t) => t.copyWith(lyricsOffsetMs: next))
+        .toList(growable: false);
+    await replaceSongInList(
+      fresh.copyWith(backingTracks: updatedTracks, updatedAt: DateTime.now()),
+    );
+    if (selectedSong?.id == song.id) playback.applyLyricsOffset(next);
+
+    final seconds = (next.abs() / 1000).toStringAsFixed(1);
+    final direction = next < 0 ? '먼저' : '늦게';
+    _emit('가사를 $seconds초 $direction 띄우도록 맞췄습니다 (${result.samples}곳 비교).');
+    return true;
+  }
+
+  /// 못 맞춘 이유를 사람 말로. 무엇이 부족한지 알려 줘야 다음 수를 정할 수 있다.
+  String _alignFailureMessage(LyricsAlignOutcome outcome) {
+    switch (outcome.failure) {
+      case LyricsAlignFailure.inconsistent:
+        final spread = (outcome.spreadMs / 1000).toStringAsFixed(1);
+        return '이 가사 파일은 곡과 속도가 달라 한 값으로 맞출 수 없습니다 '
+            '(어긋남이 곡마다 $spread초까지 벌어집니다). 손으로 조절해 주세요.';
+      case LyricsAlignFailure.notEnoughSamples:
+        return '기준 삼을 지점이 부족합니다(${outcome.samples}곳). '
+            '노래가 쉬는 구간이 있어야 맞출 수 있습니다.';
+      case LyricsAlignFailure.noSignal:
+      case null:
+        return '소리를 재지 못했습니다. 원곡과 MR 파일을 확인해 주세요.';
+    }
+  }
+
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
   Future<void> adjustLyricsOffset(int deltaMs) async {
     final snapshotSong = selectedSong;
@@ -334,7 +550,10 @@ class AppController extends ChangeNotifier {
     final track = song.trackForSlot(slot);
     if (track == null) return;
 
-    final next = (track.lyricsOffsetMs + deltaMs).clamp(-3000, 3000);
+    final next = (track.lyricsOffsetMs + deltaMs).clamp(
+      -AppConstants.maxLyricsOffsetMs,
+      AppConstants.maxLyricsOffsetMs,
+    );
     final updatedTracks = song.backingTracks
         .map((t) => t.slot == slot ? t.copyWith(lyricsOffsetMs: next) : t)
         .toList(growable: false);
@@ -362,6 +581,84 @@ class AppController extends ChangeNotifier {
       sourceFileName: track.fileName,
     );
   }
+
+  // ── 조성(키) ────────────────────────────────────────────
+
+  /// 조성은 **MR**에서 잰다. 보컬이 살아 있는 원곡은 멜로디가 상관을 흔들어
+  /// 딸림음으로 끌려간다(실측: 같은 곡의 MR은 A♭, 원곡은 E♭).
+  int? keyAnalysisSlotFor(Song song) {
+    final slots = song.availableTrackSlots;
+    if (slots.isEmpty) return null;
+    const preference = [
+      TrackVariant.mr,
+      TrackVariant.karaoke,
+      TrackVariant.pitch,
+      TrackVariant.original,
+    ];
+    for (final variant in preference) {
+      if (slots.contains(variant.preferredSlot)) return variant.preferredSlot;
+    }
+    return slots.first;
+  }
+
+  /// 조성을 아직 모르는 곡이면 추정해 저장한다.
+  /// 이미 값이 있으면 손대지 않는다 — 사용자가 고쳐 둔 값이 우선이다.
+  Future<Song?> ensureSongKey(Song song, {Duration? duration}) async {
+    if (song.musicalKey != null) return song;
+    final slot = keyAnalysisSlotFor(song);
+    if (slot == null) return null;
+    final track = song.trackForSlot(slot);
+    if (track == null) return null;
+    final sourcePath = await repo.getBackingTrackPath(track.fileName);
+    if (sourcePath == null || !await File(sourcePath).exists()) return null;
+
+    final estimate = await keyDetection.analyze(
+      sourcePath: sourcePath,
+      sourceFileName: track.fileName,
+      duration: duration,
+    );
+    if (estimate == null || _disposed) return null;
+
+    // 잰 파일에 키가 구워져 있으면 그만큼 되돌려 '원곡 조성'으로 적는다.
+    final base = estimate.key.transposed(-track.bakedSemitones);
+    // 분석하는 동안 사용자가 직접 지정했을 수 있다 — 그 값을 이긴다고 보지 않는다.
+    final fresh = songById(song.id);
+    if (fresh == null || fresh.musicalKey != null) return fresh;
+    final updated = fresh.copyWith(musicalKey: base, updatedAt: DateTime.now());
+    await replaceSongInList(updated);
+    return updated;
+  }
+
+  /// 조성을 손으로 지정하거나([key]가 null이면) 지운다.
+  /// 지우면 다음 분석 때 다시 추정한다.
+  Future<Song?> setSongKey(String songId, MusicKey? key) async {
+    final song = songById(songId);
+    if (song == null) return null;
+    final updated = song.copyWith(
+      musicalKey: key,
+      clearMusicalKey: key == null,
+      updatedAt: DateTime.now(),
+    );
+    await replaceSongInList(updated);
+    _emit(key == null ? '조성 표시를 지웠습니다.' : '조성: ${key.label}');
+    return updated;
+  }
+
+  /// 이 슬롯의 파일이 그 자체로 울리는 조성 — 곡 조성에 '구워진' 키만 얹는다.
+  /// 사용자가 민 키는 빼고 준다. 키 HUD가 여기에 조절값을 더해 보여 주므로
+  /// 사용자 키까지 섞으면 두 번 세게 된다.
+  MusicKey? trackBaseKeyFor(Song song, int? slot) {
+    final base = song.musicalKey;
+    if (base == null) return null;
+    final baked = slot == null
+        ? 0
+        : (song.trackForSlot(slot)?.bakedSemitones ?? 0);
+    return base.transposed(baked);
+  }
+
+  /// 지금 들리는 조성 — 슬롯 기준 조성에 사용자가 민 키까지 얹은 값.
+  MusicKey? soundingKeyFor(Song song, int? slot) =>
+      trackBaseKeyFor(song, slot)?.transposed(effectivePitchFor(song, slot));
 
   // ── 외부 도구·서버 상태 ─────────────────────────────────
 
@@ -622,6 +919,8 @@ class AppController extends ChangeNotifier {
     for (final slot in song.availableTrackSlots) {
       unawaited(loadTrackLevels(song, slot));
     }
+    // 조성도 같은 자리에서 — 길이를 아는 지금이 표본 구간을 잡기 좋다.
+    unawaited(ensureSongKey(song, duration: metadata.duration));
 
     // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
     var lyricsNote = '';

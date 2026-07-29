@@ -249,6 +249,16 @@ class SongRepository {
       lyrics: nextLyrics,
     );
 
+    // 기존 반주를 유지하는 분기는 **bakedSemitones를 반드시 옮겨 담아야 한다.**
+    // 여기서 BackingTrack을 새로 만들기 때문에 빠뜨리면 조용히 0이 된다.
+    // 그러면 −2키로 구운 파일이 원키로 기록돼 무대에 틀린 조성이 뜬다 —
+    // 파일은 멀쩡하고 숫자만 틀려서 눈치채기 어렵다.
+    //
+    // 편집 다이얼로그는 draft.trackBakedSemitones로 값을 다시 얹어 줘서 멀쩡했고,
+    // 제목·가수만 바꾸는 경로(제어 API의 sp_edit_song)에서만 터졌다.
+    // 복원에 기대지 말고 여기서 보존한다.
+    //
+    // 파일을 새로 넣는 분기는 0이 맞다 — 사용자가 준 새 오디오라 구운 키가 없다.
     final nextTracks = <BackingTrack>[];
     final oldTrackNamesToDelete = <String>{};
 
@@ -292,6 +302,7 @@ class SongRepository {
             endMs: trackEndMs?.containsKey(slot) == true
                 ? trackEndMs![slot]
                 : existingTrack.endMs,
+            bakedSemitones: existingTrack.bakedSemitones,
           ),
         );
         continue;
@@ -304,6 +315,7 @@ class SongRepository {
             slot: existingTrack.slot,
             fileName: existingTrack.fileName,
             label: existingTrack.label,
+            bakedSemitones: existingTrack.bakedSemitones,
           ),
         );
         continue;
@@ -325,6 +337,7 @@ class SongRepository {
           endMs: trackEndMs?.containsKey(slot) == true
               ? trackEndMs![slot]
               : existingTrack.endMs,
+          bakedSemitones: existingTrack.bakedSemitones,
         ),
       );
     }

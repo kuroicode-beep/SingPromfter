@@ -558,6 +558,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack(outcome.message);
   }
 
+  /// 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸리므로 안내를 먼저 띄운다.
+  Future<void> _autoAlignLyrics() => _app.autoAlignLyrics();
+
   Future<void> _adjustLyricsOffset(int deltaMs) =>
       _app.adjustLyricsOffset(deltaMs);
 
@@ -873,6 +876,11 @@ class _SongListScreenState extends State<SongListScreen> {
       lineHeight: _settings.effectiveLineHeight,
       fontFamily: PrompterSettingsService.resolvedFontFamily(_settings),
       onSettingsChanged: _updateSettings,
+      onStepPitch: _app.nudgePitchDebounced,
+      onStepTempo: _app.nudgeTempoDebounced,
+      pendingPitch: _app.pendingPitch,
+      songKey: _app.trackBaseKeyFor(song, _selectedTrackSlot),
+      soundingKey: _app.soundingKeyFor(song, _selectedTrackSlot),
     );
   }
 
@@ -890,6 +898,9 @@ class _SongListScreenState extends State<SongListScreen> {
         final song = _selectedSong;
         if (song != null) _openPrompter(song);
       },
+      onJumpToStart: _playback.jumpToStart,
+      onJumpToEnd: _playback.jumpToEnd,
+      onSeekRelative: _playback.seekRelative,
       child: SongListScreenContent(
         loading: _loading,
         destination: _destination,
@@ -920,10 +931,24 @@ class _SongListScreenState extends State<SongListScreen> {
         onPlayTakeMix: _playTakeMix,
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
+        onAutoAlignLyrics: _autoAlignLyrics,
         pitchSemitones: _selectedSong == null
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),
         onAdjustPitch: _adjustPitch,
+        tempoScale: _selectedSong == null
+            ? 1
+            : _app.effectiveTempoFor(_selectedSong!, _selectedTrackSlot),
+        onAdjustTempo: _app.nudgeTempoDebounced,
+        onStepPitch: _app.nudgePitchDebounced,
+        pendingPitch: _app.pendingPitch,
+        pendingTempo: _app.pendingTempo,
+        soundingKey: _selectedSong == null
+            ? null
+            : _app.soundingKeyFor(_selectedSong!, _selectedTrackSlot),
+        pitchBaseKey: _selectedSong == null
+            ? null
+            : _app.trackBaseKeyFor(_selectedSong!, _selectedTrackSlot),
         isRecording: _recording.isRecording,
         recordingLevelLabel: _recording.levelLabel,
         recordingElapsed: _recording.elapsed,
@@ -987,8 +1012,6 @@ class _SongListScreenState extends State<SongListScreen> {
         onSettingsChanged: _updateSettings,
         onCustomFontSize: _showCustomFontSizeDialog,
         onAccessibilityPreset: _applyAccessibilityPreset,
-        onToggleEqMeter: (value) =>
-            _updateSettings(_settings.copyWith(showEqMeter: value)),
         onMessage: _showSnack,
         onClearQueue: _clearQueue,
         onReorderQueue: _reorderQueue,

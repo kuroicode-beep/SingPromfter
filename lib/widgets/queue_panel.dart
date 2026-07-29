@@ -62,6 +62,10 @@ class QueuePanel extends StatelessWidget {
             height: _height,
             child: ReorderableListView(
               buildDefaultDragHandles: false,
+              // Flutter 3.41부터 onReorderItem으로 대체됐다(newIndex 보정 방식이
+              // 다르다). 로컬 SDK가 3.38이라 아직 없어 올리기 전까지 이대로 둔다.
+              // 바꿀 때 newIndex 계산이 달라지므로 큐 재정렬을 손으로 확인할 것.
+              // ignore: deprecated_member_use
               onReorder: onReorder,
               children: [
                 for (var i = 0; i < queue.length; i++)
