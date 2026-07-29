@@ -12,6 +12,7 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../models/timed_lyrics.dart';
 import '../models/track_levels.dart';
+import '../models/vocal_segments.dart';
 import '../repository/song_repository.dart';
 import '../services/lyrics_progress_service.dart';
 import '../services/lyrics_sync_math.dart';
@@ -111,6 +112,10 @@ class PlaybackController {
   /// 반주의 EQ 밴드 레벨을 읽어온다(없으면 백그라운드 분석 후 늦게 도착).
   final Future<TrackLevels?> Function(Song song, int slot)? levelsLoader;
 
+  /// 노래(보컬) 구간을 읽어온다 — 싱크 가사가 없는 곡의 줄 배분에 쓴다.
+  /// 원곡·MR이 없는 곡이면 null이 오고, 그러면 균등 배분으로 폴백한다.
+  final Future<VocalSegments?> Function(Song song)? vocalSegmentsLoader;
+
   /// 반주 길이가 확정될 때마다 불린다(곡을 물릴 때·슬롯을 바꿀 때).
   /// 길이를 알아야 표본 구간을 잡을 수 있는 조성 추정이 여기에 붙는다.
   /// 여러 번 불릴 수 있으니 받는 쪽이 멱등해야 한다.
@@ -164,6 +169,7 @@ class PlaybackController {
     this.timedLyricsLoader,
     this.trackVariantResolver,
     this.levelsLoader,
+    this.vocalSegmentsLoader,
     this.onSongReady,
     this.onPracticeSessionEnded,
   });
@@ -299,11 +305,24 @@ class PlaybackController {
     }
 
     final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
-    final next = LyricsProgressService.estimatedLineIndex(
-      position: current,
-      duration: state.value.duration,
-      lineCount: lines,
-    );
+    final segments = _vocalSegments;
+    final int next;
+    if (segments != null && !segments.isEmpty) {
+      // 노래 구간에만 줄을 배분한다 — 전주 동안 첫 줄에서 대기하고
+      // 간주에서는 멈춘다. 구간은 원본 파일 축이라 템포 렌더에서는
+      // 위치를 원본 축으로 되돌려 비교한다.
+      next = LyricsProgressService.segmentLineProgress(
+        position: LyricsSyncMath.toSource(current, state.value.tempoScale),
+        segments: segments,
+        lineCount: lines,
+      ).index;
+    } else {
+      next = LyricsProgressService.estimatedLineIndex(
+        position: current,
+        duration: state.value.duration,
+        lineCount: lines,
+      );
+    }
     if (next != lineIndex.value) lineIndex.value = next;
   }
 
@@ -406,6 +425,20 @@ class PlaybackController {
         ),
       );
       return;
+    }
+
+    final segments = _vocalSegments;
+    if (segments != null && !segments.isEmpty) {
+      final source = LyricsProgressService.positionForLineIndexWithSegments(
+        index: clamped,
+        segments: segments,
+        lineCount: total,
+      );
+      if (source != null) {
+        // 구간은 원본 파일 축(파일 절대 시각)이라 trackStart를 더하지 않는다.
+        await seek(LyricsSyncMath.toRendered(source, state.value.tempoScale));
+        return;
+      }
     }
 
     final estimated = LyricsProgressService.positionForLineIndex(
@@ -526,6 +559,7 @@ class PlaybackController {
     // 정지 상태라면 다음 틱이 영영 오지 않는다.
     _recomputeLineIndex(position.value);
     _reloadTrackLevels(song, resolvedSlot);
+    _reloadVocalSegments(song);
 
     await repo.saveLastSongId(song.id);
     await prepareAudioForSelection();
@@ -655,6 +689,7 @@ class PlaybackController {
       ),
     );
     _reloadTrackLevels(song, slot);
+    _reloadVocalSegments(song);
     await prepareAudioForSelection();
   }
 
@@ -669,6 +704,26 @@ class PlaybackController {
         if (state.value.song?.id != song.id) return;
         if (state.value.trackSlot != slot) return;
         trackLevels.value = levels;
+      }),
+    );
+  }
+
+  /// 현재 곡의 노래 구간(없으면 null). 곡이 바뀌면 로더 완료까지 null이다.
+  VocalSegments? _vocalSegments;
+
+  /// 구간을 비웠다가 로더 완료 시 채운다. 곡이 바뀌었으면 결과를 버린다.
+  void _reloadVocalSegments(Song song) {
+    _vocalSegments = null;
+    final loader = vocalSegmentsLoader;
+    if (loader == null) return;
+    unawaited(
+      loader(song).then((segments) {
+        if (_disposed) return;
+        if (state.value.song?.id != song.id) return;
+        _vocalSegments = segments;
+        // 늦게 도착한 구간으로 그 자리에서 줄을 다시 잡는다 —
+        // 정지 상태라면 다음 틱이 영영 오지 않는다.
+        _recomputeLineIndex(position.value);
       }),
     );
   }

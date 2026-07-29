@@ -14,16 +14,22 @@ import 'package:flutter/foundation.dart';
 import 'key_detection_service.dart';
 import 'level_analysis_service.dart';
 import 'pitch_variant_service.dart';
+import 'vocal_segments_service.dart';
 
 class TrackAssetService {
   final PitchVariantService pitch;
   final LevelAnalysisService levels;
   final KeyDetectionService keys;
 
+  /// 노래 구간 캐시(cache/vocalseg). MR 파일명을 키로 쓰므로 같은 이름으로
+  /// 함께 지워진다. 없으면(테스트 등) 그 캐시만 건너뛴다.
+  final VocalSegmentsService? vocalSegments;
+
   const TrackAssetService({
     required this.pitch,
     required this.levels,
     required this.keys,
+    this.vocalSegments,
   });
 
   /// [backingTrackFileName]에서 파생된 캐시를 모두 지운다.
@@ -34,6 +40,7 @@ class TrackAssetService {
     removed += await _clearPitchVariants(backingTrackFileName);
     removed += await _clearLevels(backingTrackFileName);
     removed += await _clearKey(backingTrackFileName);
+    removed += await vocalSegments?.clearFor(backingTrackFileName) ?? 0;
     return removed;
   }
 

@@ -5,6 +5,7 @@
 // 기존에는 90ms 타이머가 무조건 한 줄씩 넘겨(≈11줄/초) 속도 슬라이더가
 // 무시됐고, 같은 로직이 메인 패널과 전체화면에 중복 구현돼 서로 어긋났다.
 // 위치 기반 순수 함수로 바꿔 두 문제를 구조적으로 없앤다.
+import '../models/vocal_segments.dart';
 
 /// 줄 번호와 그 줄 안에서의 진행률.
 ///
@@ -89,5 +90,75 @@ class LyricsProgressService {
     // floor 경계에서 한 줄 앞으로 밀리지 않도록 1ms 안쪽으로 들어간다.
     final micros = (duration.inMicroseconds * ratio).ceil() + 1000;
     return Duration(microseconds: micros.clamp(0, duration.inMicroseconds));
+  }
+
+  // ── 노래 구간 기반 배분 ─────────────────────────────────
+  //
+  // 곡 전체에 고르게 뿌리는 위 방식은 전주 동안 가사가 흘러가고 간주에도
+  // 진행된다(실측: 「선물」은 224초 중 노래가 55%뿐). 원곡·MR이 있는 곡은
+  // 보컬 구간을 알 수 있으므로 "노래하는 시간"에만 줄을 배분한다.
+
+  /// 노래 구간 축에서의 경과(ms). 전주는 0이고, 간주에서는 멈춘다.
+  static int _sungMsAt(Duration position, List<VocalSegment> segments) {
+    final pos = position.inMilliseconds;
+    var sung = 0;
+    for (final s in segments) {
+      if (pos >= s.endMs) {
+        sung += s.durationMs;
+        continue;
+      }
+      if (pos > s.startMs) sung += pos - s.startMs;
+      break;
+    }
+    return sung;
+  }
+
+  /// 노래 구간에만 줄을 배분한다. (순수 함수 — 테스트 대상)
+  ///
+  /// 전주 동안은 첫 줄에서 대기하고, 간주에서는 직전 줄에 멈춘다.
+  /// [position]은 구간과 같은 축(원본 파일 ms)이어야 한다 — 템포를 바꾼
+  /// 렌더에서는 호출부가 먼저 원본 축으로 환산해야 한다.
+  static LineProgress segmentLineProgress({
+    required Duration position,
+    required VocalSegments segments,
+    required int lineCount,
+  }) {
+    if (lineCount <= 1 || segments.isEmpty) return const LineProgress(0, 0);
+    final total = segments.totalSungMs;
+    if (total <= 0) return const LineProgress(0, 0);
+
+    final sung = _sungMsAt(position, segments.segments);
+    final rawIndex = sung / total * lineCount;
+    final floor = rawIndex.floor();
+    if (floor >= lineCount - 1) return LineProgress(lineCount - 1, 1);
+    if (floor < 0) return const LineProgress(0, 0);
+    return LineProgress(floor, (rawIndex - floor).clamp(0.0, 1.0));
+  }
+
+  /// [segmentLineProgress]의 역함수 — 그 줄이 시작되는 원본 축 위치.
+  ///
+  /// 0번 줄은 첫 노래 구간의 시작으로 간다 — 전주를 건너뛴다.
+  static Duration? positionForLineIndexWithSegments({
+    required int index,
+    required VocalSegments segments,
+    required int lineCount,
+  }) {
+    if (lineCount <= 1 || segments.isEmpty) return null;
+    final total = segments.totalSungMs;
+    if (total <= 0) return null;
+    if (index <= 0) {
+      return Duration(milliseconds: segments.segments.first.startMs);
+    }
+
+    final clamped = index.clamp(0, lineCount - 1);
+    // 경계에서 한 줄 앞으로 밀리지 않도록 살짝 안쪽으로 들어간다.
+    var target = (total * clamped / lineCount).ceil() + 50;
+    for (final s in segments.segments) {
+      if (target <= s.durationMs) {
+        return Duration(milliseconds: s.startMs + target);
+      }
+      target -= s.durationMs;
+    }
+    return Duration(milliseconds: segments.segments.last.endMs);
   }
 }

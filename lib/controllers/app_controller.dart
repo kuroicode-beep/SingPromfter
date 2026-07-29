@@ -40,6 +40,8 @@ import '../services/prompter_audio_service.dart';
 import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
+import '../models/vocal_segments.dart';
+import '../services/vocal_segments_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
@@ -91,10 +93,14 @@ class AppController extends ChangeNotifier {
   late final LyricsAlignService lyricsAlign = LyricsAlignService(
     locator: toolLocator,
   );
+  late final VocalSegmentsService vocalSegments = VocalSegmentsService(
+    align: lyricsAlign,
+  );
   late final TrackAssetService trackAssets = TrackAssetService(
     pitch: pitchVariants,
     levels: levelAnalysis,
     keys: keyDetection,
+    vocalSegments: vocalSegments,
   );
   late final YoutubeImportService youtubeImport = YoutubeImportService(
     tmpDirProvider: repo.getTmpDir,
@@ -143,6 +149,7 @@ class AppController extends ChangeNotifier {
       timedLyricsLoader: lyricsSync.loadFor,
       trackVariantResolver: _resolveTrackVariant,
       levelsLoader: loadTrackLevels,
+      vocalSegmentsLoader: loadVocalSegments,
       onSongReady: (song, duration) =>
           unawaited(ensureSongKey(song, duration: duration)),
       onPracticeSessionEnded: (snapshot, played) =>
@@ -631,6 +638,22 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  /// 곡의 노래 구간(원곡−MR 비교). 둘 중 하나가 없으면 null —
+  /// 그 곡은 균등 배분으로 폴백한다.
+  Future<VocalSegments?> loadVocalSegments(Song song) async {
+    final original = song.trackForSlot(TrackVariant.original.preferredSlot);
+    final mr = song.trackForSlot(TrackVariant.mr.preferredSlot);
+    if (original == null || mr == null) return null;
+    final originalPath = await repo.getBackingTrackPath(original.fileName);
+    final mrPath = await repo.getBackingTrackPath(mr.fileName);
+    if (originalPath == null || mrPath == null) return null;
+    return vocalSegments.analyze(
+      originalPath: originalPath,
+      mrPath: mrPath,
+      cacheKey: mr.fileName,
+    );
+  }
+
   // ── 조성(키) ────────────────────────────────────────────
 
   /// 조성은 **MR**에서 잰다. 보컬이 살아 있는 원곡은 멜로디가 상관을 흔들어
@@ -966,6 +989,8 @@ class AppController extends ChangeNotifier {
     for (final slot in song.availableTrackSlots) {
       unawaited(loadTrackLevels(song, slot));
     }
+    // 노래 구간도 같은 자리에서 — 가사 없는 곡의 줄 배분에 바로 쓰인다.
+    unawaited(loadVocalSegments(song));
     // 조성도 같은 자리에서 — 길이를 아는 지금이 표본 구간을 잡기 좋다.
     unawaited(ensureSongKey(song, duration: metadata.duration));
 
