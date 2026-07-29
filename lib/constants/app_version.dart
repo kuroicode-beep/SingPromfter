@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.11.1';
+  static const String current = '2.12.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.12.0',
+      '2026-07-30',
+      '곡 검색에 유튜브 검색 추가 — 검색 결과에서 바로 새 곡 등록(기본 3슬롯) '
+          '또는 기존 곡의 4번 노래방 슬롯으로 가져오기 · 검색어가 없으면 '
+          '한국 인기곡·TJ노래방 인기 차트 표시 (YOUTUBE_API_KEY 환경 변수 필요)',
+    ),
     AppVersionEntry(
       '2.11.1',
       '2026-07-30',

@@ -25,7 +25,9 @@ import 'queue_panel.dart';
 import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
+import 'search_hub_panel.dart';
 import 'song_search_panel.dart';
+import 'youtube_search_panel.dart';
 import 'import_progress_strip.dart';
 import 'recordings_panel.dart';
 import 'training_panel.dart';
@@ -120,6 +122,15 @@ class SongListScreenContent extends StatelessWidget {
   final SongListFilterMode searchFilterMode;
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
+
+  /// 곡 검색 탭의 [내 곡 | 유튜브] 전환과 유튜브 검색 상태(화면 State 소유).
+  final SearchSource searchSource;
+  final ValueChanged<SearchSource> onSearchSourceChanged;
+  final YoutubeSearchViewState youtubeSearch;
+  final ValueChanged<String> onYoutubeSearch;
+  final ValueChanged<YoutubeChartKind> onYoutubeChartChanged;
+  final ValueChanged<YoutubeVideo> onYoutubeImport;
+  final ValueChanged<YoutubeVideo> onYoutubeKaraokeImport;
   final VoidCallback onAddSong;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
@@ -223,6 +234,13 @@ class SongListScreenContent extends StatelessWidget {
     required this.searchFilterMode,
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
+    required this.searchSource,
+    required this.onSearchSourceChanged,
+    required this.youtubeSearch,
+    required this.onYoutubeSearch,
+    required this.onYoutubeChartChanged,
+    required this.onYoutubeImport,
+    required this.onYoutubeKaraokeImport,
     required this.onAddSong,
     required this.onExportBackup,
     required this.onImportBackup,
@@ -400,22 +418,33 @@ class SongListScreenContent extends StatelessWidget {
       ),
       prompterPanel: _buildPrompterPanel(showQueue: false),
       queuePanel: _buildQueuePanel(),
-      searchPanel: SongSearchPanel(
-        songs: songs,
-        searchQuery: searchQuery,
-        filterMode: searchFilterMode,
-        onSearchQueryChanged: onSearchQueryChanged,
-        onFilterModeChanged: onSearchFilterModeChanged,
-        onStart: onStart,
-        onReserve: onReserveSong,
-        onReserveAll: () {
-          final results = SongFilterService.filter(
-            songs,
-            query: searchQuery,
-            mode: searchFilterMode,
-          );
-          onReserveAllSongs(results);
-        },
+      searchPanel: SearchHubPanel(
+        source: searchSource,
+        onSourceChanged: onSearchSourceChanged,
+        mySongsPanel: SongSearchPanel(
+          songs: songs,
+          searchQuery: searchQuery,
+          filterMode: searchFilterMode,
+          onSearchQueryChanged: onSearchQueryChanged,
+          onFilterModeChanged: onSearchFilterModeChanged,
+          onStart: onStart,
+          onReserve: onReserveSong,
+          onReserveAll: () {
+            final results = SongFilterService.filter(
+              songs,
+              query: searchQuery,
+              mode: searchFilterMode,
+            );
+            onReserveAllSongs(results);
+          },
+        ),
+        youtubePanel: YoutubeSearchPanel(
+          state: youtubeSearch,
+          onSearch: onYoutubeSearch,
+          onChartChanged: onYoutubeChartChanged,
+          onImport: onYoutubeImport,
+          onKaraokeImport: onYoutubeKaraokeImport,
+        ),
       ),
       trainingPanel: TrainingPanel(
         todayLog: todayGoal,

@@ -14,6 +14,7 @@ import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/add_song_dialog.dart';
 import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
+import '../dialogs/pick_song_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
@@ -22,6 +23,7 @@ import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/recording_take.dart';
 import '../models/song.dart';
+import '../models/track_variant.dart';
 import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
 import '../services/backup_service.dart';
@@ -30,6 +32,7 @@ import '../services/practice_log_service.dart';
 import '../services/daily_goal_service.dart';
 import '../services/recording_library_service.dart';
 import '../services/youtube_import_service.dart';
+import '../services/youtube_data_client.dart';
 import '../services/prompter_audio_service.dart';
 import '../services/prompter_settings_service.dart';
 import '../services/song_library_service.dart';
@@ -39,6 +42,8 @@ import '../services/song_sort_service.dart';
 import '../services/take_mix_service.dart';
 import '../services/control_server.dart';
 import '../widgets/song_list_screen_content.dart';
+import '../widgets/search_hub_panel.dart';
+import '../widgets/youtube_search_panel.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
 import '../widgets/prompter_keyboard_scope.dart';
@@ -99,6 +104,20 @@ class _SongListScreenState extends State<SongListScreen> {
   String _searchQuery = '';
   SongListFilterMode _searchFilterMode = SongListFilterMode.all;
 
+  // 곡 검색 탭의 [내 곡 | 유튜브] 전환과 유튜브 검색 상태.
+  // 패널은 재생성되므로 여기(State)가 소유해야 결과·차트 캐시가 유지된다.
+  SearchSource _searchSource = SearchSource.mySongs;
+  final _ytClient = YoutubeDataClient();
+  String _ytQuery = '';
+  List<YoutubeVideo> _ytResults = const [];
+  YoutubeFetchStatus _ytStatus = YoutubeFetchStatus.ok;
+  String? _ytMessage;
+  bool _ytLoading = false;
+  YoutubeChartKind _ytChart = YoutubeChartKind.popular;
+
+  /// 차트는 세션 안에서 캐시한다 — 칩을 오갈 때마다 재호출하지 않게.
+  final Map<YoutubeChartKind, List<YoutubeVideo>> _ytChartCache = {};
+
   // 좌측 목록 자체의 검색·필터 (검색 화면과 독립)
   String _listQuery = '';
   SongListFilterMode _listFilterMode = SongListFilterMode.all;
@@ -154,6 +173,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _takeBindings?.cancel();
     _takePlayer.dispose();
     unawaited(_controlServer.stop());
+    _ytClient.close();
     _app.removeListener(_onPlaybackStateChanged);
     _app.dispose();
     super.dispose();
@@ -608,6 +628,120 @@ class _SongListScreenState extends State<SongListScreen> {
     );
   }
 
+  // ── 유튜브 검색 (곡 검색 탭) ───────────────────────────
+
+  YoutubeSearchViewState get _youtubeSearchState => YoutubeSearchViewState(
+    query: _ytQuery,
+    status: _ytStatus,
+    results: _ytResults,
+    loading: _ytLoading,
+    chart: _ytChart,
+    apiKeyAvailable: _ytClient.hasApiKey,
+    message: _ytMessage,
+  );
+
+  void _onSearchSourceChanged(SearchSource source) {
+    setState(() => _searchSource = source);
+    // 유튜브 쪽 첫 진입 — 기본 화면이 차트이므로 lazy로 한 번 채운다.
+    if (source == SearchSource.youtube &&
+        _ytQuery.isEmpty &&
+        _ytResults.isEmpty &&
+        !_ytLoading) {
+      unawaited(_loadYoutubeChart(_ytChart));
+    }
+  }
+
+  Future<void> _searchYoutube(String query) async {
+    if (query.isEmpty) {
+      // 차트 모드로 복귀.
+      setState(() => _ytQuery = '');
+      await _loadYoutubeChart(_ytChart);
+      return;
+    }
+    setState(() {
+      _ytQuery = query;
+      _ytLoading = true;
+    });
+    final result = await _ytClient.search(query);
+    if (!mounted) return;
+    // 로딩 중 사용자가 검색어를 지웠으면 낡은 결과를 얹지 않는다.
+    if (_ytQuery != query) return;
+    setState(() {
+      _ytLoading = false;
+      _ytStatus = result.status;
+      _ytMessage = result.message;
+      _ytResults = result.videos;
+    });
+  }
+
+  Future<void> _loadYoutubeChart(YoutubeChartKind kind) async {
+    final cached = _ytChartCache[kind];
+    setState(() {
+      _ytChart = kind;
+      if (cached != null) {
+        _ytStatus = YoutubeFetchStatus.ok;
+        _ytMessage = null;
+        _ytResults = cached;
+        _ytLoading = false;
+      } else {
+        _ytLoading = true;
+      }
+    });
+    if (cached != null) return;
+
+    final result = switch (kind) {
+      YoutubeChartKind.popular => await _ytClient.mostPopularMusic(),
+      YoutubeChartKind.karaoke => await _ytClient.karaokeChannelPopular(),
+    };
+    if (!mounted) return;
+    // 로딩 중 다른 칩으로 옮겼거나 검색을 시작했으면 버린다.
+    if (_ytChart != kind || _ytQuery.isNotEmpty) return;
+    setState(() {
+      _ytLoading = false;
+      _ytStatus = result.status;
+      _ytMessage = result.message;
+      _ytResults = result.videos;
+      if (result.status == YoutubeFetchStatus.ok) {
+        _ytChartCache[kind] = result.videos;
+      }
+    });
+  }
+
+  /// [가져오기] — 새 곡, 기본 3슬롯(원곡/MR/−2키) + 가사 + 싱크.
+  /// 저작권 게이트·스낵바는 _startYoutubeImport가 처리한다.
+  Future<void> _importFromYoutubeSearch(YoutubeVideo video) =>
+      _startYoutubeImport(
+        video.url,
+        MrSourceMode.aiSeparate,
+        fetchLyrics: true,
+        plan: const ImportPlan.full(),
+      );
+
+  /// [4번 슬롯] — 기존 곡을 골라 노래방 반주로 붙인다. 영상이 이미 반주라
+  /// 분리 없이 그대로(asIs) 받는다.
+  Future<void> _importKaraokeToSong(YoutubeVideo video) async {
+    if (_songs.isEmpty) {
+      _showSnack('먼저 곡을 하나 등록해 주세요. 노래방 반주는 기존 곡에 붙습니다.');
+      return;
+    }
+    final song = await PickSongDialog.show(context, songs: _songs);
+    if (song == null || !mounted) return;
+    if (!await _confirmYoutubeNotice()) return;
+    final outcome = await _app.enqueueTrackImport(
+      songId: song.id,
+      url: video.url,
+      mode: MrSourceMode.asIs,
+      slot: TrackVariant.karaoke.preferredSlot,
+      label: TrackVariant.karaoke.label,
+    );
+    if (!mounted) return;
+    _showSnack(
+      outcome.ok
+          ? "'${song.title}'의 4번 슬롯으로 가져오는 중입니다."
+          : (outcome.message ?? '가져오기를 시작하지 못했습니다.'),
+    );
+  }
+
   /// 저작권 방침: 최초 사용 시 1회 확인을 받는다. 이후에는 상시 문구만 보인다.
   /// 확인은 반드시 이 화면(사용자 본인)에서만 이뤄진다 — 제어 API는 세팅 불가.
   Future<bool> _confirmYoutubeNotice() async {
@@ -999,6 +1133,13 @@ class _SongListScreenState extends State<SongListScreen> {
             setState(() => _listSortMode = value),
         onRunMaintenance: _runMaintenance,
         onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
+        searchSource: _searchSource,
+        onSearchSourceChanged: _onSearchSourceChanged,
+        youtubeSearch: _youtubeSearchState,
+        onYoutubeSearch: _searchYoutube,
+        onYoutubeChartChanged: _loadYoutubeChart,
+        onYoutubeImport: _importFromYoutubeSearch,
+        onYoutubeKaraokeImport: _importKaraokeToSong,
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),
         onAddSong: _addSong,
