@@ -843,12 +843,10 @@ class AppController extends ChangeNotifier {
     }
 
     if (!result.success) {
-      // 유튜브 측 변경으로 오래된 yt-dlp가 깨지는 일이 잦다 — 힌트를 함께 준다.
-      final message = result.message ?? '가져오기에 실패했습니다.';
-      _failJob(
-        job,
-        '$message 오래된 yt-dlp가 원인일 수 있어요 — 설정에서 업데이트(-U)를 실행해 보세요.',
-      );
+      // 원인별 안내는 describeDownloadFailure가 이미 담았다.
+      // 여기서 힌트를 덧붙이면 403(일시 차단)에도 "yt-dlp 업데이트" 같은
+      // 엉뚱한 안내가 따라붙는다.
+      _failJob(job, result.message ?? '가져오기에 실패했습니다.');
       await youtubeImport.cleanupJob(job.id);
       return;
     }
