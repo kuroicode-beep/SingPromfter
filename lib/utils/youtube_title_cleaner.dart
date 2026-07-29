@@ -92,7 +92,15 @@ String _stripBareNoiseTokens(String input) {
     r'[-+]?\d+\s*(?:키|key)|(?:여자|남자|원)\s*키)(?=\s|$)',
     caseSensitive: false,
   );
-  return input.replaceAll(bare, ' ');
+  // 괄호 없이 붙는 홍보 문구도 걷어낸다. 실제 사례:
+  // "봄이 와도 (When Spring Comes) Official Video" — 괄호 패턴만으로는
+  // 못 잡아 곡 제목에 남았고, 그 제목으로는 가사 검색이 실패했다.
+  final barePhrases = RegExp(
+    r'(^|\s)(official\s*(music\s*)?(video|audio|mv|m/v)|'
+    r'music\s*video|lyric\s*video|official)(?=\s|$)',
+    caseSensitive: false,
+  );
+  return input.replaceAll(bare, ' ').replaceAll(barePhrases, ' ');
 }
 
 String _collapseSpaces(String input) =>

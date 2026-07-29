@@ -146,5 +146,22 @@ void main() {
     test('가사라는 단어가 든 진짜 제목은 건드리지 않는다', () {
       expect(cleanYoutubeSongName('가사 없는 노래').title, '가사 없는 노래');
     });
+
+    // 실제 사례(로이킴 곡): 괄호 없는 꼬리 홍보 문구가 제목에 남아
+    // 가사 검색이 실패했다.
+    test('괄호 밖 꼬리 Official Video도 걷어낸다', () {
+      final r = cleanYoutubeSongName('봄이 와도 (When Spring Comes) Official Video');
+      expect(r.title, '봄이 와도 (When Spring Comes)');
+    });
+
+    test('Official Audio / Music Video / Lyric Video 변형', () {
+      expect(cleanYoutubeSongName('Song Title Official Audio').title, 'Song Title');
+      expect(cleanYoutubeSongName('Song Title Music Video').title, 'Song Title');
+      expect(cleanYoutubeSongName('Song Title Lyric Video').title, 'Song Title');
+    });
+
+    test('Video라는 단어가 든 진짜 제목은 건드리지 않는다', () {
+      expect(cleanYoutubeSongName('Video Games').title, 'Video Games');
+    });
   });
 }
