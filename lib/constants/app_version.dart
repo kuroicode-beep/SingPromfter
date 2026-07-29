@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.8.2';
+  static const String current = '2.8.3';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.8.3',
+      '2026-07-29',
+      '제목·가수를 고치면 키조절 반주의 구운 키가 지워져 조성이 틀리게 '
+          '표시되던 문제',
+    ),
     AppVersionEntry(
       '2.8.2',
       '2026-07-29',
