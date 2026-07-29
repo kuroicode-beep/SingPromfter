@@ -142,6 +142,141 @@ void main() {
     });
   });
 
+  // 싱크 가사가 없는 곡에서 사람이 직접 싱크를 맞추는 경로.
+  // v2.10.1까지 이 경로는 lyricsOffsetMs를 통째로 무시해, 오프셋 버튼을 눌러도
+  // 아무 일이 없었다.
+  group('구간 배분의 오프셋 — 음수면 가사가 먼저', () {
+    const segments = VocalSegments([
+      VocalSegment(startMs: 10000, endMs: 30000),
+      VocalSegment(startMs: 50000, endMs: 70000),
+    ]);
+
+    LineProgress at(int seconds, {int offsetMs = 0}) =>
+        LyricsProgressService.segmentLineProgress(
+          position: Duration(seconds: seconds),
+          segments: segments,
+          lineCount: 8,
+          offsetMs: offsetMs,
+        );
+
+    test('음수 오프셋은 같은 위치에서 더 앞선 줄을 준다', () {
+      expect(at(20, offsetMs: -5000).index, greaterThan(at(20).index));
+    });
+
+    test('양수 오프셋은 같은 위치에서 더 뒤진 줄을 준다', () {
+      expect(at(20, offsetMs: 5000).index, lessThan(at(20).index));
+    });
+
+    test('오프셋만큼 시간을 옮기면 같은 줄이 나온다 — 축이 어긋나지 않는다', () {
+      // 가사를 3초 늦추면(+3000), 3초 뒤 위치가 원래 위치와 같은 줄이어야 한다.
+      expect(at(23, offsetMs: 3000).index, at(20).index);
+    });
+
+    test('되돌리기 — positionForLineIndexWithSegments가 같은 오프셋으로 왕복한다', () {
+      const offsetMs = -2000;
+      for (final index in [0, 1, 4, 7]) {
+        final position =
+            LyricsProgressService.positionForLineIndexWithSegments(
+              index: index,
+              segments: segments,
+              lineCount: 8,
+              offsetMs: offsetMs,
+            );
+        expect(position, isNotNull, reason: '$index번 줄');
+        final back = LyricsProgressService.segmentLineProgress(
+          position: position!,
+          segments: segments,
+          lineCount: 8,
+          offsetMs: offsetMs,
+        );
+        expect(back.index, index, reason: '$index번 줄 왕복');
+      }
+    });
+  });
+
+  group('anchorOffsetForSegments — "지금이 첫 줄"', () {
+    const segments = VocalSegments([
+      VocalSegment(startMs: 13600, endMs: 25320),
+      VocalSegment(startMs: 27000, endMs: 34360),
+    ]);
+
+    test('탐지된 첫 구간보다 늦게 눌렀으면 양수(가사를 늦춘다)', () {
+      final offset = LyricsProgressService.anchorOffsetForSegments(
+        position: const Duration(milliseconds: 16000),
+        segments: segments,
+      );
+      expect(offset, 2400);
+    });
+
+    test('첫 구간과 같은 순간에 눌렀으면 0 — 탐지가 이미 맞았다', () {
+      expect(
+        LyricsProgressService.anchorOffsetForSegments(
+          position: const Duration(milliseconds: 13600),
+          segments: segments,
+        ),
+        0,
+      );
+    });
+
+    test('앵커를 적용하면 그 순간이 정확히 첫 줄이 된다', () {
+      const pressed = Duration(milliseconds: 16000);
+      final offset = LyricsProgressService.anchorOffsetForSegments(
+        position: pressed,
+        segments: segments,
+      )!;
+      // 누른 순간은 0번 줄의 시작 — 아직 다음 줄로 넘어가지 않았다.
+      final atPress = LyricsProgressService.segmentLineProgress(
+        position: pressed,
+        segments: segments,
+        lineCount: 8,
+        offsetMs: offset,
+      );
+      expect(atPress.index, 0);
+      expect(atPress.fraction, 0);
+      // 누른 순간 직전은 아직 전주다(역시 0번 줄에서 대기).
+      final before = LyricsProgressService.segmentLineProgress(
+        position: pressed - const Duration(milliseconds: 500),
+        segments: segments,
+        lineCount: 8,
+        offsetMs: offset,
+      );
+      expect(before.index, 0);
+      expect(before.fraction, 0);
+    });
+
+    test('구간이 없으면 null — 기준선이 아예 없다', () {
+      expect(
+        LyricsProgressService.anchorOffsetForSegments(
+          position: const Duration(seconds: 10),
+          segments: const VocalSegments([]),
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('anchorOffsetForLyrics — LRC가 있는 곡', () {
+    test('첫 줄 시각을 누른 순간으로 옮기는 오프셋', () {
+      expect(
+        LyricsProgressService.anchorOffsetForLyrics(
+          position: const Duration(milliseconds: 15000),
+          firstLineMs: 12000,
+        ),
+        3000,
+      );
+    });
+
+    test('LRC가 늦게 시작하면 음수 — 가사를 먼저 띄운다', () {
+      expect(
+        LyricsProgressService.anchorOffsetForLyrics(
+          position: const Duration(milliseconds: 10000),
+          firstLineMs: 12000,
+        ),
+        -2000,
+      );
+    });
+  });
+
   group('positionForLineIndexWithSegments — 역함수', () {
     const segments = VocalSegments([
       VocalSegment(startMs: 10000, endMs: 30000),

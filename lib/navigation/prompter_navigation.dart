@@ -35,6 +35,8 @@ class PrompterNavigation {
     ValueListenable<int?>? pendingPitch,
     MusicKey? songKey,
     MusicKey? soundingKey,
+    VoidCallback? onAnchorFirstLine,
+    ValueChanged<int>? onNudgeLyricsOffset,
   }) {
     final initial = settingsProvider();
 
@@ -61,6 +63,8 @@ class PrompterNavigation {
           showEqMeter: initial.showEqMeter,
           showSyllableSweep: initial.showSyllableSweep,
           controlsDrawerOpen: initial.controlsDrawerOpen,
+          onAnchorFirstLine: onAnchorFirstLine,
+          onNudgeLyricsOffset: onNudgeLyricsOffset,
           onControlsDrawerChanged: (open) =>
               update((s) => s.copyWith(controlsDrawerOpen: open)),
           onStepPitch: onStepPitch,

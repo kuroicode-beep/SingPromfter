@@ -315,6 +315,7 @@ class PlaybackController {
         position: LyricsSyncMath.toSource(current, state.value.tempoScale),
         segments: segments,
         lineCount: lines,
+        offsetMs: state.value.lyricsOffsetMs,
       ).index;
     } else {
       next = LyricsProgressService.estimatedLineIndex(
@@ -406,6 +407,41 @@ class PlaybackController {
     return LyricsLineUtils.splitLines(song.lyricsText).length;
   }
 
+  /// "지금이 첫 줄이다" — 현재 재생 위치를 첫 줄 시작으로 삼는 오프셋(원본 축).
+  ///
+  /// 노래를 들으며 첫 소절이 나오는 순간에 눌러 주면 싱크 전체가 그 지점에
+  /// 맞춰진다. 구간 탐지가 전주 끝을 잘못 잡았거나 LRC 판본이 다른 녹음에서
+  /// 만들어졌을 때, 사람이 직접 바로잡는 입구다.
+  ///
+  /// 근거가 없으면(싱크 가사도, 노래 구간도 없음) null — 그때는 앵커를
+  /// 걸 기준선이 아예 없다.
+  int? anchorOffsetForCurrentPosition() {
+    final tempo = state.value.tempoScale;
+    final synced = timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      // LRC 경로는 트림 시작을 뺀 뒤 원본 축으로 환산한다(songTimeFor와 같은 순서).
+      final rendered = Duration(
+        milliseconds:
+            position.value.inMilliseconds - (state.value.trackStartMs ?? 0),
+      );
+      return LyricsProgressService.anchorOffsetForLyrics(
+        position: LyricsSyncMath.toSource(rendered, tempo),
+        firstLineMs:
+            synced.lines.first.time.inMilliseconds + synced.offsetMs,
+      );
+    }
+
+    final segments = _vocalSegments;
+    if (segments != null && !segments.isEmpty) {
+      // 구간은 파일 절대 시각이라 trackStart를 빼지 않는다(seekToLine과 같은 규약).
+      return LyricsProgressService.anchorOffsetForSegments(
+        position: LyricsSyncMath.toSource(position.value, tempo),
+        segments: segments,
+      );
+    }
+    return null;
+  }
+
   /// 특정 줄로 이동한다. 싱크 가사가 없으면 추정 시각으로, 그마저 불가능하면
   /// 줄 번호만 옮긴다(가사만 넘겨보는 용도).
   Future<void> seekToLine(int index) async {
@@ -433,6 +469,7 @@ class PlaybackController {
         index: clamped,
         segments: segments,
         lineCount: total,
+        offsetMs: state.value.lyricsOffsetMs,
       );
       if (source != null) {
         // 구간은 원본 파일 축(파일 절대 시각)이라 trackStart를 더하지 않는다.

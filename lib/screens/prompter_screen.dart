@@ -45,6 +45,12 @@ class PrompterScreen extends StatefulWidget {
 
   /// 하단 조작판을 펼쳐 둘지. 접혀도 손잡이는 항상 보인다.
   final bool controlsDrawerOpen;
+
+  /// T — "지금이 첫 줄". 무대에서 노래하며 싱크를 맞추는 입구다.
+  final VoidCallback? onAnchorFirstLine;
+
+  /// . / — 가사 싱크 당기기·밀기(ms 델타). 곡별로 즉시 저장된다.
+  final ValueChanged<int>? onNudgeLyricsOffset;
   final ValueChanged<bool>? onControlsDrawerChanged;
 
   /// 현재 줄을 한 글자씩 밝힐지.
@@ -82,6 +88,8 @@ class PrompterScreen extends StatefulWidget {
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
+    this.onAnchorFirstLine,
+    this.onNudgeLyricsOffset,
     this.onControlsDrawerChanged,
     this.onStepPitch,
     this.onStepTempo,
@@ -218,6 +226,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
         settings: _keyboardSettings,
         enablePlaybackShortcuts: false,
         onSettingsChanged: _applyKeyboardSettings,
+        onAnchorFirstLine: widget.onAnchorFirstLine,
+        onNudgeLyricsOffset: widget.onNudgeLyricsOffset,
         onClose: () => Navigator.pop(context),
         onJumpToStart: widget.playback.jumpToStart,
         onJumpToEnd: widget.playback.jumpToEnd,

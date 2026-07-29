@@ -561,6 +561,9 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸리므로 안내를 먼저 띄운다.
   Future<void> _autoAlignLyrics() => _app.autoAlignLyrics();
 
+  /// 재생 중에 "지금이 첫 줄" — 사람이 직접 싱크를 맞추는 입구(단축키 T).
+  Future<void> _anchorFirstLine() => _app.anchorLyricsToCurrentPosition();
+
   Future<void> _adjustLyricsOffset(int deltaMs) =>
       _app.adjustLyricsOffset(deltaMs);
 
@@ -881,6 +884,8 @@ class _SongListScreenState extends State<SongListScreen> {
       pendingPitch: _app.pendingPitch,
       songKey: _app.trackBaseKeyFor(song, _selectedTrackSlot),
       soundingKey: _app.soundingKeyFor(song, _selectedTrackSlot),
+      onAnchorFirstLine: _anchorFirstLine,
+      onNudgeLyricsOffset: _adjustLyricsOffset,
     );
   }
 
@@ -895,6 +900,8 @@ class _SongListScreenState extends State<SongListScreen> {
       onSettingsChanged: _updateSettings,
       onTogglePlayPause: _togglePlayPause,
       onToggleRecording: _toggleRecording,
+      onAnchorFirstLine: _anchorFirstLine,
+      onNudgeLyricsOffset: _adjustLyricsOffset,
       onOpenPrompter: () {
         final song = _selectedSong;
         if (song != null) _openPrompter(song);
@@ -934,6 +941,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
         onAutoAlignLyrics: _autoAlignLyrics,
+        onAnchorFirstLine: _anchorFirstLine,
         pitchSemitones: _selectedSong == null
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),

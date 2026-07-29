@@ -40,3 +40,16 @@ extension TrackVariantInfo on TrackVariant {
     TrackVariant.karaoke => 4,
   };
 }
+
+/// 가사 싱크를 함께 쓰는 슬롯 묶음.
+///
+/// 1·2·3번은 **같은 녹음**에서 나온다(원곡 → 보컬 분리 → 키조절 렌더). 같은
+/// 음악적 순간이 같은 시각에 있으므로 싱크를 한 번 맞추면 셋 다 맞는다.
+/// 4번(노래방)은 다른 링크로 가져온 **다른 녹음**이라 전주 길이부터 다르다 —
+/// 같은 값을 쓰면 반드시 어긋난다. 그래서 따로 저장한다.
+///
+/// (순수 함수 — 테스트 대상)
+List<int> lyricsSyncSlotGroup(int slot) {
+  const sameRecording = [1, 2, 3];
+  return sameRecording.contains(slot) ? sameRecording : [slot];
+}

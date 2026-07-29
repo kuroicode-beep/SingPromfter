@@ -2,6 +2,7 @@
 
 import '../utils/music_key.dart';
 import 'backing_track.dart';
+import 'track_variant.dart';
 
 class Song {
   final String id;
@@ -49,6 +50,28 @@ class Song {
       if (track.slot == slot) return track;
     }
     return null;
+  }
+
+  /// 가사 싱크 오프셋을 [slot]과 **같은 녹음을 쓰는 슬롯들**에 함께 적용한다.
+  ///
+  /// 1·2·3번(원곡·MR·키조절)은 같은 녹음이라 한 번 맞추면 셋 다 맞고, 4번
+  /// (노래방)은 다른 녹음이라 자기 값만 갖는다 — 규약은 [lyricsSyncSlotGroup].
+  /// 그래서 슬롯을 바꿔 가며 불러도 맞춰 둔 싱크가 유지된다.
+  ///
+  /// [slot]이 없는 곡이면 아무것도 바꾸지 않고 자기 자신을 돌려준다.
+  Song withLyricsOffsetForSlot(int slot, int offsetMs) {
+    if (trackForSlot(slot) == null) return this;
+    final group = lyricsSyncSlotGroup(slot);
+    return copyWith(
+      backingTracks: backingTracks
+          .map(
+            (t) => group.contains(t.slot)
+                ? t.copyWith(lyricsOffsetMs: offsetMs)
+                : t,
+          )
+          .toList(growable: false),
+      updatedAt: DateTime.now(),
+    );
   }
 
   Song copyWith({

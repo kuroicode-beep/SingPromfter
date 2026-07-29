@@ -183,6 +183,40 @@ void main() {
     });
   });
 
+  group('POST /songs/{id}/lyrics/lrc — LRC 직접 부착', () {
+    test('content가 없으면 422', () async {
+      app.songs = [song('a', '선물')];
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/a/lyrics/lrc',
+        body: {},
+      );
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'missing_content');
+    });
+
+    test('없는 곡이면 422 lrc_invalid', () async {
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/none/lyrics/lrc',
+        body: {'content': '[00:01.00]한 줄'},
+      );
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'lrc_invalid');
+    });
+
+    test('타임태그가 없는 원문은 422 — 조용히 빈 싱크를 만들지 않는다', () async {
+      app.songs = [song('a', '선물')];
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/a/lyrics/lrc',
+        body: {'content': '그냥 텍스트'},
+      );
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'lrc_invalid');
+    });
+  });
+
   test('곡 응답에 반주 목록이 들어간다', () async {
     app.songs = [song('a', '밤편지')];
     final res = await router.dispatch('GET', '/api/songs/a');

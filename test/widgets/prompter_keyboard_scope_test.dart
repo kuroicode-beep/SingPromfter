@@ -9,16 +9,21 @@ void main() {
   late int startCalls;
   late int endCalls;
   late List<Duration> seeks;
+  late int anchorCalls;
+  late List<int> nudges;
 
   setUp(() {
     startCalls = 0;
     endCalls = 0;
     seeks = [];
+    anchorCalls = 0;
+    nudges = [];
   });
 
   Future<void> pump(
     WidgetTester tester, {
     bool withJumps = true,
+    bool withSync = true,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -29,6 +34,8 @@ void main() {
             onJumpToStart: withJumps ? () => startCalls++ : null,
             onJumpToEnd: withJumps ? () => endCalls++ : null,
             onSeekRelative: withJumps ? seeks.add : null,
+            onAnchorFirstLine: withSync ? () => anchorCalls++ : null,
+            onNudgeLyricsOffset: withSync ? nudges.add : null,
             child: const SizedBox.expand(),
           ),
         ),
@@ -100,5 +107,41 @@ void main() {
 
     expect(seeks, isEmpty);
     expect(tester.takeException(), isNull);
+  });
+
+  // 싱크를 노래하면서 맞추는 키들. 손이 마우스를 찾을 필요가 없어야 한다.
+  testWidgets('T는 "지금이 첫 줄"을 지정한다', (tester) async {
+    await pump(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+
+    expect(anchorCalls, 1);
+  });
+
+  testWidgets('.는 가사를 당기고 /는 민다 — 왼쪽이 먼저', (tester) async {
+    await pump(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.period);
+    await tester.sendKeyEvent(LogicalKeyboardKey.slash);
+    await tester.pump();
+
+    expect(nudges, [-lyricsNudgeStepMs, lyricsNudgeStepMs]);
+  });
+
+  testWidgets('싱크 콜백이 없으면 아무 일도 없다', (tester) async {
+    await pump(tester, withSync: false);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.sendKeyEvent(LogicalKeyboardKey.period);
+    await tester.pump();
+
+    expect(anchorCalls, 0);
+    expect(nudges, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('lyricsNudgeFor는 그 두 키만 답한다', () {
+    expect(lyricsNudgeFor(LogicalKeyboardKey.period), -lyricsNudgeStepMs);
+    expect(lyricsNudgeFor(LogicalKeyboardKey.slash), lyricsNudgeStepMs);
+    expect(lyricsNudgeFor(LogicalKeyboardKey.comma), isNull);
+    expect(lyricsNudgeFor(LogicalKeyboardKey.keyT), isNull);
   });
 }

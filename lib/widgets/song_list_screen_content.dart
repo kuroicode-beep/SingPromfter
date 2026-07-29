@@ -64,6 +64,9 @@ class SongListScreenContent extends StatelessWidget {
 
   /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
   final VoidCallback? onAutoAlignLyrics;
+
+  /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
+  final VoidCallback? onAnchorFirstLine;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -176,6 +179,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
+    this.onAnchorFirstLine,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -317,6 +321,7 @@ class SongListScreenContent extends StatelessWidget {
       onImportLrcFile: onImportLrcFile,
       onAdjustLyricsOffset: onAdjustLyricsOffset,
       onAutoAlignLyrics: onAutoAlignLyrics,
+      onAnchorFirstLine: onAnchorFirstLine,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
       onStepPitch: onStepPitch,

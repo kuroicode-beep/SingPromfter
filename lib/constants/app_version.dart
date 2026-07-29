@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.10.0';
+  static const String current = '2.11.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.11.0',
+      '2026-07-30',
+      '싱크를 직접 맞추는 길 — 재생 중 T로 "여기가 첫 줄" 지정, . / 로 당기고 '
+          '밀기(곡별 즉시 저장, 원곡·MR·키조절은 연동 / 노래방은 따로) · '
+          '싱크 가사가 없는 곡도 이제 오프셋이 실제로 반영된다 · '
+          '조작판이 좁은 창에서 잘리거나 가사를 다 덮던 문제 · '
+          '위·아래 줄 글자 키움과 미도달 가사 밝기 상향',
+    ),
     AppVersionEntry(
       '2.10.0',
       '2026-07-30',

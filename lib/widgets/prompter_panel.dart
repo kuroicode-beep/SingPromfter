@@ -11,6 +11,7 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
+import 'prompter_drawer.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/pitch_math.dart';
 import '../utils/tempo_label.dart';
@@ -43,6 +44,9 @@ class PrompterPanel extends StatelessWidget {
 
   /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
   final VoidCallback? onAutoAlignLyrics;
+
+  /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
+  final VoidCallback? onAnchorFirstLine;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -110,6 +114,7 @@ class PrompterPanel extends StatelessWidget {
     required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
+    this.onAnchorFirstLine,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -169,6 +174,26 @@ class PrompterPanel extends StatelessWidget {
       );
     }
 
+    // 펼친 조작판이 가사 뷰를 통째로 밀어내지 못하게 패널 높이의 절반까지만
+    // 준다. 조작판을 다 펼치면 300px이 넘어(실측: 바 전체 197→514) 좁은 창에서
+    // 가사가 사라지고 아래가 잘렸다 — 손잡이를 눌렀는데 화면이 망가지니
+    // "안 열린다"로 보인다. 남는 높이는 가사가 갖는다.
+    return LayoutBuilder(
+      builder: (context, constraints) => _build(
+        context,
+        currentSong,
+        maxDrawerBodyHeight: constraints.maxHeight.isFinite
+            ? drawerBodyBudget(constraints.maxHeight)
+            : null,
+      ),
+    );
+  }
+
+  Widget _build(
+    BuildContext context,
+    Song currentSong, {
+    required double? maxDrawerBodyHeight,
+  }) {
     return Container(
       color: AppColors.background,
       child: Column(
@@ -275,6 +300,7 @@ class PrompterPanel extends StatelessWidget {
             onImportLrcFile: onImportLrcFile,
             onAdjustLyricsOffset: onAdjustLyricsOffset,
             onAutoAlignLyrics: onAutoAlignLyrics,
+            onAnchorFirstLine: onAnchorFirstLine,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
             soundingKey: soundingKey,
@@ -288,6 +314,7 @@ class PrompterPanel extends StatelessWidget {
             drawerOpen: settings.controlsDrawerOpen,
             onDrawerChanged: (open) =>
                 onSettingsChanged(settings.copyWith(controlsDrawerOpen: open)),
+            maxDrawerBodyHeight: maxDrawerBodyHeight,
             onStop: onStop,
             onTogglePlayPause: onTogglePlayPause,
             onRestart: onRestart,

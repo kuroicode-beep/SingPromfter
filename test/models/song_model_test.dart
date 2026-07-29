@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/models/backing_track.dart';
 import 'package:singpromfter_app/models/song.dart';
+import 'package:singpromfter_app/models/track_variant.dart';
 
 void main() {
   group('Song serialization', () {
@@ -79,6 +80,68 @@ void main() {
       expect(decoded, hasLength(1));
       expect(decoded.first.title, '노래');
       expect(decoded.first.lyricsText, '가사');
+    });
+  });
+
+  // 사용자가 정한 규약: 1·2·3은 같은 녹음이라 싱크가 연동되고, 4번(노래방)은
+  // 다른 링크로 가져온 다른 녹음이라 따로 저장된다.
+  group('가사 싱크 슬롯 묶음', () {
+    Song songWithSlots(List<int> slots) => Song(
+      id: 'song-sync',
+      title: '선물',
+      lyricsPath: 'x.txt',
+      lyricsText: '한 줄',
+      backingTracks: [
+        for (final slot in slots)
+          BackingTrack(slot: slot, fileName: 'f$slot.mp3', label: '$slot'),
+      ],
+      createdAt: DateTime(2026, 7, 30),
+      updatedAt: DateTime(2026, 7, 30),
+    );
+
+    test('묶음 규약 — 1·2·3은 한 덩어리, 4는 홀로', () {
+      expect(lyricsSyncSlotGroup(1), [1, 2, 3]);
+      expect(lyricsSyncSlotGroup(2), [1, 2, 3]);
+      expect(lyricsSyncSlotGroup(3), [1, 2, 3]);
+      expect(lyricsSyncSlotGroup(4), [4]);
+    });
+
+    test('1번에서 맞추면 2·3번도 같이 맞는다 — 슬롯을 바꿔도 유지', () {
+      final updated = songWithSlots([1, 2, 3, 4]).withLyricsOffsetForSlot(
+        1,
+        -1500,
+      );
+      expect(updated.trackForSlot(1)!.lyricsOffsetMs, -1500);
+      expect(updated.trackForSlot(2)!.lyricsOffsetMs, -1500);
+      expect(updated.trackForSlot(3)!.lyricsOffsetMs, -1500);
+    });
+
+    test('1번에서 맞춰도 노래방(4번)은 건드리지 않는다', () {
+      final updated = songWithSlots([1, 2, 3, 4]).withLyricsOffsetForSlot(
+        1,
+        -1500,
+      );
+      expect(updated.trackForSlot(4)!.lyricsOffsetMs, 0);
+    });
+
+    test('노래방에서 맞추면 1·2·3은 그대로 — 다른 녹음이니까', () {
+      final base = songWithSlots([1, 2, 3, 4]).withLyricsOffsetForSlot(1, -800);
+      final updated = base.withLyricsOffsetForSlot(4, 2200);
+      expect(updated.trackForSlot(4)!.lyricsOffsetMs, 2200);
+      expect(updated.trackForSlot(1)!.lyricsOffsetMs, -800);
+      expect(updated.trackForSlot(2)!.lyricsOffsetMs, -800);
+      expect(updated.trackForSlot(3)!.lyricsOffsetMs, -800);
+    });
+
+    test('없는 슬롯이면 아무것도 바뀌지 않는다', () {
+      final song = songWithSlots([1, 2]);
+      expect(song.withLyricsOffsetForSlot(4, 500), same(song));
+    });
+
+    test('아직 없는 슬롯은 만들지 않는다 — 1번만 있어도 안전하다', () {
+      final updated = songWithSlots([1]).withLyricsOffsetForSlot(1, -300);
+      expect(updated.backingTracks.length, 1);
+      expect(updated.trackForSlot(1)!.lyricsOffsetMs, -300);
     });
   });
 }

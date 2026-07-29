@@ -22,6 +22,7 @@ import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
+import '../models/backing_track.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../models/track_levels.dart';
@@ -441,6 +442,27 @@ class AppController extends ChangeNotifier {
 
   // ── 싱크 가사 ───────────────────────────────────────────
 
+  /// LRC 원문을 곡에 직접 붙인다 — LRCLIB에 없는 곡(로컬 전사 등)의 입구.
+  /// 해석에 실패하거나 곡이 없으면 null.
+  Future<Song?> attachLrc({
+    required String songId,
+    required String content,
+  }) async {
+    final song = songById(songId);
+    if (song == null) return null;
+    final updated = await lyricsSync.save(song, content);
+    if (updated == null) return null;
+    await replaceSongInList(updated);
+    if (selectedSong?.id == songId) {
+      // 화면에 즉시 반영하고 싱크 모드로 전환한다(가져오기와 같은 규약).
+      playback.timedLyrics.value = await lyricsSync.loadFor(updated);
+      await updateSettings(
+        settings.copyWith(displayMode: PrompterDisplayMode.timed),
+      );
+    }
+    return updated;
+  }
+
   /// LRCLIB에서 싱크 가사를 찾아 붙인다. [songId] 생략 시 현재 곡.
   Future<LyricsFetchOutcome> fetchSyncedLyricsFor({String? songId}) async {
     final song = songId == null ? selectedSong : songById(songId);
@@ -659,10 +681,60 @@ class AppController extends ChangeNotifier {
 
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
   Future<void> adjustLyricsOffset(int deltaMs) async {
+    final track = _selectedTrack();
+    if (track == null) return;
+    await _writeLyricsOffset(track.lyricsOffsetMs + deltaMs);
+  }
+
+  /// 재생 중에 "여기가 첫 줄"을 눌러 싱크를 그 지점에 맞춘다.
+  ///
+  /// 싱크 가사(LRC)든 노래 구간 배분이든 같은 오프셋 하나로 처리한다 —
+  /// 사용자에게는 "첫 줄을 지금으로" 하나의 동작이다.
+  Future<bool> anchorLyricsToCurrentPosition() async {
+    if (_selectedTrack() == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return false;
+    }
+    final offset = playback.anchorOffsetForCurrentPosition();
+    if (offset == null) {
+      _emit('맞출 기준이 없습니다. 싱크 가사를 가져오거나 MR을 만들어 주세요.');
+      return false;
+    }
+    if (offset.abs() > AppConstants.maxLyricsOffsetMs) {
+      // 곡 한복판에서 눌렀거나 재생 전에 눌렀을 때다. 조용히 큰 값을
+      // 밀어 넣으면 가사가 통째로 사라져 원인을 못 찾는다.
+      _emit('첫 소절이 나오는 순간에 눌러 주세요.');
+      return false;
+    }
+
+    await _writeLyricsOffset(offset);
+    _emit('첫 줄을 지금 위치에 맞췄습니다 (${_formatOffsetLabel(offset)}).');
+    return true;
+  }
+
+  static String _formatOffsetLabel(int ms) {
+    if (ms == 0) return '동시';
+    final seconds = (ms.abs() / 1000).toStringAsFixed(1);
+    return ms < 0 ? '$seconds초 먼저' : '$seconds초 늦게';
+  }
+
+  /// 지금 선택된 곡·슬롯의 반주. 재생 스냅샷의 곡은 오래됐을 수 있어
+  /// 목록의 최신 인스턴스를 쓴다.
+  BackingTrack? _selectedTrack() {
+    final snapshotSong = selectedSong;
+    final slot = selectedTrackSlot;
+    if (snapshotSong == null || slot == null) return null;
+    final song = songs.firstWhere(
+      (s) => s.id == snapshotSong.id,
+      orElse: () => snapshotSong,
+    );
+    return song.trackForSlot(slot);
+  }
+
+  Future<void> _writeLyricsOffset(int offsetMs) async {
     final snapshotSong = selectedSong;
     final slot = selectedTrackSlot;
     if (snapshotSong == null || slot == null) return;
-    // 재생 스냅샷의 곡은 오래됐을 수 있다 — 목록의 최신 인스턴스를 쓴다.
     final song = songs.firstWhere(
       (s) => s.id == snapshotSong.id,
       orElse: () => snapshotSong,
@@ -670,19 +742,13 @@ class AppController extends ChangeNotifier {
     final track = song.trackForSlot(slot);
     if (track == null) return;
 
-    final next = (track.lyricsOffsetMs + deltaMs).clamp(
+    final next = offsetMs.clamp(
       -AppConstants.maxLyricsOffsetMs,
       AppConstants.maxLyricsOffsetMs,
     );
-    final updatedTracks = song.backingTracks
-        .map((t) => t.slot == slot ? t.copyWith(lyricsOffsetMs: next) : t)
-        .toList(growable: false);
-    final updatedSong = song.copyWith(
-      backingTracks: updatedTracks,
-      updatedAt: DateTime.now(),
-    );
-
-    await replaceSongInList(updatedSong);
+    // 같은 녹음을 쓰는 슬롯(1·2·3)에는 함께 적용된다 — 슬롯을 바꿔 불러도
+    // 맞춰 둔 싱크가 유지된다. 노래방(4번)은 다른 녹음이라 자기 값만 갖는다.
+    await replaceSongInList(song.withLyricsOffsetForSlot(slot, next));
     playback.applyLyricsOffset(next);
   }
 

@@ -177,6 +177,26 @@ class ControlRouter {
           'message': outcome.message,
         });
 
+      // LRC 원문을 직접 붙인다 — LRCLIB에 없는 곡(로컬 전사 등)의 입구.
+      case ('POST', ['songs', final String id, 'lyrics', 'lrc']):
+        final content = body['content'] as String?;
+        if (content == null || content.trim().isEmpty) {
+          return ControlResponse.error(
+            422,
+            'missing_content',
+            'content(LRC 원문, [mm:ss.xx] 형식)가 필요합니다.',
+          );
+        }
+        final attached = await app.attachLrc(songId: id, content: content);
+        if (attached == null) {
+          return ControlResponse.error(
+            422,
+            'lrc_invalid',
+            '곡을 찾을 수 없거나 LRC를 해석하지 못했습니다.',
+          );
+        }
+        return ControlResponse.ok({'song': _songJson(attached)});
+
       // 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸린다.
       case ('POST', ['songs', final String id, 'lyrics', 'align']):
         if (app.songById(id) == null) {
