@@ -32,6 +32,20 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# audioplayers_windows(5.2.1)가 <experimental/coroutine>을 포함하는데, MSVC 14.51
+# (VS18)부터 그 헤더가 static_assert로 빌드를 **막는다**(STL1011). CI 러너가 먼저
+# 새 툴체인으로 올라가 build-windows만 깨졌다 — 로컬(구 MSVC)에서는 재현되지 않는다.
+#
+# 이 정의는 MS가 에러 메시지에서 직접 안내하는 유예 수단이다. 플러그인은 우리가
+# 고칠 수 없는 서드파티 코드라 호출부에서 막을 방법이 이것뿐이다.
+# add_subdirectory보다 위에 둬야 플러그인 타깃까지 적용된다.
+#
+# 임시 조치다. 헤더는 예고대로 곧 제거되므로, audioplayers를 <coroutine>(C++20)을
+# 쓰는 버전으로 올리는 것이 진짜 해결이다. 다만 이 앱의 키·템포 구조 전체가
+# audioplayers의 제약(Windows에서 PCM 미노출, setPlaybackRate가 음정을 끌고 감)
+# 위에 서 있어 업그레이드는 별도 검증이 필요하다.
+add_definitions(-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
