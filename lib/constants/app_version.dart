@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.8.3';
+  static const String current = '2.9.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.9.0',
+      '2026-07-30',
+      '링크 하나로 원곡/MR/−2키 + 가사 + 싱크까지 자동 완성 · '
+          '가사 없는 곡도 노래 구간에 맞춰 줄 진행(전주·간주 인식) · '
+          '속도가 다른 가사 판본 자동 보정 · 분리 서버 자동 켜기 · '
+          '엉뚱한 곡 가사가 붙던 문제와 제목 군더더기 정리',
+    ),
     AppVersionEntry(
       '2.8.3',
       '2026-07-29',
