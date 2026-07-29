@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/queue_item.dart';
+import '../services/queue_logic.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 
@@ -62,11 +63,13 @@ class QueuePanel extends StatelessWidget {
             height: _height,
             child: ReorderableListView(
               buildDefaultDragHandles: false,
-              // Flutter 3.41부터 onReorderItem으로 대체됐다(newIndex 보정 방식이
-              // 다르다). 로컬 SDK가 3.38이라 아직 없어 올리기 전까지 이대로 둔다.
-              // 바꿀 때 newIndex 계산이 달라지므로 큐 재정렬을 손으로 확인할 것.
-              // ignore: deprecated_member_use
-              onReorder: onReorder,
+              // onReorderItem은 항목 제거를 반영해 **보정된** newIndex를 준다.
+              // 아래 체인(QueueLogic·제어 API·MCP)은 예전 raw 인덱스 규약을
+              // 공유하므로 QueueLogic의 변환으로 되돌려 넘긴다.
+              onReorderItem: (oldIndex, newIndex) => onReorder(
+                oldIndex,
+                QueueLogic.rawIndexForAdjusted(oldIndex, newIndex),
+              ),
               children: [
                 for (var i = 0; i < queue.length; i++)
                   _QueueTile(

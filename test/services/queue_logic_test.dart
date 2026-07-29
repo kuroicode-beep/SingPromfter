@@ -30,6 +30,20 @@ void main() {
       expect(next.map((item) => item.songId), ['b', 'c', 'a']);
     });
 
+    test('rawIndexForAdjusted 왕복 — onReorderItem 보정 인덱스가 그 자리로 간다', () {
+      // Flutter 3.41 onReorderItem은 보정된 newIndex를 준다. raw 변환을
+      // 거쳐 reorder에 넣으면 항목이 정확히 그 보정 인덱스에 놓여야 한다.
+      for (final (oldIndex, adjusted) in [(0, 2), (2, 0), (1, 1), (0, 1)]) {
+        final raw = QueueLogic.rawIndexForAdjusted(oldIndex, adjusted);
+        final next = QueueLogic.reorder(queue, oldIndex, raw);
+        expect(
+          next[adjusted].songId,
+          queue[oldIndex].songId,
+          reason: '이동 \$oldIndex→\$adjusted (raw \$raw)',
+        );
+      }
+    });
+
     test('reorder ignores invalid target', () {
       final next = QueueLogic.reorder(queue, 0, 99);
 
