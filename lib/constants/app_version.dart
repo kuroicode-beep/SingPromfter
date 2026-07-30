@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.2.0';
+  static const String current = '3.3.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.3.0',
+      '2026-07-30',
+      '곡 수정 창 정리 — 트랙 카드는 파일명·교체·재생 키만 상시 노출, '
+          '라벨·시작/끝은 세부 설정 접이식으로, 빈 슬롯은 없음+추가 한 줄로. '
+          '구운 키는 수정 박스 대신 고정값 뱃지로 표시(키조절·노래방), '
+          '가수·조성 입력은 한 줄로 통합',
+    ),
     AppVersionEntry(
       '3.2.0',
       '2026-07-30',

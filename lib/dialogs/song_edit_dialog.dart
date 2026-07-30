@@ -1,6 +1,10 @@
-﻿// file: lib/dialogs/song_edit_dialog.dart
+// file: lib/dialogs/song_edit_dialog.dart
 //
 // 곡 수정 시 제목, 가사 교체, 반주 교체 입력을 담당하는 다이얼로그.
+//
+// v3.3.0 정리: 트랙 카드에는 파일명·교체·재생 키만 상시 노출하고,
+// 라벨·시작/끝 구간은 '세부 설정' 접이식으로 내렸다. 구운 키는 시스템이
+// 파일을 만들 때 정해지는 고정값이라 수정 박스 대신 뱃지로만 보여준다.
 import 'dart:convert';
 import 'dart:io';
 
@@ -47,6 +51,8 @@ class SongEditDialog {
       for (final slot in AppConstants.backingTrackSlots)
         slot: song.trackForSlot(slot)?.endMs,
     };
+    // 구운 키는 여기서 고치지 않는다 — 파일을 만든 쪽(키조절 생성·가져오기)이
+    // 정하는 값이라 그대로 실어 보낸다.
     final trackBaked = <int, int>{
       for (final slot in AppConstants.backingTrackSlots)
         slot: song.trackForSlot(slot)?.bakedSemitones ?? 0,
@@ -148,40 +154,54 @@ class SongEditDialog {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      TextField(
-                        controller: artistController,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: '가수 (선택)',
-                          labelStyle: TextStyle(color: AppColors.textMuted),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: keyController,
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: '곡 조성 (선택) — 예: C, Am, F♯m',
-                          labelStyle: const TextStyle(
-                            color: AppColors.textMuted,
+                      // 가수와 조성은 짧은 입력이라 한 줄에 나란히 둔다.
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: artistController,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 16,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: '가수 (선택)',
+                                labelStyle: TextStyle(
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                            ),
                           ),
-                          helperText: keyError == null
-                              ? '비워 두면 반주에서 자동으로 다시 추정합니다.'
-                              : null,
-                          helperStyle: const TextStyle(
-                            color: AppColors.textMuted,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: keyController,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 16,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: '곡 조성 (선택) — 예: C, Am',
+                                labelStyle: const TextStyle(
+                                  color: AppColors.textMuted,
+                                ),
+                                helperText: keyError == null
+                                    ? '비우면 자동으로 다시 추정'
+                                    : null,
+                                helperStyle: const TextStyle(
+                                  color: AppColors.textMuted,
+                                ),
+                                errorText: keyError,
+                              ),
+                              onChanged: (_) {
+                                if (keyError != null) {
+                                  setLocal(() => keyError = null);
+                                }
+                              },
+                            ),
                           ),
-                          errorText: keyError,
-                        ),
-                        onChanged: (_) {
-                          if (keyError != null) setLocal(() => keyError = null);
-                        },
+                        ],
                       ),
                       const SizedBox(height: 16),
                       _LyricsPickerCard(
@@ -194,24 +214,25 @@ class SongEditDialog {
                           });
                         },
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
+                      Text('반주', style: AppTypography.bodyMuted),
+                      const SizedBox(height: 2),
                       Text(
-                        '반주 교체 '
-                        '(선택: 0~${AppConstants.maxBackingTrackSlots}개)',
+                        '재생 키는 그 반주에만 적용 — 파일은 그대로, 재생할 때 변환합니다.',
                         style: AppTypography.bodyMuted,
                       ),
                       const SizedBox(height: 8),
                       for (final slot in AppConstants.backingTrackSlots)
                         _TrackEditRow(
-                          label: '반주$slot (mp3)',
-                          value: trackPaths[slot] != null
+                          slot: slot,
+                          fileName: trackPaths[slot] != null
                               ? trackPaths[slot]!.split('\\').last
-                              : (song.trackForSlot(slot)?.fileName ?? '없음'),
-                          selected: trackPaths[slot] != null,
-                          hasTrack: trackPaths[slot] != null ||
-                              song.trackForSlot(slot) != null,
+                              : song.trackForSlot(slot)?.fileName,
+                          newlyPicked: trackPaths[slot] != null,
                           labelValue: trackLabels[slot] ?? 'MR$slot',
-                          onLabelChanged: (value) => trackLabels[slot] = value,
+                          // 카드 제목에도 라벨이 보이므로 고치면 바로 따라가게.
+                          onLabelChanged: (value) =>
+                              setLocal(() => trackLabels[slot] = value),
                           startMs: trackStartMs[slot],
                           endMs: trackEndMs[slot],
                           onStartChanged: (value) =>
@@ -219,11 +240,6 @@ class SongEditDialog {
                           onEndChanged: (value) =>
                               trackEndMs[slot] = _parseSeconds(value),
                           bakedSemitones: trackBaked[slot] ?? 0,
-                          // 구운 키가 바뀌면 실효 키 표시도 따라가야 해서
-                          // setLocal로 감싼다.
-                          onBakedChanged: (value) => setLocal(
-                            () => trackBaked[slot] = _parseSemitones(value),
-                          ),
                           pitchSemitones: trackPitch[slot] ?? 0,
                           musicalKey: song.musicalKey,
                           onPitchAdjust: (delta) => setLocal(
@@ -249,7 +265,9 @@ class SongEditDialog {
                     final keyText = keyController.text.trim();
                     final parsedKey = MusicKey.parse(keyText);
                     if (keyText.isNotEmpty && parsedKey == null) {
-                      setLocal(() => keyError = '조성을 읽을 수 없습니다. C, Am, F♯m 처럼 적어 주세요.');
+                      setLocal(
+                        () => keyError = '조성을 읽을 수 없습니다. C, Am, F♯m 처럼 적어 주세요.',
+                      );
                       return;
                     }
                     final title = titleController.text.trim().isEmpty
@@ -311,13 +329,6 @@ class SongEditDialog {
     }
   }
 
-  /// 구운 키 입력. 비었거나 못 읽으면 0(구운 키 없음)으로 본다.
-  static int _parseSemitones(String value) {
-    final parsed = int.tryParse(value.trim());
-    if (parsed == null) return 0;
-    return parsed.clamp(-12, 12);
-  }
-
   static int? _parseSeconds(String value) {
     final parsed = double.tryParse(value.trim());
     if (parsed == null || parsed <= 0) return null;
@@ -340,60 +351,66 @@ class _LyricsPickerCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border.all(color: AppColors.border),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // 한 줄로: 제목 · 상태 · 버튼. 세로로 길던 카드를 눌러 담았다.
+      child: Row(
         children: [
           const Text(
             '가사 (txt)',
             style: TextStyle(color: AppColors.textPrimary),
           ),
-          const SizedBox(height: 6),
-          Text(
-            fileName ?? '기존 파일 유지',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: fileName == null
-                  ? AppColors.textMuted
-                  : AppColors.textPrimary,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              fileName ?? '기존 파일 유지',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: fileName == null
+                    ? AppColors.textMuted
+                    : AppColors.textPrimary,
+              ),
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              ElevatedButton(
-                onPressed: onPick,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(88, 42),
-                ),
-                child: const Text('다시 선택'),
-              ),
-              const SizedBox(width: 6),
-              TextButton(onPressed: onKeep, child: const Text('유지')),
-            ],
+          const SizedBox(width: 10),
+          ElevatedButton(
+            onPressed: onPick,
+            style: ElevatedButton.styleFrom(minimumSize: const Size(88, 42)),
+            child: const Text('다시 선택'),
           ),
+          if (fileName != null) ...[
+            const SizedBox(width: 6),
+            TextButton(onPressed: onKeep, child: const Text('되돌리기')),
+          ],
         ],
       ),
     );
   }
 }
 
+/// 트랙 한 슬롯의 편집 카드.
+///
+/// 상시 노출은 파일명·교체·재생 키뿐이다. 라벨과 시작/끝 구간은
+/// '세부 설정' 접이식 안에 있고, 구운 키는 고정값 뱃지로만 보여준다.
+/// 파일이 없는 슬롯은 '없음 + 추가' 한 줄로 줄인다.
 class _TrackEditRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool selected;
+  final int slot;
 
-  /// 기존 파일이 있거나 새로 골랐는지. 없으면 재생 키 줄을 그리지 않는다.
-  final bool hasTrack;
+  /// 지금 보여줄 파일명. 없으면(빈 슬롯) null.
+  final String? fileName;
+
+  /// 이 다이얼로그에서 새 파일을 골랐는지 — '되돌리기'를 보여줄 조건.
+  final bool newlyPicked;
   final String labelValue;
   final int? startMs;
   final int? endMs;
+
+  /// 파일에 이미 구워진 키(반음). 시스템이 정하는 고정값 — 표시만 한다.
   final int bakedSemitones;
 
   /// 이 슬롯의 재생 키(반음). 파일은 그대로, 재생할 때 변환한다.
@@ -404,16 +421,14 @@ class _TrackEditRow extends StatelessWidget {
   final ValueChanged<String> onLabelChanged;
   final ValueChanged<String> onStartChanged;
   final ValueChanged<String> onEndChanged;
-  final ValueChanged<String> onBakedChanged;
   final ValueChanged<int> onPitchAdjust;
   final VoidCallback onPick;
   final VoidCallback onKeep;
 
   const _TrackEditRow({
-    required this.label,
-    required this.value,
-    required this.selected,
-    required this.hasTrack,
+    required this.slot,
+    required this.fileName,
+    required this.newlyPicked,
     required this.labelValue,
     required this.startMs,
     required this.endMs,
@@ -423,138 +438,155 @@ class _TrackEditRow extends StatelessWidget {
     required this.onLabelChanged,
     required this.onStartChanged,
     required this.onEndChanged,
-    required this.onBakedChanged,
     required this.onPitchAdjust,
     required this.onPick,
     required this.onKeep,
   });
 
+  bool get _hasTrack => fileName != null;
+
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
           color: AppColors.surface,
           border: Border.all(color: AppColors.border),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: _hasTrack ? _buildFilled(context) : _buildEmpty(context),
+      ),
+    );
+  }
+
+  /// 빈 슬롯 — 한 줄이면 충분하다.
+  Widget _buildEmpty(BuildContext context) {
+    return Row(
+      children: [
+        Text('반주$slot', style: const TextStyle(color: AppColors.textPrimary)),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: Text('없음', style: TextStyle(color: AppColors.textMuted)),
+        ),
+        OutlinedButton(
+          onPressed: onPick,
+          style: OutlinedButton.styleFrom(minimumSize: const Size(88, 42)),
+          child: const Text('추가'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFilled(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                SizedBox(
-                  width: 98,
-                  child: Text(
-                    label,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                  ),
-                ),
-                Expanded(
-                  child: Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected
-                          ? AppColors.textPrimary
-                          : AppColors.textMuted,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  onPressed: onPick,
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(88, 42),
-                  ),
-                  child: const Text('교체'),
-                ),
-                const SizedBox(width: 6),
-                TextButton(onPressed: onKeep, child: const Text('유지')),
-              ],
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              initialValue: labelValue,
+            Text(
+              '반주$slot · $labelValue',
               style: const TextStyle(color: AppColors.textPrimary),
-              decoration: const InputDecoration(
-                labelText: '반주 라벨',
-                labelStyle: TextStyle(color: AppColors.textMuted),
-                isDense: true,
-              ),
-              onChanged: onLabelChanged,
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    initialValue: _secondsText(startMs),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(
-                      labelText: '시작(초)',
-                      labelStyle: TextStyle(color: AppColors.textMuted),
-                      isDense: true,
-                    ),
-                    onChanged: onStartChanged,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: _secondsText(endMs),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(
-                      labelText: '끝(초)',
-                      labelStyle: TextStyle(color: AppColors.textMuted),
-                      isDense: true,
-                    ),
-                    onChanged: onEndChanged,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: bakedSemitones == 0
-                        ? ''
-                        : '$bakedSemitones',
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: const InputDecoration(
-                      labelText: '구운 키(반음)',
-                      helperText: '이 파일에 이미 반영된 키. 표시용',
-                      labelStyle: TextStyle(color: AppColors.textMuted),
-                      helperStyle: TextStyle(color: AppColors.textMuted),
-                      isDense: true,
-                    ),
-                    onChanged: onBakedChanged,
-                  ),
-                ),
-              ],
-            ),
-            if (hasTrack) ...[
-              const SizedBox(height: 10),
-              _TrackPitchRow(
-                slotLabel: labelValue,
-                pitchSemitones: pitchSemitones,
-                bakedSemitones: bakedSemitones,
-                musicalKey: musicalKey,
-                onAdjust: onPitchAdjust,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                fileName!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: AppColors.textMuted),
               ),
+            ),
+            const SizedBox(width: 10),
+            ElevatedButton(
+              onPressed: onPick,
+              style: ElevatedButton.styleFrom(minimumSize: const Size(88, 42)),
+              child: const Text('교체'),
+            ),
+            if (newlyPicked) ...[
+              const SizedBox(width: 6),
+              TextButton(onPressed: onKeep, child: const Text('되돌리기')),
             ],
           ],
         ),
-      ),
+        const SizedBox(height: 4),
+        _TrackPitchRow(
+          slotLabel: labelValue,
+          pitchSemitones: pitchSemitones,
+          bakedSemitones: bakedSemitones,
+          musicalKey: musicalKey,
+          onAdjust: onPitchAdjust,
+        ),
+        // 자주 안 만지는 것들은 접어 둔다 — 펼쳐야 라벨·구간이 나온다.
+        // ListTile 계열은 Material 조상이 필요해 투명 Material로 감싼다
+        // (색 있는 Container 안이라 그냥 두면 assert가 난다).
+        Material(
+          type: MaterialType.transparency,
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              iconColor: AppColors.textMuted,
+              collapsedIconColor: AppColors.textMuted,
+              title: Text('세부 설정 — 라벨·구간', style: AppTypography.bodyMuted),
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        initialValue: labelValue,
+                        style: const TextStyle(color: AppColors.textPrimary),
+                        decoration: const InputDecoration(
+                          labelText: '반주 라벨',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                          isDense: true,
+                        ),
+                        onChanged: onLabelChanged,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        initialValue: _secondsText(startMs),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: const TextStyle(color: AppColors.textPrimary),
+                        decoration: const InputDecoration(
+                          labelText: '시작(초)',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                          isDense: true,
+                        ),
+                        onChanged: onStartChanged,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextFormField(
+                        initialValue: _secondsText(endMs),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: const TextStyle(color: AppColors.textPrimary),
+                        decoration: const InputDecoration(
+                          labelText: '끝(초)',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                          isDense: true,
+                        ),
+                        onChanged: onEndChanged,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -563,7 +595,8 @@ class _TrackEditRow extends StatelessWidget {
 }
 
 /// 트랙 하나의 재생 키 조절 줄. 재생바 키 줄과 같은 문법(큰 -/+ 버튼,
-/// '원키/2키 낮춤' 말 표기)을 쓰되, 이 반주에만 적용된다는 것을 함께 알린다.
+/// '원키/2키 낮춤' 말 표기)을 쓴다. 구운 키가 있으면 고정값 뱃지로,
+/// 조성을 알면 실효 조성 칩으로 함께 보여준다.
 class _TrackPitchRow extends StatelessWidget {
   final String slotLabel;
   final int pitchSemitones;
@@ -631,6 +664,23 @@ class _TrackPitchRow extends StatelessWidget {
             ),
           ),
         ),
+        if (bakedSemitones != 0) ...[
+          const SizedBox(width: 10),
+          Semantics(
+            label: '구운 키 ${formatKeyLabel(bakedSemitones)} — 파일에 반영된 고정값',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '구운 ${formatKeyShort(bakedSemitones)}',
+                style: AppTypography.mono.copyWith(color: AppColors.textMuted),
+              ),
+            ),
+          ),
+        ],
         if (showEffective) ...[
           const SizedBox(width: 10),
           Semantics(
@@ -653,15 +703,6 @@ class _TrackPitchRow extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            '이 반주에만 적용 — 파일은 그대로, 재생할 때 변환',
-            style: AppTypography.bodyMuted,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
       ],
     );
   }

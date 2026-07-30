@@ -66,6 +66,44 @@ void main() {
     // 반주1만 파일이 있으므로 재생 키 줄도 하나뿐이다.
     expect(find.text('재생 키'), findsOneWidget);
     expect(find.text('원키'), findsOneWidget);
+    // 빈 슬롯은 '없음 + 추가' 한 줄로만 나온다.
+    expect(find.text('없음'), findsNWidgets(3));
+    expect(find.text('추가'), findsNWidgets(3));
+  });
+
+  testWidgets('구운 키는 수정 박스가 아니라 고정 뱃지다', (tester) async {
+    await openDialog(
+      tester,
+      _song(
+        tracks: const [
+          BackingTrack(
+            slot: 3,
+            fileName: 'mr3.mp3',
+            label: '키조절',
+            bakedSemitones: -5,
+          ),
+        ],
+      ),
+    );
+
+    // 예전의 '구운 키(반음)' 입력 칸은 없어야 한다.
+    expect(find.text('구운 키(반음)'), findsNothing);
+    expect(find.text('구운 -5'), findsOneWidget);
+    // 재생 키는 여전히 조절 가능하다.
+    expect(find.byTooltip('키 한 음 올리기'), findsOneWidget);
+  });
+
+  testWidgets('라벨·구간은 세부 설정을 펼쳐야 나온다', (tester) async {
+    await openDialog(tester, _song());
+
+    expect(find.text('반주 라벨'), findsNothing);
+    await tester.ensureVisible(find.text('세부 설정 — 라벨·구간'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('세부 설정 — 라벨·구간'));
+    await tester.pumpAndSettle();
+    expect(find.text('반주 라벨'), findsOneWidget);
+    expect(find.text('시작(초)'), findsOneWidget);
+    expect(find.text('끝(초)'), findsOneWidget);
   });
 
   testWidgets('+/-로 값을 바꿔 저장하면 드래프트에 실린다', (tester) async {
