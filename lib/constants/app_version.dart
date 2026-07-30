@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.17.0';
+  static const String current = '2.17.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.17.1',
+      '2026-07-30',
+      '일시정지 중 T·./가 화면에 반영되지 않던 문제(다음 재생 틱까지 대기) · '
+          'Shift 잔상으로 /가 가끔 안 먹던 문제(>·?도 같은 키로) · '
+          './ 꾹 누르면 연속 조절',
+    ),
     AppVersionEntry(
       '2.17.0',
       '2026-07-30',

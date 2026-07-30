@@ -213,8 +213,13 @@ class PlaybackController {
   }
 
   /// 가사 오프셋 변경을 즉시 반영한다.
+  ///
+  /// 줄 인덱스도 여기서 바로 다시 계산한다 — 위치 틱에만 맡기면
+  /// **일시정지 중에는 다음 틱이 없어서** T(리셋)·`.`/`/`(밀고 당기기)를
+  /// 눌러도 화면이 꿈쩍하지 않는다(실사용에서 "안 먹음"으로 보고된 원인).
   void applyLyricsOffset(int offsetMs) {
     _update(state.value.copyWith(lyricsOffsetMs: offsetMs));
+    _recomputeLineIndex(position.value);
   }
 
   /// 가사 자동 진행을 멈추거나 다시 시작한다.

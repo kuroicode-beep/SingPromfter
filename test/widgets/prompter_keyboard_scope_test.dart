@@ -160,6 +160,14 @@ void main() {
     expect(lyricsNudgeFor(LogicalKeyboardKey.keyT), isNull);
   });
 
+  test('lyricsNudgeFor — Shift 잔상(>·?)도 같은 키로 받는다', () {
+    // Shift+→(30초 시크) 직후 Shift가 남은 채 누르면 >·?로 온다 —
+    // 실사용에서 "/가 랜덤하게 안 먹음"으로 보고된 원인.
+    expect(lyricsNudgeFor(LogicalKeyboardKey.greater), lyricsNudgeStepMs);
+    expect(lyricsNudgeFor(LogicalKeyboardKey.question), -lyricsNudgeStepMs);
+  });
+
+
   // 이 범위는 화면 전체를 감싼다 — 끄지 않으면 곡 검색·설정 같은 다른 탭에서도
   // 단축키가 먹는다(검색 결과를 훑다가 R로 녹음이 시작되는 사고).
   testWidgets('꺼진 범위에서는 어떤 단축키도 먹지 않는다', (tester) async {

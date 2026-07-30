@@ -17,8 +17,14 @@ const int lyricsNudgeStepMs = 200;
 /// v2.16까지는 반대였는데 사용자 감각과 어긋났다 — "."이 늦추고 "/"가
 /// 앞당기는 쪽이 손에 맞는다는 피드백으로 뒤집었다.
 int? lyricsNudgeFor(LogicalKeyboardKey key) {
-  if (key == LogicalKeyboardKey.period) return lyricsNudgeStepMs;
-  if (key == LogicalKeyboardKey.slash) return -lyricsNudgeStepMs;
+  // Shift가 눌린 채면 같은 물리 키가 >·?로 온다 — Shift+→(30초 시크) 직후
+  // 잔상으로 흔히 생긴다. 물리적으로 같은 키니 같은 뜻으로 받는다.
+  if (key == LogicalKeyboardKey.period || key == LogicalKeyboardKey.greater) {
+    return lyricsNudgeStepMs;
+  }
+  if (key == LogicalKeyboardKey.slash || key == LogicalKeyboardKey.question) {
+    return -lyricsNudgeStepMs;
+  }
   return null;
 }
 
@@ -126,12 +132,21 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 꺼진 탭에서는 아무 키도 삼키지 않는다 — 그 탭의 위젯(목록 이동 등)이
     // 키를 정상적으로 받아야 한다.
     if (!widget.enabled) return KeyEventResult.ignored;
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
     if (SongListShortcutService.isTextInputFocused()) {
       return KeyEventResult.ignored;
     }
 
     final key = event.logicalKey;
+
+    // 싱크 밀고 당기기는 꾹 누르면 반복되는 게 자연스럽다 — 반복 이벤트도
+    // 받는다. 나머지 단축키는 최초 눌림만(토글이 튀지 않게).
+    final nudge = lyricsNudgeFor(key);
+    if (nudge != null && widget.onNudgeLyricsOffset != null) {
+      widget.onNudgeLyricsOffset!(nudge);
+      return KeyEventResult.handled;
+    }
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {
       widget.onClose!();
       return KeyEventResult.handled;
@@ -152,14 +167,6 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // E = 현재 줄 인라인 편집. 받아쓰기 오탈자를 노래 중에 바로 고친다.
     if (key == LogicalKeyboardKey.keyE && widget.onEditCurrentLine != null) {
       widget.onEditCurrentLine!();
-      return KeyEventResult.handled;
-    }
-
-    // . / = 가사 싱크 당기기·밀기. 나란히 붙은 두 키를 왼쪽=먼저, 오른쪽=늦게로
-    // 둔다(화면의 −/+ 버튼과 같은 걸음). 조절은 곡별로 즉시 저장된다.
-    final nudge = lyricsNudgeFor(key);
-    if (nudge != null && widget.onNudgeLyricsOffset != null) {
-      widget.onNudgeLyricsOffset!(nudge);
       return KeyEventResult.handled;
     }
 
