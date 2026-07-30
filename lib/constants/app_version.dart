@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.6.1';
+  static const String current = '3.7.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.7.0',
+      '2026-07-31',
+      'Ctrl+←/→ = 가사 한 줄 단위로 밀고 당기기 — 이동량은 현재 줄과 '
+          '이웃 줄의 실제 시간 차(곡마다 다름), 방향·이동량·누적 오프셋을 '
+          '스낵으로 표시. 0.2초 걸음(←/→)보다 굵은 조절',
+    ),
     AppVersionEntry(
       '3.6.1',
       '2026-07-31',

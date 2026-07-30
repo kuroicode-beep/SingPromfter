@@ -13,6 +13,7 @@ void main() {
   late int editCalls;
   late List<int> nudges;
   late List<int> lineSteps;
+  late List<int> lineNudges;
   late int settingsChanges;
 
   setUp(() {
@@ -23,6 +24,7 @@ void main() {
     editCalls = 0;
     nudges = [];
     lineSteps = [];
+    lineNudges = [];
     settingsChanges = 0;
   });
 
@@ -46,6 +48,7 @@ void main() {
               seekRelative: withJumps ? seeks.add : null,
               resetLyricsSync: withSync ? () => resetCalls++ : null,
               nudgeLyricsOffset: withSync ? nudges.add : null,
+              nudgeLyricsOffsetLine: withSync ? lineNudges.add : null,
               stepLine: withStepLine ? lineSteps.add : null,
             ),
             onEditCurrentLine: withSync ? () => editCalls++ : null,
@@ -106,6 +109,20 @@ void main() {
 
     expect(lineSteps, [-1, 1]);
     expect(settingsChanges, 0);
+  });
+
+  testWidgets('Ctrl+←는 한 줄 늦추고 Ctrl+→는 한 줄 앞당긴다', (tester) async {
+    await pump(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+
+    expect(lineNudges, [1, -1]);
+    // 0.2초 걸음·시크는 건드리지 않는다
+    expect(nudges, isEmpty);
+    expect(seeks, isEmpty);
   });
 
   testWidgets('Shift+→는 30초 앞으로', (tester) async {

@@ -812,6 +812,26 @@ class AppController extends ChangeNotifier {
     _emit('가사 싱크 $dir — ${_formatOffsetLabel(next)}');
   }
 
+  /// 싱크를 한 줄 간격만큼 민다 — Ctrl+←(늦춤)/Ctrl+→(앞당김).
+  /// 이동량은 현재 줄과 이웃 줄의 실제 시간 차라 곡마다 다르다.
+  Future<void> adjustLyricsOffsetByLine({required bool delay}) async {
+    final track = _selectedTrack();
+    if (track == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return;
+    }
+    final gap = playback.currentLineGapMs(towardPrevious: delay);
+    if (gap == null || gap <= 0) {
+      _emit('싱크 가사가 있어야 줄 단위로 밀 수 있습니다.');
+      return;
+    }
+    final next = track.lyricsOffsetMs + (delay ? gap : -gap);
+    await _writeLyricsOffset(next);
+    final dir = delay ? '늦춤' : '앞당김';
+    final gapLabel = (gap / 1000).toStringAsFixed(1);
+    _emit('가사 싱크 한 줄 $dir ($gapLabel초) — ${_formatOffsetLabel(next)}');
+  }
+
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
   /// `.`/`/`로 밀고 당기다 어긋났을 때 처음부터 다시 맞추는 리셋.
   Future<bool> resetLyricsOffset() async {

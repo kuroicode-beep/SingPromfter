@@ -36,8 +36,24 @@ class TimedLyrics {
   List<String> get plainLines =>
       lines.map((l) => l.text).toList(growable: false);
 
-  /// 주어진 시각에 표시할 줄 번호를 찾는다. (이진 탐색)
+  /// [index] 줄 기준 '한 줄 간격'(ms). Ctrl+←/→의 줄 단위 싱크 이동이 쓴다.
   ///
+  /// [towardPrevious]면 이전 줄과의 간격, 아니면 다음 줄과의 간격.
+  /// 끝 줄이라 그쪽 이웃이 없으면 있는 쪽 간격으로 대신한다.
+  /// 줄이 두 개 미만이면 간격 자체가 없다 — null.
+  int? lineGapMsAt(int index, {required bool towardPrevious}) {
+    if (lines.length < 2) return null;
+    final i = index.clamp(0, lines.length - 1);
+    int gap(int a, int b) => (lines[b].time - lines[a].time).inMilliseconds;
+    if (towardPrevious) {
+      return i > 0 ? gap(i - 1, i) : gap(0, 1);
+    }
+    return i < lines.length - 1
+        ? gap(i, i + 1)
+        : gap(lines.length - 2, lines.length - 1);
+  }
+
+  /// 주어진 시각에 표시할 줄 번호를 찾는다. (이진 탐색)
   /// 첫 줄 시간보다 이르면 0을 반환한다.
   int indexAt(Duration position) {
     if (lines.isEmpty) return 0;
@@ -65,7 +81,9 @@ class LrcParser {
   LrcParser._();
 
   // [mm:ss.xx] / [mm:ss.xxx] / [mm:ss] — 한 줄에 여러 개 올 수 있다.
-  static final RegExp _timeTag = RegExp(r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]');
+  static final RegExp _timeTag = RegExp(
+    r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]',
+  );
   static final RegExp _metaTag = RegExp(r'^\[(ti|ar|al|by|offset):(.*)\]$');
 
   static TimedLyrics parse(String raw) {

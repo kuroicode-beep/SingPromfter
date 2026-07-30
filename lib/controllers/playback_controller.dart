@@ -523,6 +523,14 @@ class PlaybackController {
   Future<void> stepLine(int delta) =>
       seekToLine(lineIndex.value + delta);
 
+  /// 현재 줄 기준 한 줄 간격(ms) — Ctrl+←/→ 줄 단위 싱크 이동용.
+  /// 싱크 가사가 없거나 줄이 부족하면 null.
+  int? currentLineGapMs({required bool towardPrevious}) {
+    final synced = timedLyrics.value;
+    if (synced == null) return null;
+    return synced.lineGapMsAt(lineIndex.value, towardPrevious: towardPrevious);
+  }
+
   // ── 연습 세션 집계 ────────────────────────────────────────
 
   void _accumulatePractice() {

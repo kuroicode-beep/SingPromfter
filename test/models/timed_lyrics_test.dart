@@ -2,6 +2,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/models/timed_lyrics.dart';
 
 void main() {
+  group('lineGapMsAt — Ctrl+←/→ 줄 단위 싱크 이동의 이동량', () {
+    final lyrics = LrcParser.parse('''
+[00:10.00]첫 줄
+[00:14.00]둘째 줄
+[00:19.50]셋째 줄
+''');
+
+    test('이전 줄과의 간격(늦춤)·다음 줄과의 간격(앞당김)', () {
+      expect(lyrics.lineGapMsAt(1, towardPrevious: true), 4000);
+      expect(lyrics.lineGapMsAt(1, towardPrevious: false), 5500);
+    });
+
+    test('끝 줄에서는 있는 쪽 간격으로 대신한다', () {
+      expect(lyrics.lineGapMsAt(0, towardPrevious: true), 4000);
+      expect(lyrics.lineGapMsAt(2, towardPrevious: false), 5500);
+    });
+
+    test('줄이 두 개 미만이면 null', () {
+      final one = LrcParser.parse('[00:10.00]한 줄');
+      expect(one.lineGapMsAt(0, towardPrevious: true), isNull);
+      expect(
+        const TimedLyrics(lines: []).lineGapMsAt(0, towardPrevious: false),
+        isNull,
+      );
+    });
+  });
+
   group('LrcParser', () {
     test('기본 [mm:ss.xx] 형식을 읽는다', () {
       final lrc = LrcParser.parse('''

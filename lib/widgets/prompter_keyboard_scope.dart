@@ -98,6 +98,10 @@ class PrompterActions {
   final VoidCallback? resetLyricsSync;
   final VoidCallback? anchorFirstLine;
   final ValueChanged<int>? nudgeLyricsOffset;
+
+  /// 한 줄 간격만큼 싱크 이동(Ctrl+←/→). +1=늦춤, -1=앞당김 —
+  /// [nudgeLyricsOffset]과 같은 부호 규약.
+  final ValueChanged<int>? nudgeLyricsOffsetLine;
   final ValueChanged<int>? stepLine;
   final void Function(int index, String text)? editLyricsLine;
   final VoidCallback? jumpToStart;
@@ -110,6 +114,7 @@ class PrompterActions {
     this.resetLyricsSync,
     this.anchorFirstLine,
     this.nudgeLyricsOffset,
+    this.nudgeLyricsOffsetLine,
     this.stepLine,
     this.editLyricsLine,
     this.jumpToStart,
@@ -290,10 +295,18 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 어디서나 확실히 오는 화살표를 본대로 삼는다. 원래 기능은 Shift로:
     // Shift+←/→ = 30초 이동, Shift+↑/↓ = 볼륨. 꾹 누르면 연속(반복 수용).
     final shift = HardwareKeyboard.instance.isShiftPressed;
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.arrowRight) {
       final back = key == LogicalKeyboardKey.arrowLeft;
-      if (shift) {
+      // Ctrl+←/→ = 한 줄 간격만큼 싱크 이동 (0.2초 걸음보다 굵은 조절).
+      if (ctrl) {
+        final lineCb = widget.actions?.nudgeLyricsOffsetLine;
+        if (lineCb != null) {
+          lineCb(back ? 1 : -1);
+          return KeyEventResult.handled;
+        }
+      } else if (shift) {
         final seekCb = widget.actions?.seekRelative;
         if (seekCb != null) {
           seekCb(
@@ -452,6 +465,12 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true):
             const _SeekForwardIntent(large: true),
       },
+      if (widget.actions?.nudgeLyricsOffsetLine != null) ...{
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true):
+            const _NudgeLineIntent(delay: true),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, control: true):
+            const _NudgeLineIntent(delay: false),
+      },
       if (widget.enablePlaybackShortcuts) ...{
         const SingleActivator(LogicalKeyboardKey.space):
             const _TogglePlayPauseIntent(),
@@ -504,6 +523,14 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             widget.actions!.nudgeLyricsOffset!(
               intent.delay ? lyricsNudgeStepMs : -lyricsNudgeStepMs,
             );
+            return null;
+          },
+        ),
+      if (widget.actions?.nudgeLyricsOffsetLine != null)
+        _NudgeLineIntent: CallbackAction<_NudgeLineIntent>(
+          onInvoke: (intent) {
+            if (SongListShortcutService.isTextInputFocused()) return null;
+            widget.actions!.nudgeLyricsOffsetLine!(intent.delay ? 1 : -1);
             return null;
           },
         ),
@@ -600,6 +627,12 @@ class _StepLineIntent extends Intent {
 class _NudgeLyricsIntent extends Intent {
   final bool delay;
   const _NudgeLyricsIntent({required this.delay});
+}
+
+/// Ctrl+←/→ 한 줄 간격 싱크 조절. delay 규약은 [_NudgeLyricsIntent]와 같다.
+class _NudgeLineIntent extends Intent {
+  final bool delay;
+  const _NudgeLineIntent({required this.delay});
 }
 
 class _TogglePlayPauseIntent extends Intent {
