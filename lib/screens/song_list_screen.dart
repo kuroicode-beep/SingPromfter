@@ -128,6 +128,20 @@ class _SongListScreenState extends State<SongListScreen> {
   // 유지돼야 하기 때문. 목록 순서 자체는 songs.json의 나열 순서가 정본이다.
   SongSortMode get _listSortMode => _settings.songSortMode;
 
+  /// 홈과 무대가 똑같이 소비하는 동작 묶음 — 정의는 이 한 곳뿐이다.
+  PrompterActions get _prompterActions => PrompterActions(
+    togglePlayPause: _togglePlayPause,
+    toggleRecording: _toggleRecording,
+    resetLyricsSync: _resetLyricsSync,
+    anchorFirstLine: _anchorFirstLine,
+    nudgeLyricsOffset: _adjustLyricsOffset,
+    stepLine: _playback.stepLine,
+    editLyricsLine: _editLyricsLine,
+    jumpToStart: _playback.jumpToStart,
+    jumpToEnd: _playback.jumpToEnd,
+    seekRelative: _playback.seekRelative,
+  );
+
   Song? get _selectedSong => _playback.snapshot.song;
   int? get _selectedTrackSlot => _playback.snapshot.trackSlot;
 
@@ -1249,8 +1263,7 @@ class _SongListScreenState extends State<SongListScreen> {
       pendingPitch: _app.pendingPitch,
       songKey: _app.trackBaseKeyFor(song, _selectedTrackSlot),
       soundingKey: _app.soundingKeyFor(song, _selectedTrackSlot),
-      onResetLyricsSync: _resetLyricsSync,
-      onNudgeLyricsOffset: _adjustLyricsOffset,
+      actions: _prompterActions,
     );
   }
 
@@ -1263,24 +1276,17 @@ class _SongListScreenState extends State<SongListScreen> {
     return PrompterKeyboardScope(
       // 재생·녹음·싱크 단축키는 재생 화면이 보이는 탭(홈·즐겨찾기)에서만.
       // 곡 검색·설정 등 다른 탭에서 R·T·Space가 먹으면 사고다.
-      // 전체화면 무대는 자기 PrompterKeyboardScope를 따로 가진다.
+      // 전체화면 무대는 같은 actions를 자기 스코프에서 소비한다.
       enabled: _destination == AppDestination.home ||
           _destination == AppDestination.favorites,
       settings: _settings,
       onSettingsChanged: _updateSettings,
-      onTogglePlayPause: _togglePlayPause,
-      onToggleRecording: _toggleRecording,
-      onResetLyricsSync: _resetLyricsSync,
+      actions: _prompterActions,
       onEditCurrentLine: _editCurrentLine,
-      onStepLine: _playback.stepLine,
-      onNudgeLyricsOffset: _adjustLyricsOffset,
       onOpenPrompter: () {
         final song = _selectedSong;
         if (song != null) _openPrompter(song);
       },
-      onJumpToStart: _playback.jumpToStart,
-      onJumpToEnd: _playback.jumpToEnd,
-      onSeekRelative: _playback.seekRelative,
       child: SongListScreenContent(
         loading: _loading,
         onStartSeparator: _app.ensureSeparatorOnline,

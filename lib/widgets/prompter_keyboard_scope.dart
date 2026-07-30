@@ -46,44 +46,58 @@ int? lyricsNudgeFor(LogicalKeyboardKey key, {String? character}) {
   return null;
 }
 
+/// 홈과 무대(전체화면)가 **똑같이** 쓰는 동작 묶음.
+///
+/// 예전에는 단축키 하나를 추가할 때마다 홈 배선과 무대 배선을 따로
+/// 고쳐야 했고, 실제로 E 편집·싱크 줄이 무대에서 빠지는 사고가 났다
+/// (사용자: "두 군데 수정하는 거 너무 비효율적"). 이제 화면(State)이
+/// 이 묶음을 한 번 만들고 홈 스코프와 무대가 같은 객체를 소비한다 —
+/// 새 동작은 여기 필드 하나 + 스코프 처리기 한 곳이면 양쪽에 다 걸린다.
+class PrompterActions {
+  final VoidCallback? togglePlayPause;
+  final VoidCallback? toggleRecording;
+  final VoidCallback? resetLyricsSync;
+  final VoidCallback? anchorFirstLine;
+  final ValueChanged<int>? nudgeLyricsOffset;
+  final ValueChanged<int>? stepLine;
+  final void Function(int index, String text)? editLyricsLine;
+  final VoidCallback? jumpToStart;
+  final VoidCallback? jumpToEnd;
+  final ValueChanged<Duration>? seekRelative;
+
+  const PrompterActions({
+    this.togglePlayPause,
+    this.toggleRecording,
+    this.resetLyricsSync,
+    this.anchorFirstLine,
+    this.nudgeLyricsOffset,
+    this.stepLine,
+    this.editLyricsLine,
+    this.jumpToStart,
+    this.jumpToEnd,
+    this.seekRelative,
+  });
+}
+
 class PrompterKeyboardScope extends StatefulWidget {
   final Widget child;
   final PrompterSettings settings;
   final ValueChanged<PrompterSettings> onSettingsChanged;
-  final VoidCallback? onTogglePlayPause;
+
+  /// 홈·무대 공용 동작 묶음. 단축키 매핑:
+  /// Space=재생/일시정지 · R=녹음 · T=싱크 리셋 · O/P=이전/다음 줄 ·
+  /// .[=늦추기·/]=앞당기기 · Home/End=곡 처음/끝 · ←/→=5초(Shift 30초).
+  final PrompterActions? actions;
+
+  /// F5 — 무대 열기(홈 전용, 무대에서는 null).
   final VoidCallback? onOpenPrompter;
+
+  /// ESC — 닫기(무대 전용).
   final VoidCallback? onClose;
 
-  /// Home — 곡 처음(트림 시작)으로.
-  final VoidCallback? onJumpToStart;
-
-  /// End — 곡 끝(트림 끝)으로.
-  final VoidCallback? onJumpToEnd;
-
-  /// ←/→ — 5초 뒤로/앞으로. Shift와 함께면 30초.
-  /// v2.8.0 전에는 이 키가 가사 속도 조절이었다.
-  final ValueChanged<Duration>? onSeekRelative;
-
-  /// R — 녹음 시작/중지 토글. null이면 R은 아무 일도 하지 않는다.
-  final VoidCallback? onToggleRecording;
-
-  /// T — 싱크를 원래대로(오프셋 0) 되돌린다. `.`/`/`로 밀고 당기다
-  /// 어긋났을 때 처음부터 다시 맞추는 리셋 키다.
-  final VoidCallback? onResetLyricsSync;
-
-  /// E — 현재 가사 줄을 그 자리에서 편집한다. 입력 중에는 텍스트 입력
-  /// 가드가 모든 단축키를 자동으로 끈다. ESC로 저장하고 나온다.
+  /// E — 현재 가사 줄 편집 트리거. 편집 요청 상태가 화면마다 살아서
+  /// 이것만 화면 소유로 남는다(저장 경로는 actions.editLyricsLine 공용).
   final VoidCallback? onEditCurrentLine;
-
-  /// O/P — 이전/다음 가사 줄. 맨휠 줄 이동을 없애며 자리를 이어받았다.
-  /// 꾹 누르면 연속으로 넘어간다.
-  final ValueChanged<int>? onStepLine;
-
-  /// . / — 가사 싱크를 당기고 미는 실시간 조절(ms 델타). 음수면 가사가 먼저.
-  ///
-  /// 노래하면서 바로 손댈 수 있어야 하는 값이다. 곡별로 즉시 저장되므로
-  /// 한 번 맞춰 두면 다음부터는 그대로 뜬다.
-  final ValueChanged<int>? onNudgeLyricsOffset;
 
   final bool enablePlaybackShortcuts;
 
@@ -100,17 +114,10 @@ class PrompterKeyboardScope extends StatefulWidget {
     required this.child,
     required this.settings,
     required this.onSettingsChanged,
-    this.onTogglePlayPause,
+    this.actions,
     this.onOpenPrompter,
     this.onClose,
-    this.onJumpToStart,
-    this.onJumpToEnd,
-    this.onSeekRelative,
-    this.onToggleRecording,
-    this.onResetLyricsSync,
     this.onEditCurrentLine,
-    this.onStepLine,
-    this.onNudgeLyricsOffset,
     this.enablePlaybackShortcuts = true,
     this.enabled = true,
   });
@@ -165,20 +172,21 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 싱크 밀고 당기기는 꾹 누르면 반복되는 게 자연스럽다 — 반복 이벤트도
     // 받는다. 나머지 단축키는 최초 눌림만(토글이 튀지 않게).
     final nudge = lyricsNudgeFor(key, character: event.character);
-    if (nudge != null && widget.onNudgeLyricsOffset != null) {
-      widget.onNudgeLyricsOffset!(nudge);
+    if (nudge != null && widget.actions?.nudgeLyricsOffset != null) {
+      widget.actions!.nudgeLyricsOffset!(nudge);
       return KeyEventResult.handled;
     }
 
     // O/P = 이전/다음 줄 — 맨휠 줄 이동의 후임. 반복 이벤트도 받아
     // 꾹 누르면 죽 넘어간다.
-    if (widget.onStepLine != null) {
+    final stepLine = widget.actions?.stepLine;
+    if (stepLine != null) {
       if (key == LogicalKeyboardKey.keyO) {
-        widget.onStepLine!(-1);
+        stepLine(-1);
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.keyP) {
-        widget.onStepLine!(1);
+        stepLine(1);
         return KeyEventResult.handled;
       }
     }
@@ -189,14 +197,16 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     }
 
     // R = 녹음 시작/중지. 텍스트 입력 중에는 위 가드가 이미 걸러 준다.
-    if (key == LogicalKeyboardKey.keyR && widget.onToggleRecording != null) {
-      widget.onToggleRecording!();
+    if (key == LogicalKeyboardKey.keyR &&
+        widget.actions?.toggleRecording != null) {
+      widget.actions!.toggleRecording!();
       return KeyEventResult.handled;
     }
 
     // T = 싱크 리셋(오프셋 0으로). 밀고 당기다 어긋나면 처음부터.
-    if (key == LogicalKeyboardKey.keyT && widget.onResetLyricsSync != null) {
-      widget.onResetLyricsSync!();
+    if (key == LogicalKeyboardKey.keyT &&
+        widget.actions?.resetLyricsSync != null) {
+      widget.actions!.resetLyricsSync!();
       return KeyEventResult.handled;
     }
 
@@ -206,18 +216,21 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       return KeyEventResult.handled;
     }
 
-    if (key == LogicalKeyboardKey.home && widget.onJumpToStart != null) {
-      widget.onJumpToStart!();
+    if (key == LogicalKeyboardKey.home &&
+        widget.actions?.jumpToStart != null) {
+      widget.actions!.jumpToStart!();
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.end && widget.onJumpToEnd != null) {
-      widget.onJumpToEnd!();
+    if (key == LogicalKeyboardKey.end &&
+        widget.actions?.jumpToEnd != null) {
+      widget.actions!.jumpToEnd!();
       return KeyEventResult.handled;
     }
 
     if (widget.enablePlaybackShortcuts) {
-      if (key == LogicalKeyboardKey.space && widget.onTogglePlayPause != null) {
-        widget.onTogglePlayPause!();
+      if (key == LogicalKeyboardKey.space &&
+          widget.actions?.togglePlayPause != null) {
+        widget.actions!.togglePlayPause!();
         return KeyEventResult.handled;
       }
       if (key == LogicalKeyboardKey.f5 && widget.onOpenPrompter != null) {
@@ -230,8 +243,8 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       key,
       shift: HardwareKeyboard.instance.isShiftPressed,
     );
-    if (seek != null && widget.onSeekRelative != null) {
-      widget.onSeekRelative!(seek);
+    if (seek != null && widget.actions?.seekRelative != null) {
+      widget.actions!.seekRelative!(seek);
       return KeyEventResult.handled;
     }
 
@@ -274,7 +287,7 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       const SingleActivator(LogicalKeyboardKey.arrowUp): const _VolumeUpIntent(),
       const SingleActivator(LogicalKeyboardKey.arrowDown):
           const _VolumeDownIntent(),
-      if (widget.onSeekRelative != null) ...{
+      if (widget.actions?.seekRelative != null) ...{
         const SingleActivator(LogicalKeyboardKey.arrowLeft):
             const _SeekBackIntent(),
         const SingleActivator(LogicalKeyboardKey.arrowRight):
@@ -291,10 +304,10 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       },
       if (widget.onClose != null)
         const SingleActivator(LogicalKeyboardKey.escape): const _CloseIntent(),
-      if (widget.onJumpToStart != null)
+      if (widget.actions?.jumpToStart != null)
         const SingleActivator(LogicalKeyboardKey.home):
             const _JumpToStartIntent(),
-      if (widget.onJumpToEnd != null)
+      if (widget.actions?.jumpToEnd != null)
         const SingleActivator(LogicalKeyboardKey.end):
             const _JumpToEndIntent(),
     };
@@ -321,11 +334,11 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
           return null;
         },
       ),
-      if (widget.onSeekRelative != null) ...{
+      if (widget.actions?.seekRelative != null) ...{
         _SeekForwardIntent: CallbackAction<_SeekForwardIntent>(
           onInvoke: (intent) {
             if (SongListShortcutService.isTextInputFocused()) return null;
-            widget.onSeekRelative!(
+            widget.actions!.seekRelative!(
               intent.large
                   ? SongListShortcutService.seekStepLarge
                   : SongListShortcutService.seekStep,
@@ -336,7 +349,7 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         _SeekBackIntent: CallbackAction<_SeekBackIntent>(
           onInvoke: (intent) {
             if (SongListShortcutService.isTextInputFocused()) return null;
-            widget.onSeekRelative!(
+            widget.actions!.seekRelative!(
               -(intent.large
                   ? SongListShortcutService.seekStepLarge
                   : SongListShortcutService.seekStep),
@@ -349,7 +362,7 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         _TogglePlayPauseIntent: CallbackAction<_TogglePlayPauseIntent>(
           onInvoke: (_) {
             if (SongListShortcutService.isTextInputFocused()) return null;
-            widget.onTogglePlayPause?.call();
+            widget.actions?.togglePlayPause?.call();
             return null;
           },
         ),
@@ -368,17 +381,17 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             return null;
           },
         ),
-      if (widget.onJumpToStart != null)
+      if (widget.actions?.jumpToStart != null)
         _JumpToStartIntent: CallbackAction<_JumpToStartIntent>(
           onInvoke: (_) {
-            widget.onJumpToStart?.call();
+            widget.actions?.jumpToStart?.call();
             return null;
           },
         ),
-      if (widget.onJumpToEnd != null)
+      if (widget.actions?.jumpToEnd != null)
         _JumpToEndIntent: CallbackAction<_JumpToEndIntent>(
           onInvoke: (_) {
-            widget.onJumpToEnd?.call();
+            widget.actions?.jumpToEnd?.call();
             return null;
           },
         ),

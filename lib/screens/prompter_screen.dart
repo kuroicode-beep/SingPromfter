@@ -16,6 +16,7 @@ import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_drawer.dart';
 import '../widgets/prompter_stage_metrics.dart';
+import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_sweep_line.dart';
 import '../widgets/prompter_progress_bar.dart';
@@ -46,8 +47,9 @@ class PrompterScreen extends StatefulWidget {
   /// 하단 조작판을 펼쳐 둘지. 접혀도 손잡이는 항상 보인다.
   final bool controlsDrawerOpen;
 
-  /// T — 싱크를 원래대로(오프셋 0) 되돌린다.
-  final VoidCallback? onResetLyricsSync;
+  /// 홈과 공유하는 동작 묶음 — 단축키·싱크·편집이 전부 여기서 온다.
+  /// 두 화면을 따로 배선하다 기능이 어긋나던 문제를 구조로 막는다.
+  final PrompterActions? actions;
 
   /// . / — 가사 싱크 당기기·밀기(ms 델타). 곡별로 즉시 저장된다.
   final ValueChanged<int>? onNudgeLyricsOffset;
@@ -88,7 +90,7 @@ class PrompterScreen extends StatefulWidget {
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
-    this.onResetLyricsSync,
+    this.actions,
     this.onNudgeLyricsOffset,
     this.onControlsDrawerChanged,
     this.onStepPitch,
@@ -125,6 +127,19 @@ class _PrompterScreenState extends State<PrompterScreen> {
   /// 드로어가 꿈쩍하지 않았다(들어올 때 열려 있었으면 계속 열린 채).
   /// _displayMode·_fontSizeLevel과 같은 방식으로 여기서 소유하고 위로 알린다.
   late bool _drawerOpen;
+
+  /// 단축키 E의 인라인 편집 요청(메인창과 같은 규약).
+  LineEditRequest? _lineEditRequest;
+
+  void _editCurrentLine() {
+    if (widget.actions?.editLyricsLine == null) return;
+    setState(() {
+      _lineEditRequest = LineEditRequest(
+        seq: (_lineEditRequest?.seq ?? 0) + 1,
+        index: widget.playback.lineIndex.value,
+      );
+    });
+  }
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
@@ -216,6 +231,13 @@ class _PrompterScreenState extends State<PrompterScreen> {
   void _toggleControls() =>
       setState(() => _controlsVisible = !_controlsVisible);
 
+  /// 하단 싱크 줄의 오프셋 표기. 음수 = 가사가 먼저.
+  static String _formatOffset(int ms) {
+    if (ms == 0) return '동시';
+    final seconds = (ms.abs() / 1000).toStringAsFixed(1);
+    return ms < 0 ? '$seconds초 먼저' : '$seconds초 늦게';
+  }
+
   @override
   Widget build(BuildContext context) {
     // 무대 가사는 자체 글자 크기(레벨)를 쓰므로 앱 전역 배율을 초기화해
@@ -224,15 +246,14 @@ class _PrompterScreenState extends State<PrompterScreen> {
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
       child: PrompterKeyboardScope(
         settings: _keyboardSettings,
-        enablePlaybackShortcuts: false,
+        // Space(재생)는 메인창과 똑같이 먹어야 한다. F5는 이미 무대라
+        // onOpenPrompter를 안 넘겨 무시된다.
+        enablePlaybackShortcuts: true,
         onSettingsChanged: _applyKeyboardSettings,
-        onResetLyricsSync: widget.onResetLyricsSync,
-        onStepLine: widget.playback.stepLine,
-        onNudgeLyricsOffset: widget.onNudgeLyricsOffset,
+        actions: widget.actions,
+        onEditCurrentLine:
+            widget.actions?.editLyricsLine == null ? null : _editCurrentLine,
         onClose: () => Navigator.pop(context),
-        onJumpToStart: widget.playback.jumpToStart,
-        onJumpToEnd: widget.playback.jumpToEnd,
-        onSeekRelative: widget.playback.seekRelative,
         child: PrompterWheelScope(
           onStepFontSize: _stepFontSize,
           onStepPitch: widget.onStepPitch,
@@ -343,6 +364,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   textColor: Colors.white,
                   mutedColor: Colors.white70,
                   onLineTap: widget.playback.seekToLine,
+                  onEditLine: widget.actions?.editLyricsLine,
+                  editRequest: _lineEditRequest,
                   autoFollow: !widget.playback.autoScrollPaused.value,
                   trackEnd: widget.playback.lyricsTrackEnd,
                   sweepBuilder: prompterSweepBuilder(
@@ -594,6 +617,61 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   ],
                 ),
               ),
+              // 싱크 줄 — 메인창 조작판과 같은 동작(v3.0.2 기능 동기화).
+              if (widget.actions?.nudgeLyricsOffset != null ||
+                  widget.actions?.anchorFirstLine != null)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Text('싱크', style: TextStyle(
+                        fontSize: 16, color: Colors.white70)),
+                      const SizedBox(width: 10),
+                      if (widget.actions?.anchorFirstLine != null) ...[
+                        OutlinedButton.icon(
+                          onPressed: widget.actions!.anchorFirstLine,
+                          icon: const Icon(Icons.my_location, size: 18),
+                          label: const Text('여기가 첫 줄'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white38),
+                            minimumSize: const Size(140, 44),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      if (widget.actions?.nudgeLyricsOffset != null) ...[
+                        _BarIconButton(
+                          icon: Icons.remove,
+                          semanticsLabel: '가사 0.2초 앞당기기 (/ 또는 ])',
+                          onTap: () =>
+                              widget.actions!.nudgeLyricsOffset!(-lyricsNudgeStepMs),
+                        ),
+                        ValueListenableBuilder<PlaybackSnapshot>(
+                          valueListenable: widget.playback.state,
+                          builder: (context, snapshot, _) => Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 6),
+                            child: Text(
+                              _formatOffset(snapshot.lyricsOffsetMs),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontFamily: AppFonts.mono,
+                              ),
+                            ),
+                          ),
+                        ),
+                        _BarIconButton(
+                          icon: Icons.add,
+                          semanticsLabel: '가사 0.2초 늦추기 (. 또는 [)',
+                          onTap: () =>
+                              widget.actions!.nudgeLyricsOffset!(lyricsNudgeStepMs),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

@@ -16,6 +16,7 @@ import '../controllers/playback_controller.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
 import '../screens/prompter_screen.dart';
+import '../widgets/prompter_keyboard_scope.dart' show PrompterActions;
 import '../utils/music_key.dart';
 
 class PrompterNavigation {
@@ -35,8 +36,7 @@ class PrompterNavigation {
     ValueListenable<int?>? pendingPitch,
     MusicKey? songKey,
     MusicKey? soundingKey,
-    VoidCallback? onResetLyricsSync,
-    ValueChanged<int>? onNudgeLyricsOffset,
+    PrompterActions? actions,
   }) {
     final initial = settingsProvider();
 
@@ -63,8 +63,7 @@ class PrompterNavigation {
           showEqMeter: initial.showEqMeter,
           showSyllableSweep: initial.showSyllableSweep,
           controlsDrawerOpen: initial.controlsDrawerOpen,
-          onResetLyricsSync: onResetLyricsSync,
-          onNudgeLyricsOffset: onNudgeLyricsOffset,
+          actions: actions,
           onControlsDrawerChanged: (open) =>
               update((s) => s.copyWith(controlsDrawerOpen: open)),
           onStepPitch: onStepPitch,

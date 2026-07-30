@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.0.1';
+  static const String current = '3.0.2';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.0.2',
+      '2026-07-30',
+      '전체화면을 메인창과 기능 동기화 — Space 재생/일시정지, R 녹음, '
+          'E·길게 눌러 가사 인라인 편집, 조작판에 싱크 줄(여기가 첫 줄·'
+          '오프셋 ±) 추가',
+    ),
     AppVersionEntry(
       '3.0.1',
       '2026-07-30',

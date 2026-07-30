@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/controllers/playback_controller.dart';
 import 'package:singpromfter_app/screens/prompter_screen.dart';
+import 'package:singpromfter_app/widgets/prompter_keyboard_scope.dart' show PrompterActions;
 import 'package:singpromfter_app/models/timed_lyrics.dart';
 import 'package:singpromfter_app/widgets/prompter_eq_meter.dart';
 
@@ -95,6 +97,55 @@ void main() {
     fake.dispose();
   });
 
+
+  testWidgets('무대에서 E를 누르면 현재 줄이 입력창으로 바뀐다 — 메인창과 동일', (
+    tester,
+  ) async {
+    final fake = buildFakePlayback(song: fakeSong());
+    await pumpStage(
+      tester,
+      args: PrompterScreenArgs(
+        playback: fake.controller,
+        onEditLyricsLine: (_, _) {},
+      ),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyE);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '첫 줄',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
+  testWidgets('무대 조작판 싱크 줄 — 고정 높이 안에 들어가고 앵커 버튼이 보인다', (
+    tester,
+  ) async {
+    final fake = buildFakePlayback(song: fakeSong());
+    await pumpStage(
+      tester,
+      args: PrompterScreenArgs(
+        playback: fake.controller,
+        controlsDrawerOpen: true,
+        onNudgeLyricsOffset: (_) {},
+        onAnchorFirstLine: () {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull, reason: '드로어가 세로로 넘쳤다');
+    expect(find.text('여기가 첫 줄'), findsOneWidget);
+    expect(find.text('동시'), findsOneWidget, reason: '오프셋 표시');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
   test('싱크 가사가 없으면 스윕 진행률은 null — 추정으로 음절을 가리키지 않는다', () {
     mockAudioChannels();
     final fake = buildFakePlayback(song: fakeSong());
@@ -133,12 +184,18 @@ class PrompterScreenArgs {
   final bool controlsDrawerOpen;
   final bool showEqMeter;
   final ValueChanged<bool>? onControlsDrawerChanged;
+  final void Function(int, String)? onEditLyricsLine;
+  final ValueChanged<int>? onNudgeLyricsOffset;
+  final VoidCallback? onAnchorFirstLine;
 
   PrompterScreenArgs({
     required this.playback,
     this.controlsDrawerOpen = false,
     this.showEqMeter = true,
     this.onControlsDrawerChanged,
+    this.onEditLyricsLine,
+    this.onNudgeLyricsOffset,
+    this.onAnchorFirstLine,
   });
 
   Widget build() => PrompterScreen(
@@ -149,5 +206,10 @@ class PrompterScreenArgs {
     controlsDrawerOpen: controlsDrawerOpen,
     showEqMeter: showEqMeter,
     onControlsDrawerChanged: onControlsDrawerChanged,
+    actions: PrompterActions(
+      editLyricsLine: onEditLyricsLine,
+      nudgeLyricsOffset: onNudgeLyricsOffset,
+      anchorFirstLine: onAnchorFirstLine,
+    ),
   );
 }
