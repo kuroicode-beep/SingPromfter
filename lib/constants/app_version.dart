@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.14.0';
+  static const String current = '2.14.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.14.1',
+      '2026-07-30',
+      '선택한 곡 표시를 왼쪽 막대에서 네 변 전체 테두리로 — 선택 칸이 '
+          '한눈에 잡히게',
+    ),
     AppVersionEntry(
       '2.14.0',
       '2026-07-30',

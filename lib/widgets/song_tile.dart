@@ -72,19 +72,23 @@ class SongTile extends StatelessWidget {
       selected: selected,
       label: '${song.title}, $meta${selected ? ', 선택됨' : ''}',
       child: Material(
-        color: selected ? AppColors.selectedSurface : Colors.transparent,
+        color: Colors.transparent,
         child: InkWell(
           onTap: onSelect,
+          borderRadius: BorderRadius.circular(6),
           child: Container(
+            // 선택 표시는 왼쪽 막대가 아니라 네 변 전체 테두리 —
+            // 저시력에서 "어느 곡이 선택됐는지"가 칸 단위로 잡힌다.
+            // 배경 채움도 같은 둥근 사각형에 넣어 모서리가 어긋나지 않게 한다.
             decoration: BoxDecoration(
-              border: Border(
-                left: BorderSide(
-                  color: selected ? AppColors.primary : Colors.transparent,
-                  width: 3,
-                ),
+              color: selected ? AppColors.selectedSurface : null,
+              border: Border.all(
+                color: selected ? AppColors.primary : Colors.transparent,
+                width: 2,
               ),
+              borderRadius: BorderRadius.circular(6),
             ),
-            padding: const EdgeInsets.fromLTRB(3, 4, 4, 4),
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
