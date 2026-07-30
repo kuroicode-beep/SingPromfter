@@ -30,6 +30,12 @@ class PrompterSettings {
   /// 그대로 쓴다 — 재실행해도 유지돼야 하므로 설정에 남긴다.
   final SongSortMode songSortMode;
 
+  /// 예약 큐 사이드바 열림. 기본 열림 — 드로어 아이콘으로 여닫는다.
+  final bool queueSidebarOpen;
+
+  /// 하단 재생바(재생 버튼 줄+진행바) 열림. 기본 숨김 — 조작판처럼 드로어다.
+  final bool playbackBarOpen;
+
   /// 전체화면 프롬프터의 EQ 애니메이션 표시 여부.
   /// 움직임이 신경 쓰이는 사용자를 위해 끌 수 있어야 한다(저시력 배려).
   final bool showEqMeter;
@@ -54,6 +60,8 @@ class PrompterSettings {
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
     this.songSortMode = SongSortMode.title,
+    this.queueSidebarOpen = true,
+    this.playbackBarOpen = false,
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
@@ -78,6 +86,8 @@ class PrompterSettings {
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
     SongSortMode? songSortMode,
+    bool? queueSidebarOpen,
+    bool? playbackBarOpen,
     bool? showEqMeter,
     bool? showSyllableSweep,
     bool? controlsDrawerOpen,
@@ -103,6 +113,8 @@ class PrompterSettings {
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
       songSortMode: songSortMode ?? this.songSortMode,
+      queueSidebarOpen: queueSidebarOpen ?? this.queueSidebarOpen,
+      playbackBarOpen: playbackBarOpen ?? this.playbackBarOpen,
       showEqMeter: showEqMeter ?? this.showEqMeter,
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
       controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
@@ -167,6 +179,8 @@ class PrompterSettings {
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
     'songSortMode': songSortMode.storageValue,
+    'queueSidebarOpen': queueSidebarOpen,
+    'playbackBarOpen': playbackBarOpen,
     'showEqMeter': showEqMeter,
     'showSyllableSweep': showSyllableSweep,
     'controlsDrawerOpen': controlsDrawerOpen,
@@ -209,6 +223,8 @@ class PrompterSettings {
       lastSelectedTrackSlotBySong: bySong,
       pitchSemitonesBySong: pitchBySong,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
+      queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
+      playbackBarOpen: json['playbackBarOpen'] as bool? ?? false,
       songSortMode: SongSortModeInfo.fromStorage(
         json['songSortMode'] as String?,
       ),

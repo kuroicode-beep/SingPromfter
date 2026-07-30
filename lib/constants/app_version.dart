@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.15.0';
+  static const String current = '2.16.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.16.0',
+      '2026-07-30',
+      '예약 큐를 상단 고정으로 화면 높이만큼 확장, 드로어 아이콘으로 열림/숨김'
+          '(기본 열림, 자동 접힘 제거) · 하단 재생바도 조작판처럼 드로어로'
+          '(기본 숨김) — 가사에 화면을 최대한',
+    ),
     AppVersionEntry(
       '2.15.0',
       '2026-07-30',

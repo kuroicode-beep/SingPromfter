@@ -135,6 +135,19 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 재생바(재생 버튼 줄+진행바)도 조작판처럼 드로어다 — 기본 숨김.
+          // 가사에 화면을 최대한 내주고, 재생은 단축키·목록의 [시작]으로도
+          // 되기 때문. 손잡이는 항상 보여 한 번에 열 수 있다.
+          PrompterDrawer(
+            open: widget.settings.playbackBarOpen,
+            onOpenChanged: (open) => widget.onSettingsChanged(
+              widget.settings.copyWith(playbackBarOpen: open),
+            ),
+            label: '재생바',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
           // Row가 아니라 Wrap이다. v2.10.0에서 [곡 시작]·[곡 추가]·서버 상태를
           // 이 줄로 옮기며 고정 폭 합계가 700px 가까이 늘었는데, 홈은 3열이라
           // 조작판이 받는 폭은 창 폭의 일부뿐이다(1280 창 + 큐 열림 = 738).
@@ -237,6 +250,9 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               duration: widget.duration,
               enabled: widget.audioReady,
               onSeek: widget.onSeek,
+            ),
+          ),
+              ],
             ),
           ),
           PrompterDrawer(

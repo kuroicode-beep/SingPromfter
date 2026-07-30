@@ -17,6 +17,10 @@ class QueuePanel extends StatelessWidget {
   final ReorderCallback onReorder;
   final ValueChanged<int> onRemove;
 
+  /// true면 사이드바처럼 부모가 준 높이를 전부 쓴다(상단 고정 확장).
+  /// false면 예전처럼 곡 수에 맞는 높이만 차지한다(프롬프터 아래 배치용).
+  final bool expand;
+
   const QueuePanel({
     super.key,
     required this.queue,
@@ -26,6 +30,7 @@ class QueuePanel extends StatelessWidget {
     required this.onClear,
     required this.onReorder,
     required this.onRemove,
+    this.expand = false,
   });
 
   double get _height {
@@ -41,7 +46,7 @@ class QueuePanel extends StatelessWidget {
       decoration: AppShapes.panel(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -59,9 +64,8 @@ class QueuePanel extends StatelessWidget {
             ],
           ),
           const Divider(height: 1, thickness: 1),
-          SizedBox(
-            height: _height,
-            child: ReorderableListView(
+          _wrapList(
+            ReorderableListView(
               buildDefaultDragHandles: false,
               // onReorderItem은 항목 제거를 반영해 **보정된** newIndex를 준다.
               // 아래 체인(QueueLogic·제어 API·MCP)은 예전 raw 인덱스 규약을
@@ -89,6 +93,12 @@ class QueuePanel extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// 확장 모드면 Expanded로 남는 높이를 전부, 아니면 예전 고정 높이.
+  Widget _wrapList(Widget list) {
+    if (expand) return Expanded(child: list);
+    return SizedBox(height: _height, child: list);
   }
 
   Song? _songFor(QueueItem item) {

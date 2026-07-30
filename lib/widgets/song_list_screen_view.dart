@@ -18,7 +18,9 @@ class SongListScreenView extends StatelessWidget {
   final Song? selectedSong;
   final int? selectedTrackSlot;
   final bool playing;
-  final bool queueIsEmpty;
+  final int queueLength;
+  final bool queueSidebarOpen;
+  final ValueChanged<bool> onQueueSidebarChanged;
   final Widget homeSongListPanel;
   final Widget favoritesSongListPanel;
   final Widget prompterPanel;
@@ -38,7 +40,9 @@ class SongListScreenView extends StatelessWidget {
     required this.selectedSong,
     required this.selectedTrackSlot,
     required this.playing,
-    required this.queueIsEmpty,
+    required this.queueLength,
+    required this.queueSidebarOpen,
+    required this.onQueueSidebarChanged,
     required this.homeSongListPanel,
     required this.favoritesSongListPanel,
     required this.prompterPanel,
@@ -121,7 +125,9 @@ class SongListScreenView extends StatelessWidget {
                 Expanded(child: prompterPanel),
                 const VerticalDivider(width: 1, thickness: 1),
                 CollapsibleQueueSidebar(
-                  queueIsEmpty: queueIsEmpty,
+                  open: queueSidebarOpen,
+                  onOpenChanged: onQueueSidebarChanged,
+                  queueLength: queueLength,
                   child: queuePanel,
                 ),
               ],

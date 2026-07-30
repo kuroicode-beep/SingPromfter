@@ -394,7 +394,8 @@ class SongListScreenContent extends StatelessWidget {
       );
     }
 
-    return SingleChildScrollView(
+    // 사이드바에 상단 고정으로 꽉 차게 — 스크롤은 패널 안 목록이 맡는다.
+    return Padding(
       padding: const EdgeInsets.all(6),
       child: QueuePanel(
         queue: queue,
@@ -404,6 +405,7 @@ class SongListScreenContent extends StatelessWidget {
         onClear: onClearQueue,
         onReorder: onReorderQueue,
         onRemove: onRemoveQueueItem,
+        expand: true,
       ),
     );
   }
@@ -417,7 +419,10 @@ class SongListScreenContent extends StatelessWidget {
       selectedSong: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
-      queueIsEmpty: queue.isEmpty,
+      queueLength: queue.length,
+      queueSidebarOpen: settings.queueSidebarOpen,
+      onQueueSidebarChanged: (open) =>
+          onSettingsChanged(settings.copyWith(queueSidebarOpen: open)),
       homeSongListPanel: _buildSongListPanel(
         // 홈에서는 사용자가 고른 필터를 그대로 쓴다.
         filterMode: listFilterMode,

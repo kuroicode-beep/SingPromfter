@@ -23,6 +23,8 @@ void main() {
     required double width,
     bool drawerOpen = false,
     ValueChanged<bool>? onDrawerChanged,
+    // 오버플로 검증은 재생바가 펼쳐진 상태가 대상이다(기본 숨김이므로 명시).
+    PrompterSettings settings = const PrompterSettings(playbackBarOpen: true),
   }) async {
     final fake = buildFakePlayback(song: fakeSong());
     await tester.pumpWidget(
@@ -38,7 +40,7 @@ void main() {
                 hasQueuedSongs: false,
                 duration: const Duration(minutes: 3),
                 playback: fake.controller,
-                settings: const PrompterSettings(),
+                settings: settings,
                 drawerOpen: drawerOpen,
                 onDrawerChanged: onDrawerChanged ?? (_) {},
                 onStop: () {},
@@ -190,6 +192,82 @@ void main() {
 
     expect(find.text('조작판 닫기'), findsOneWidget);
     expect(find.textContaining('키'), findsWidgets);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
+  testWidgets('재생바는 기본 숨김 — 손잡이만 보인다', (tester) async {
+    final fake = await pumpBar(
+      tester,
+      width: 720,
+      settings: const PrompterSettings(),
+    );
+
+    expect(find.text('재생바 열기'), findsOneWidget);
+    // 접힌 본체는 높이 0 + 히트테스트 차단 — 트리에는 남으므로 hitTestable로 잰다.
+    expect(
+      find.text('곡 시작').hitTestable(),
+      findsNothing,
+      reason: '본체는 접혀 있어야 한다',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
+  testWidgets('재생바 손잡이를 누르면 설정으로 알린다', (tester) async {
+    PrompterSettings? got;
+    final fake = buildFakePlayback(song: fakeSong());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 720,
+              child: PrompterBottomBar(
+                song: fakeSong(),
+                playing: false,
+                audioReady: true,
+                hasQueuedSongs: false,
+                duration: const Duration(minutes: 3),
+                playback: fake.controller,
+                settings: const PrompterSettings(),
+                drawerOpen: false,
+                onDrawerChanged: (_) {},
+                onStop: () {},
+                onTogglePlayPause: () {},
+                onRestart: () {},
+                onSkipNext: () {},
+                onOpenPrompter: () {},
+                onSeek: (_) {},
+                onSettingsChanged: (next) => got = next,
+                onMessage: (_) {},
+                hasSyncedLyrics: false,
+                lyricsOffsetMs: 0,
+                onFetchSyncedLyrics: () {},
+                onImportLrcFile: () {},
+                onAdjustLyricsOffset: (_) {},
+                pitchSemitones: 0,
+                onAdjustPitch: (_) {},
+                tempoScale: 1.0,
+                onAdjustTempo: (_) {},
+                isRecording: false,
+                recordingLevelLabel: '',
+                recordingElapsed: Duration.zero,
+                onToggleRecording: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('재생바 열기'));
+    await tester.pump();
+
+    expect(got?.playbackBarOpen, isTrue);
 
     await tester.pumpWidget(const SizedBox.shrink());
     fake.dispose();
