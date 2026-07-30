@@ -265,6 +265,69 @@ void main() {
     expect(resetCalls, 1);
   });
 
+  // "먹었다 안먹었다"의 주범 — 검색창 등 텍스트 입력이 포커스를 쥐면
+  // 단축키가 전부 멎는데(타이핑 보호), 빠져나올 길이 없었다.
+  Future<void> pumpWithTextField(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PrompterKeyboardScope(
+            settings: const PrompterSettings(),
+            onSettingsChanged: (_) {},
+            actions: PrompterActions(resetLyricsSync: () => resetCalls++),
+            child: const Column(
+              children: [
+                TextField(),
+                Expanded(child: SizedBox.expand()),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // 검색창을 만진 상태를 재현
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+    expect(resetCalls, 0); // 입력 중에는 단축키 보호가 맞다
+  }
+
+  testWidgets('입력창 밖을 클릭하면 입력 포커스가 풀려 단축키가 살아난다', (tester) async {
+    await pumpWithTextField(tester);
+
+    // 입력창 아래 빈 영역 클릭
+    await tester.tapAt(tester.getCenter(find.byType(SizedBox).last));
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+    expect(resetCalls, 1);
+  });
+
+  testWidgets('ESC로 입력 포커스를 풀고 단축키를 살린다', (tester) async {
+    await pumpWithTextField(tester);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+    expect(resetCalls, 1);
+  });
+
+  testWidgets('입력창 자체를 클릭한 경우에는 포커스를 뺏지 않는다', (tester) async {
+    await pumpWithTextField(tester);
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+    expect(resetCalls, 0); // 여전히 타이핑 보호
+  });
+
   testWidgets('다시 켜지면(탭 복귀) 포커스를 되찾아 단축키가 살아난다', (tester) async {
     await pump(tester, enabled: false);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);

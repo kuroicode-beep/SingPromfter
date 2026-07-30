@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.4.0';
+  static const String current = '3.4.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.4.1',
+      '2026-07-31',
+      '단축키 안정화 2탄 — 텍스트 입력 감지가 현 Flutter 구조에서 항상 '
+          'false로 나와 검색창 타이핑 중 단축키가 새던 문제 수정. 입력창이 '
+          '포커스를 쥐어 단축키가 멎으면 입력창 밖 클릭 또는 ESC로 즉시 '
+          '복구된다',
+    ),
     AppVersionEntry(
       '3.4.0',
       '2026-07-31',

@@ -2,6 +2,7 @@
 //
 // 메인·전체화면 공통 키보드 단축키 포커스 범위.
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../models/prompter_settings.dart';
@@ -187,6 +188,25 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _requestScopeFocus());
   }
 
+  /// 화면 어딘가를 클릭하면 단축키 포커스를 되찾는다. 텍스트 입력이 포커스를
+  /// 쥔 채라면, 클릭 지점에 입력창이 **없을 때만** 포커스를 풀어 준다 —
+  /// 검색창을 만진 뒤 빈 곳을 눌러도 단축키가 죽어 있던 문제의 해법.
+  /// (입력창 자체를 누른 클릭은 타이핑 의도이므로 놔둔다)
+  void _onPointerDown(PointerDownEvent event) {
+    if (SongListShortcutService.isTextInputFocused()) {
+      final result = HitTestResult();
+      WidgetsBinding.instance.hitTestInView(
+        result,
+        event.position,
+        View.of(context).viewId,
+      );
+      final onEditable = result.path.any((e) => e.target is RenderEditable);
+      if (onEditable) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+    _requestScopeFocus();
+  }
+
   void _requestScopeFocus() {
     if (!mounted) return;
     if (!widget.enabled) return;
@@ -203,11 +223,20 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 키를 정상적으로 받아야 한다.
     if (!widget.enabled) return KeyEventResult.ignored;
     if (event is KeyUpEvent) return KeyEventResult.ignored;
-    if (SongListShortcutService.isTextInputFocused()) {
-      return KeyEventResult.ignored;
-    }
 
     final key = event.logicalKey;
+
+    if (SongListShortcutService.isTextInputFocused()) {
+      // ESC = 입력 포커스 해제. 검색창 등이 포커스를 쥐면 단축키가 전부
+      // 멎는데("먹었다 안먹었다"의 주범), 확실하게 빠져나오는 키를 둔다.
+      // 인라인 가사 편집기는 자기 ESC(저장)를 먼저 처리하므로 안 온다.
+      if (event is KeyDownEvent && key == LogicalKeyboardKey.escape) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        _requestScopeFocus();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
 
     // 싱크 밀고 당기기는 꾹 누르면 반복되는 게 자연스럽다 — 반복 이벤트도
     // 받는다. 나머지 단축키는 최초 눌림만(토글이 튀지 않게).
@@ -311,7 +340,7 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
           onKeyEvent: _onKeyEvent,
           child: Listener(
             behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => _requestScopeFocus(),
+            onPointerDown: _onPointerDown,
             child: widget.child,
           ),
         ),
