@@ -1,6 +1,7 @@
 ﻿import 'dart:convert';
 
 import '../models/prompter_display_mode.dart';
+import '../services/song_sort_service.dart';
 import '../utils/pitch_math.dart';
 import '../theme/prompter_levels.dart';
 
@@ -25,6 +26,10 @@ class PrompterSettings {
   final Map<String, int> pitchSemitonesBySong;
   final PrompterDisplayMode displayMode;
 
+  /// 홈 곡 목록의 정렬. '내 순서(manual)'는 드래그로 바꾼 저장 순서를
+  /// 그대로 쓴다 — 재실행해도 유지돼야 하므로 설정에 남긴다.
+  final SongSortMode songSortMode;
+
   /// 전체화면 프롬프터의 EQ 애니메이션 표시 여부.
   /// 움직임이 신경 쓰이는 사용자를 위해 끌 수 있어야 한다(저시력 배려).
   final bool showEqMeter;
@@ -48,6 +53,7 @@ class PrompterSettings {
     this.pitchSemitonesBySong = const {},
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
+    this.songSortMode = SongSortMode.title,
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
@@ -71,6 +77,7 @@ class PrompterSettings {
     Map<String, int>? pitchSemitonesBySong,
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
+    SongSortMode? songSortMode,
     bool? showEqMeter,
     bool? showSyllableSweep,
     bool? controlsDrawerOpen,
@@ -95,6 +102,7 @@ class PrompterSettings {
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
+      songSortMode: songSortMode ?? this.songSortMode,
       showEqMeter: showEqMeter ?? this.showEqMeter,
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
       controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
@@ -158,6 +166,7 @@ class PrompterSettings {
     'pitchSemitonesBySong': pitchSemitonesBySong,
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
+    'songSortMode': songSortMode.storageValue,
     'showEqMeter': showEqMeter,
     'showSyllableSweep': showSyllableSweep,
     'controlsDrawerOpen': controlsDrawerOpen,
@@ -200,6 +209,9 @@ class PrompterSettings {
       lastSelectedTrackSlotBySong: bySong,
       pitchSemitonesBySong: pitchBySong,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
+      songSortMode: SongSortModeInfo.fromStorage(
+        json['songSortMode'] as String?,
+      ),
       displayMode: PrompterDisplayModeCodec.fromStorage(
         json['displayMode'] as String?,
       ),

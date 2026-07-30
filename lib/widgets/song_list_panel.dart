@@ -42,6 +42,12 @@ class SongListPanel extends StatelessWidget {
   final ValueChanged<Song> onDelete;
   final ValueChanged<Song> onToggleFavorite;
 
+  /// 드래그로 순서를 바꿨을 때. 보이는 목록의 id 순서와 출발/도착(보정)
+  /// 인덱스를 넘긴다 — 필터 중에도 호출부가 전체 순서에 반영할 수 있게.
+  /// null이면 손잡이를 그리지 않는다.
+  final void Function(List<String> visibleIds, int oldIndex, int newIndex)?
+  onReorder;
+
   const SongListPanel({
     super.key,
     required this.songs,
@@ -66,6 +72,7 @@ class SongListPanel extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onToggleFavorite,
+    this.onReorder,
   });
 
   static const _chips = <(String, SongListFilterMode)>[
@@ -144,34 +151,85 @@ class SongListPanel extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  itemCount: filteredSongs.length,
-                  separatorBuilder: (_, index) =>
-                      const Divider(height: 1, thickness: 1),
-                  itemBuilder: (_, i) {
-                    final song = filteredSongs[i];
-                    final selected = selectedSong?.id == song.id;
-                    return SongTile(
-                      song: song,
-                      selected: selected,
-                      selectedTrackSlot: selected ? selectedTrackSlot : null,
-                      pitchSemitones: pitchBySongId[song.id] ?? 0,
-                      practiceCount: practiceCounts[song.id] ?? 0,
-                      onSelectTrack: (slot) => onSelectTrack(song, slot),
-                      onAddTrack: onAddTrack == null
-                          ? null
-                          : () => onAddTrack!(song),
-                      onSelect: () => onSelect(song),
-                      onStart: () => onStart(song),
-                      onReserve: () => onReserve(song),
-                      onEdit: () => onEdit(song),
-                      onDelete: () => onDelete(song),
-                      onToggleFavorite: () => onToggleFavorite(song),
-                    );
-                  },
-                ),
+              : _buildList(filteredSongs),
         ),
+      ],
+    );
+  }
+
+  /// 예약 큐와 같은 드래그 재정렬 목록. onReorder가 없으면 평범한 목록.
+  Widget _buildList(List<Song> filteredSongs) {
+    Widget tileFor(Song song) {
+      final selected = selectedSong?.id == song.id;
+      return SongTile(
+        song: song,
+        selected: selected,
+        selectedTrackSlot: selected ? selectedTrackSlot : null,
+        pitchSemitones: pitchBySongId[song.id] ?? 0,
+        practiceCount: practiceCounts[song.id] ?? 0,
+        onSelectTrack: (slot) => onSelectTrack(song, slot),
+        onAddTrack: onAddTrack == null ? null : () => onAddTrack!(song),
+        onSelect: () => onSelect(song),
+        onStart: () => onStart(song),
+        onReserve: () => onReserve(song),
+        onEdit: () => onEdit(song),
+        onDelete: () => onDelete(song),
+        onToggleFavorite: () => onToggleFavorite(song),
+      );
+    }
+
+    final reorder = onReorder;
+    if (reorder == null) {
+      return ListView.separated(
+        padding: const EdgeInsets.only(bottom: 8),
+        itemCount: filteredSongs.length,
+        separatorBuilder: (_, index) => const Divider(height: 1, thickness: 1),
+        itemBuilder: (_, i) => tileFor(filteredSongs[i]),
+      );
+    }
+
+    return ReorderableListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      buildDefaultDragHandles: false,
+      // onReorderItem은 항목 제거를 반영한 **보정된** newIndex를 준다 —
+      // applyVisibleReorder가 같은 규약을 쓰므로 그대로 넘긴다.
+      onReorderItem: (oldIndex, newIndex) => reorder(
+        filteredSongs.map((s) => s.id).toList(growable: false),
+        oldIndex,
+        newIndex,
+      ),
+      children: [
+        for (var i = 0; i < filteredSongs.length; i++)
+          Column(
+            key: ValueKey(filteredSongs[i].id),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 예약 큐와 같은 손잡이. 저시력: 아이콘만으로도 위치가
+                  // 일정해 찾기 쉽도록 모든 줄의 왼쪽 고정.
+                  ReorderableDragStartListener(
+                    index: i,
+                    child: Semantics(
+                      label: '${filteredSongs[i].title} 순서 바꾸기 손잡이',
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(
+                          Icons.drag_handle,
+                          size: 22,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(child: tileFor(filteredSongs[i])),
+                ],
+              ),
+              if (i < filteredSongs.length - 1)
+                const Divider(height: 1, thickness: 1),
+            ],
+          ),
       ],
     );
   }

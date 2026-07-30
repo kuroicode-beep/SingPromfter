@@ -119,6 +119,10 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<SongListFilterMode> onListFilterModeChanged;
   final SongSortMode listSortMode;
   final ValueChanged<SongSortMode> onListSortModeChanged;
+
+  /// 곡 목록 드래그 재정렬 — 보이는 id 순서와 출발/도착(보정) 인덱스.
+  final void Function(List<String> visibleIds, int oldIndex, int newIndex)
+  onReorderSongs;
   final SongListFilterMode searchFilterMode;
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
@@ -230,6 +234,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onListFilterModeChanged,
     required this.listSortMode,
     required this.onListSortModeChanged,
+    required this.onReorderSongs,
     required this.searchFilterMode,
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
@@ -312,6 +317,7 @@ class SongListScreenContent extends StatelessWidget {
       onEdit: onEditSong,
       onDelete: onDeleteSong,
       onToggleFavorite: onToggleFavorite,
+      onReorder: onReorderSongs,
     );
   }
 

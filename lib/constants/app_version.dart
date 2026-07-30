@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.13.1';
+  static const String current = '2.14.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.14.0',
+      '2026-07-30',
+      '곡 목록을 예약 큐처럼 끌어서 재정렬 — 손잡이로 순서를 바꾸면 '
+          "정렬이 '내 순서'로 전환되고 재실행해도 유지된다. "
+          '검색·필터 중에도 끌 수 있다',
+    ),
     AppVersionEntry(
       '2.13.1',
       '2026-07-30',

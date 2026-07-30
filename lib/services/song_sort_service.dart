@@ -5,10 +5,11 @@
 import '../models/practice_session.dart';
 import '../models/song.dart';
 
-enum SongSortMode { title, recentlyAdded, mostPracticed, leastPracticed }
+enum SongSortMode { manual, title, recentlyAdded, mostPracticed, leastPracticed }
 
 extension SongSortModeInfo on SongSortMode {
   String get label => switch (this) {
+    SongSortMode.manual => '내 순서',
     SongSortMode.title => '제목순',
     SongSortMode.recentlyAdded => '최근 등록순',
     SongSortMode.mostPracticed => '많이 부른 순',
@@ -38,6 +39,9 @@ class SongSortService {
   }) {
     final sorted = List<Song>.from(songs);
     switch (mode) {
+      case SongSortMode.manual:
+        // 저장 순서(songs.json의 나열 순서) 그대로 — 드래그로 바꾼 순서다.
+        break;
       case SongSortMode.title:
         sorted.sort(
           (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
@@ -66,6 +70,60 @@ class SongSortService {
   /// 연습 집계에서 곡별 횟수 맵을 만든다.
   static Map<String, int> practiceCountsFrom(List<PracticeSummary> summaries) {
     return {for (final s in summaries) s.songId: s.sessionCount};
+  }
+
+  /// 화면에 보이는 목록(필터·정렬 적용)에서의 드래그를 전체 저장 순서에
+  /// 반영한 새 목록을 만든다. (순수 함수 — 테스트 대상)
+  ///
+  /// [visibleIds]는 드래그 시점에 보이던 곡 id 순서, [oldIndex]는 그 안의
+  /// 출발 위치, [newIndex]는 ReorderableListView의 onReorderItem이 주는
+  /// **보정된** 도착 위치(자기 자신을 뺀 목록 기준)다.
+  ///
+  /// 필터로 일부만 보일 때도 동작한다: 도착 위치의 이웃(보이는 곡)을 닻으로
+  /// 삼아 전체 목록에서 그 앞/뒤에 끼워 넣는다 — 안 보이는 곡들의 상대
+  /// 순서는 건드리지 않는다. 계산이 불가능하면 원본을 그대로 돌려준다.
+  static List<Song> applyVisibleReorder({
+    required List<Song> all,
+    required List<String> visibleIds,
+    required int oldIndex,
+    required int newIndex,
+  }) {
+    if (oldIndex < 0 || oldIndex >= visibleIds.length) return all;
+    final movedId = visibleIds[oldIndex];
+    Song? moved;
+    for (final song in all) {
+      if (song.id == movedId) {
+        moved = song;
+        break;
+      }
+    }
+    if (moved == null) return all;
+
+    final remainingVisible = List<String>.from(visibleIds)..removeAt(oldIndex);
+    final target = newIndex.clamp(0, remainingVisible.length);
+    final pruned = all.where((s) => s.id != movedId).toList();
+
+    int insertAt;
+    if (target >= remainingVisible.length) {
+      // 보이는 목록의 맨 끝 — 마지막으로 보이던 곡 바로 뒤에 넣는다.
+      if (remainingVisible.isEmpty) {
+        insertAt = pruned.length;
+      } else {
+        final lastIndex = pruned.indexWhere(
+          (s) => s.id == remainingVisible.last,
+        );
+        insertAt = lastIndex < 0 ? pruned.length : lastIndex + 1;
+      }
+    } else {
+      // 도착 위치에 있던 곡(닻)의 바로 앞에 넣는다.
+      final anchorIndex = pruned.indexWhere(
+        (s) => s.id == remainingVisible[target],
+      );
+      insertAt = anchorIndex < 0 ? pruned.length : anchorIndex;
+    }
+
+    pruned.insert(insertAt, moved);
+    return List.unmodifiable(pruned);
   }
 
   /// 제목이 겹치는 곡들을 찾는다. (대소문자·앞뒤 공백 무시)

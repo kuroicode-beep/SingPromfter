@@ -1401,6 +1401,23 @@ class AppController extends ChangeNotifier {
   /// 조절)가 이 경로를 초당 여러 번 태우면서 실제 위험이 됐다.
   Future<void> _songsSaveChain = Future.value();
 
+  /// 곡 목록의 저장 순서를 통째로 바꾼다(드래그 재정렬).
+  ///
+  /// 같은 곡 집합일 때만 받는다 — 재정렬 계산 중에 다른 경로(가져오기 완료
+  /// 등)가 목록을 바꿨다면 낡은 순서로 덮어쓰지 않고 버린다.
+  Future<void> setSongOrder(List<Song> ordered) async {
+    if (_disposed) return;
+    if (ordered.length != songs.length) return;
+    final currentIds = {for (final s in songs) s.id};
+    if (!ordered.every((s) => currentIds.contains(s.id))) return;
+    songs = List.unmodifiable(ordered);
+    _notify();
+    _songsSaveChain = _songsSaveChain
+        .catchError((_) {})
+        .then((_) => repo.saveSongs(songs));
+    await _songsSaveChain;
+  }
+
   Future<void> replaceSongInList(Song song) async {
     if (_disposed) return;
     songs = songs

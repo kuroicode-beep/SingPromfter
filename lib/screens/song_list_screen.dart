@@ -122,7 +122,9 @@ class _SongListScreenState extends State<SongListScreen> {
   // 좌측 목록 자체의 검색·필터 (검색 화면과 독립)
   String _listQuery = '';
   SongListFilterMode _listFilterMode = SongListFilterMode.all;
-  SongSortMode _listSortMode = SongSortMode.title;
+  // 정렬 모드는 설정에 저장된다 — '내 순서'(드래그 재정렬)가 재실행 후에도
+  // 유지돼야 하기 때문. 목록 순서 자체는 songs.json의 나열 순서가 정본이다.
+  SongSortMode get _listSortMode => _settings.songSortMode;
 
   Song? get _selectedSong => _playback.snapshot.song;
   int? get _selectedTrackSlot => _playback.snapshot.trackSlot;
@@ -580,6 +582,37 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   /// 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸리므로 안내를 먼저 띄운다.
+  /// 곡 목록 드래그 재정렬. 다른 정렬 모드였다면 지금 보이는 전체 순서를
+  /// 저장 순서로 굳히고 '내 순서'로 전환한다 — 안 그러면 끌어 놓은 곡이
+  /// 정렬 규칙에 따라 제자리로 튕긴다.
+  Future<void> _reorderSongList(
+    List<String> visibleIds,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    var base = _songs;
+    if (_listSortMode != SongSortMode.manual) {
+      base = SongSortService.sort(
+        _songs,
+        mode: _listSortMode,
+        practiceCounts: SongSortService.practiceCountsFrom(
+          _practiceLog.summaries,
+        ),
+      );
+      await _updateSettings(
+        _settings.copyWith(songSortMode: SongSortMode.manual),
+      );
+      _showSnack("정렬을 '내 순서'로 바꿨습니다. 끌어서 순서를 정할 수 있습니다.");
+    }
+    final next = SongSortService.applyVisibleReorder(
+      all: base,
+      visibleIds: visibleIds,
+      oldIndex: oldIndex,
+      newIndex: newIndex,
+    );
+    await _app.setSongOrder(List<Song>.from(next));
+  }
+
   Future<void> _autoAlignLyrics() => _app.autoAlignLyrics();
 
   /// 재생 중에 "지금이 첫 줄" — 사람이 직접 싱크를 맞추는 입구(단축키 T).
@@ -1151,7 +1184,8 @@ class _SongListScreenState extends State<SongListScreen> {
             setState(() => _listFilterMode = value),
         listSortMode: _listSortMode,
         onListSortModeChanged: (value) =>
-            setState(() => _listSortMode = value),
+            _updateSettings(_settings.copyWith(songSortMode: value)),
+        onReorderSongs: _reorderSongList,
         onRunMaintenance: _runMaintenance,
         onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
         searchSource: _searchSource,
