@@ -430,7 +430,7 @@ class _SyncedLyricsRow extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: onAnchorFirstLine,
                 icon: const Icon(Icons.my_location, size: 20),
-                label: const Text('여기가 첫 줄 (T)'),
+                label: const Text('여기가 첫 줄'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(160, AppConstants.minTouchTarget),
                   side: const BorderSide(
@@ -446,7 +446,7 @@ class _SyncedLyricsRow extends StatelessWidget {
                 // 키보드로 맞춘 값과 버튼으로 맞춘 값이 서로 안 맞는다.
                 _OffsetButton(
                   icon: Icons.remove,
-                  semanticsLabel: '가사를 0.2초 더 먼저 띄우기 (.)',
+                  semanticsLabel: '가사를 0.2초 앞당기기 (/)',
                   onTap: () => onAdjust(-lyricsNudgeStepMs),
                 ),
                 const SizedBox(width: 8),
@@ -454,7 +454,7 @@ class _SyncedLyricsRow extends StatelessWidget {
                 const SizedBox(width: 8),
                 _OffsetButton(
                   icon: Icons.add,
-                  semanticsLabel: '가사를 0.2초 더 늦게 띄우기 (/)',
+                  semanticsLabel: '가사를 0.2초 늦추기 (.)',
                   onTap: () => onAdjust(lyricsNudgeStepMs),
                 ),
               ],

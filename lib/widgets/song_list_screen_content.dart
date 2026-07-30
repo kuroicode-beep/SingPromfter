@@ -25,6 +25,7 @@ import 'queue_panel.dart';
 import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
+import 'prompter_line_list_view.dart' show LineEditRequest;
 import 'search_hub_panel.dart';
 import 'song_search_panel.dart';
 import 'youtube_search_panel.dart';
@@ -70,6 +71,7 @@ class SongListScreenContent extends StatelessWidget {
   /// AI 받아쓰기(STT)로 싱크 가사 생성 + 프롬프터 인라인 가사 수정.
   final VoidCallback? onSttLyrics;
   final void Function(int index, String text)? onEditLyricsLine;
+  final LineEditRequest? lineEditRequest;
 
   /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
   final VoidCallback? onAnchorFirstLine;
@@ -199,6 +201,7 @@ class SongListScreenContent extends StatelessWidget {
     this.onAutoAlignLyrics,
     this.onSttLyrics,
     this.onEditLyricsLine,
+    this.lineEditRequest,
     this.onAnchorFirstLine,
     required this.pitchSemitones,
     required this.onAdjustPitch,
@@ -352,6 +355,7 @@ class SongListScreenContent extends StatelessWidget {
       onAnchorFirstLine: onAnchorFirstLine,
       onSttLyrics: onSttLyrics,
       onEditLyricsLine: onEditLyricsLine,
+      lineEditRequest: lineEditRequest,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
       onStepPitch: onStepPitch,

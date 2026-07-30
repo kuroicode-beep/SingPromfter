@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.16.0';
+  static const String current = '2.17.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.17.0',
+      '2026-07-30',
+      '싱크 단축키 재정비 — T는 싱크를 원래대로 리셋, .은 늦추기·/은 앞당기기'
+          '(방향 교체) · E는 현재 가사 줄을 바로 편집(ESC로 저장). '
+          '편집 중에는 다른 단축키가 꺼진다',
+    ),
     AppVersionEntry(
       '2.16.0',
       '2026-07-30',

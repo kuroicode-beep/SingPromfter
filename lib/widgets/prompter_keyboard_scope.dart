@@ -11,11 +11,14 @@ import '../services/song_list_shortcut_service.dart';
 /// 키보드로 맞춘 값과 버튼으로 맞춘 값이 서로 안 맞는다.
 const int lyricsNudgeStepMs = 200;
 
-/// `.`은 당기기(먼저), `/`는 밀기(늦게). 해당 키가 아니면 null.
+/// `.`은 뒤로(늦춤), `/`는 앞으로(앞당김). 해당 키가 아니면 null.
 /// (순수 함수 — 테스트 대상)
+///
+/// v2.16까지는 반대였는데 사용자 감각과 어긋났다 — "."이 늦추고 "/"가
+/// 앞당기는 쪽이 손에 맞는다는 피드백으로 뒤집었다.
 int? lyricsNudgeFor(LogicalKeyboardKey key) {
-  if (key == LogicalKeyboardKey.period) return -lyricsNudgeStepMs;
-  if (key == LogicalKeyboardKey.slash) return lyricsNudgeStepMs;
+  if (key == LogicalKeyboardKey.period) return lyricsNudgeStepMs;
+  if (key == LogicalKeyboardKey.slash) return -lyricsNudgeStepMs;
   return null;
 }
 
@@ -40,9 +43,13 @@ class PrompterKeyboardScope extends StatefulWidget {
   /// R — 녹음 시작/중지 토글. null이면 R은 아무 일도 하지 않는다.
   final VoidCallback? onToggleRecording;
 
-  /// T — "지금이 첫 줄". 노래를 들으며 첫 소절이 나오는 순간에 눌러 싱크를
-  /// 그 지점에 맞춘다. 손이 마우스에서 떠나 있어도 되도록 키를 준다.
-  final VoidCallback? onAnchorFirstLine;
+  /// T — 싱크를 원래대로(오프셋 0) 되돌린다. `.`/`/`로 밀고 당기다
+  /// 어긋났을 때 처음부터 다시 맞추는 리셋 키다.
+  final VoidCallback? onResetLyricsSync;
+
+  /// E — 현재 가사 줄을 그 자리에서 편집한다. 입력 중에는 텍스트 입력
+  /// 가드가 모든 단축키를 자동으로 끈다. ESC로 저장하고 나온다.
+  final VoidCallback? onEditCurrentLine;
 
   /// . / — 가사 싱크를 당기고 미는 실시간 조절(ms 델타). 음수면 가사가 먼저.
   ///
@@ -72,7 +79,8 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onJumpToEnd,
     this.onSeekRelative,
     this.onToggleRecording,
-    this.onAnchorFirstLine,
+    this.onResetLyricsSync,
+    this.onEditCurrentLine,
     this.onNudgeLyricsOffset,
     this.enablePlaybackShortcuts = true,
     this.enabled = true,
@@ -135,10 +143,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       return KeyEventResult.handled;
     }
 
-    // T = 지금이 첫 줄(싱크 앵커). 노래를 들으며 눌러야 하는 동작이라
-    // 마우스로 버튼을 찾을 필요가 없어야 한다.
-    if (key == LogicalKeyboardKey.keyT && widget.onAnchorFirstLine != null) {
-      widget.onAnchorFirstLine!();
+    // T = 싱크 리셋(오프셋 0으로). 밀고 당기다 어긋나면 처음부터.
+    if (key == LogicalKeyboardKey.keyT && widget.onResetLyricsSync != null) {
+      widget.onResetLyricsSync!();
+      return KeyEventResult.handled;
+    }
+
+    // E = 현재 줄 인라인 편집. 받아쓰기 오탈자를 노래 중에 바로 고친다.
+    if (key == LogicalKeyboardKey.keyE && widget.onEditCurrentLine != null) {
+      widget.onEditCurrentLine!();
       return KeyEventResult.handled;
     }
 

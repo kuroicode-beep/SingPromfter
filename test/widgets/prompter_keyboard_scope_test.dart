@@ -9,14 +9,16 @@ void main() {
   late int startCalls;
   late int endCalls;
   late List<Duration> seeks;
-  late int anchorCalls;
+  late int resetCalls;
+  late int editCalls;
   late List<int> nudges;
 
   setUp(() {
     startCalls = 0;
     endCalls = 0;
     seeks = [];
-    anchorCalls = 0;
+    resetCalls = 0;
+    editCalls = 0;
     nudges = [];
   });
 
@@ -36,7 +38,8 @@ void main() {
             onJumpToStart: withJumps ? () => startCalls++ : null,
             onJumpToEnd: withJumps ? () => endCalls++ : null,
             onSeekRelative: withJumps ? seeks.add : null,
-            onAnchorFirstLine: withSync ? () => anchorCalls++ : null,
+            onResetLyricsSync: withSync ? () => resetCalls++ : null,
+            onEditCurrentLine: withSync ? () => editCalls++ : null,
             onNudgeLyricsOffset: withSync ? nudges.add : null,
             child: const SizedBox.expand(),
           ),
@@ -112,37 +115,47 @@ void main() {
   });
 
   // 싱크를 노래하면서 맞추는 키들. 손이 마우스를 찾을 필요가 없어야 한다.
-  testWidgets('T는 "지금이 첫 줄"을 지정한다', (tester) async {
+  testWidgets('T는 싱크를 원래대로 리셋한다', (tester) async {
     await pump(tester);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
     await tester.pump();
 
-    expect(anchorCalls, 1);
+    expect(resetCalls, 1);
   });
 
-  testWidgets('.는 가사를 당기고 /는 민다 — 왼쪽이 먼저', (tester) async {
+  testWidgets('E는 현재 줄 인라인 편집을 연다', (tester) async {
+    await pump(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyE);
+    await tester.pump();
+
+    expect(editCalls, 1);
+  });
+
+  testWidgets('.는 가사를 늦추고 /는 앞당긴다', (tester) async {
     await pump(tester);
     await tester.sendKeyEvent(LogicalKeyboardKey.period);
     await tester.sendKeyEvent(LogicalKeyboardKey.slash);
     await tester.pump();
 
-    expect(nudges, [-lyricsNudgeStepMs, lyricsNudgeStepMs]);
+    expect(nudges, [lyricsNudgeStepMs, -lyricsNudgeStepMs]);
   });
 
   testWidgets('싱크 콜백이 없으면 아무 일도 없다', (tester) async {
     await pump(tester, withSync: false);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyE);
     await tester.sendKeyEvent(LogicalKeyboardKey.period);
     await tester.pump();
 
-    expect(anchorCalls, 0);
+    expect(resetCalls, 0);
+    expect(editCalls, 0);
     expect(nudges, isEmpty);
     expect(tester.takeException(), isNull);
   });
 
-  test('lyricsNudgeFor는 그 두 키만 답한다', () {
-    expect(lyricsNudgeFor(LogicalKeyboardKey.period), -lyricsNudgeStepMs);
-    expect(lyricsNudgeFor(LogicalKeyboardKey.slash), lyricsNudgeStepMs);
+  test('lyricsNudgeFor — .은 늦춤(+), /은 앞당김(−)', () {
+    expect(lyricsNudgeFor(LogicalKeyboardKey.period), lyricsNudgeStepMs);
+    expect(lyricsNudgeFor(LogicalKeyboardKey.slash), -lyricsNudgeStepMs);
     expect(lyricsNudgeFor(LogicalKeyboardKey.comma), isNull);
     expect(lyricsNudgeFor(LogicalKeyboardKey.keyT), isNull);
   });
@@ -159,7 +172,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
 
-    expect(anchorCalls, 0);
+    expect(resetCalls, 0);
     expect(nudges, isEmpty);
     expect(startCalls, 0);
     expect(seeks, isEmpty);
@@ -169,13 +182,13 @@ void main() {
     await pump(tester, enabled: false);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
     await tester.pump();
-    expect(anchorCalls, 0);
+    expect(resetCalls, 0);
 
     await pump(tester, enabled: true);
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
     await tester.pump();
 
-    expect(anchorCalls, 1);
+    expect(resetCalls, 1);
   });
 }

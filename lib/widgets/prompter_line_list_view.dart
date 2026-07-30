@@ -9,8 +9,19 @@
 // 프로그램적 animateTo/jumpTo는 그대로 동작한다.
 import 'package:flutter/material.dart';
 
+import 'package:flutter/services.dart';
+
 import '../models/prompter_lines.dart';
 import 'prompter_current_line.dart';
+
+/// 밖에서(단축키 E) "이 줄을 편집해 달라"는 요청. seq가 바뀔 때마다
+/// 한 번씩 처리된다 — 같은 줄을 다시 요청해도 새 seq면 다시 열린다.
+class LineEditRequest {
+  final int seq;
+  final int index;
+
+  const LineEditRequest({required this.seq, required this.index});
+}
 
 class PrompterLineListView extends StatefulWidget {
   final PrompterLines lines;
@@ -36,6 +47,9 @@ class PrompterLineListView extends StatefulWidget {
   /// STT 받아쓰기의 오탈자를 재생을 멈추지 않고 그 자리에서 고치는 입구다.
   final void Function(int index, String text)? onEditLine;
 
+  /// 단축키(E)로 들어오는 편집 요청. seq가 바뀌면 그 줄을 입력창으로 바꾼다.
+  final LineEditRequest? editRequest;
+
   final ScrollController? scrollController;
 
   const PrompterLineListView({
@@ -53,6 +67,7 @@ class PrompterLineListView extends StatefulWidget {
     this.autoFollow = true,
     this.sweepBuilder,
     this.onEditLine,
+    this.editRequest,
     this.scrollController,
   });
 
@@ -67,6 +82,7 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
   /// 키보드 단축키가 기존 텍스트 입력 가드로 자동으로 꺼진다.
   int? _editingIndex;
   final _editController = TextEditingController();
+  int _handledEditSeq = 0;
 
   @override
   void dispose() {
@@ -77,6 +93,17 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
   void _startEdit(int index, String text) {
     _editController.text = text;
     setState(() => _editingIndex = index);
+  }
+
+  /// 단축키 E — 요청 번호가 새것이면 그 줄을 편집 상태로 연다.
+  void _consumeEditRequest() {
+    final request = widget.editRequest;
+    if (request == null || request.seq == _handledEditSeq) return;
+    if (widget.onEditLine == null) return;
+    final lines = widget.lines.lines;
+    if (request.index < 0 || request.index >= lines.length) return;
+    _handledEditSeq = request.seq;
+    _startEdit(request.index, lines[request.index].text);
   }
 
   void _commitEdit() {
@@ -92,6 +119,7 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
   @override
   void didUpdateWidget(covariant PrompterLineListView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _consumeEditRequest();
     // 글자 크기·줄 간격이 바뀌면 위쪽 줄들의 높이가 전부 달라지는데
     // 스크롤 오프셋은 그대로라 가사가 통째로 미끄러진다. 그게 "줄이 같이
     // 움직인다"로 보였다. 줄 번호가 안 바뀌어도 다시 잡아 준다.
@@ -177,16 +205,27 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
       child: Row(
         children: [
           Expanded(
-            child: TextField(
-              controller: _editController,
-              autofocus: true,
-              style: TextStyle(
-                fontSize: widget.fontSize * 0.7,
-                color: widget.textColor,
-                fontFamily: widget.fontFamily,
+            // ESC = 저장하고 나가기(사용자 요청 규약). Enter도 저장.
+            child: Focus(
+              onKeyEvent: (node, event) {
+                if (event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.escape) {
+                  _commitEdit();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                controller: _editController,
+                autofocus: true,
+                style: TextStyle(
+                  fontSize: widget.fontSize * 0.7,
+                  color: widget.textColor,
+                  fontFamily: widget.fontFamily,
+                ),
+                onSubmitted: (_) => _commitEdit(),
+                decoration: const InputDecoration(isDense: true),
               ),
-              onSubmitted: (_) => _commitEdit(),
-              decoration: const InputDecoration(isDense: true),
             ),
           ),
           const SizedBox(width: 6),

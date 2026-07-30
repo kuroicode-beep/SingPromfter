@@ -2,6 +2,7 @@
 //
 // 프롬프터 인라인 가사 수정 — 길게 누르면 그 자리에서 고친다.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/models/prompter_lines.dart';
 import 'package:singpromfter_app/theme/app_theme.dart';
@@ -17,6 +18,7 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     void Function(int, String)? onEditLine,
+    LineEditRequest? editRequest,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -29,6 +31,7 @@ void main() {
             lineHeight: 1.5,
             autoFollow: false,
             onEditLine: onEditLine,
+            editRequest: editRequest,
           ),
         ),
       ),
@@ -89,6 +92,44 @@ void main() {
     await pump(tester);
     await tester.longPress(find.text('첫 줄'));
     await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('편집 요청(단축키 E)이 오면 그 줄이 입력창으로 바뀐다', (tester) async {
+    await pump(tester, onEditLine: (_, _) {});
+    // seq가 바뀌어야 요청으로 인정된다 — 같은 위젯 재빌드로 전달.
+    await pump(
+      tester,
+      onEditLine: (_, _) {},
+      editRequest: const LineEditRequest(seq: 1, index: 2),
+    );
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      '셋째 줄',
+    );
+  });
+
+  testWidgets('ESC를 누르면 저장하고 나온다', (tester) async {
+    int? gotIndex;
+    String? gotText;
+    await pump(
+      tester,
+      onEditLine: (index, text) {
+        gotIndex = index;
+        gotText = text;
+      },
+    );
+
+    await tester.longPress(find.text('첫 줄'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'ESC로 저장');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(gotIndex, 0);
+    expect(gotText, 'ESC로 저장');
     expect(find.byType(TextField), findsNothing);
   });
 }

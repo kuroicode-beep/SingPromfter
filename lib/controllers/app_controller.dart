@@ -800,6 +800,18 @@ class AppController extends ChangeNotifier {
     await _writeLyricsOffset(track.lyricsOffsetMs + deltaMs);
   }
 
+  /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
+  /// `.`/`/`로 밀고 당기다 어긋났을 때 처음부터 다시 맞추는 리셋.
+  Future<bool> resetLyricsOffset() async {
+    if (_selectedTrack() == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return false;
+    }
+    await _writeLyricsOffset(0);
+    _emit('싱크를 원래대로 되돌렸습니다.');
+    return true;
+  }
+
   /// 재생 중에 "여기가 첫 줄"을 눌러 싱크를 그 지점에 맞춘다.
   ///
   /// 싱크 가사(LRC)든 노래 구간 배분이든 같은 오프셋 하나로 처리한다 —

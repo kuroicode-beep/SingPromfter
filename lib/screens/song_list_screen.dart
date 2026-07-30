@@ -48,6 +48,7 @@ import '../widgets/youtube_search_panel.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
 import '../widgets/prompter_keyboard_scope.dart';
+import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 
 class SongListScreen extends StatefulWidget {
   const SongListScreen({super.key});
@@ -615,8 +616,24 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Future<void> _autoAlignLyrics() => _app.autoAlignLyrics();
 
-  /// 재생 중에 "지금이 첫 줄" — 사람이 직접 싱크를 맞추는 입구(단축키 T).
+  /// 재생 중에 "지금이 첫 줄" — 사람이 직접 싱크를 맞추는 입구(버튼 전용).
   Future<void> _anchorFirstLine() => _app.anchorLyricsToCurrentPosition();
+
+  /// T — 싱크를 원래대로(오프셋 0). 밀고 당기다 어긋나면 처음부터.
+  Future<void> _resetLyricsSync() => _app.resetLyricsOffset();
+
+  /// E — 현재 가사 줄을 프롬프터에서 바로 편집. 요청 번호를 올리면
+  /// 가사 뷰가 그 줄을 입력창으로 바꾼다(ESC로 저장).
+  void _editCurrentLine() {
+    setState(() {
+      _lineEditRequest = LineEditRequest(
+        seq: (_lineEditRequest?.seq ?? 0) + 1,
+        index: _playback.lineIndex.value,
+      );
+    });
+  }
+
+  LineEditRequest? _lineEditRequest;
 
   /// AI 받아쓰기 — 이미 싱크 가사가 있으면 덮어쓰기 확인을 거친다.
   Future<void> _generateSttLyrics() async {
@@ -1105,7 +1122,7 @@ class _SongListScreenState extends State<SongListScreen> {
       pendingPitch: _app.pendingPitch,
       songKey: _app.trackBaseKeyFor(song, _selectedTrackSlot),
       soundingKey: _app.soundingKeyFor(song, _selectedTrackSlot),
-      onAnchorFirstLine: _anchorFirstLine,
+      onResetLyricsSync: _resetLyricsSync,
       onNudgeLyricsOffset: _adjustLyricsOffset,
     );
   }
@@ -1126,7 +1143,8 @@ class _SongListScreenState extends State<SongListScreen> {
       onSettingsChanged: _updateSettings,
       onTogglePlayPause: _togglePlayPause,
       onToggleRecording: _toggleRecording,
-      onAnchorFirstLine: _anchorFirstLine,
+      onResetLyricsSync: _resetLyricsSync,
+      onEditCurrentLine: _editCurrentLine,
       onNudgeLyricsOffset: _adjustLyricsOffset,
       onOpenPrompter: () {
         final song = _selectedSong;
@@ -1170,6 +1188,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onAnchorFirstLine: _anchorFirstLine,
         onSttLyrics: _generateSttLyrics,
         onEditLyricsLine: _editLyricsLine,
+        lineEditRequest: _lineEditRequest,
         pitchSemitones: _selectedSong == null
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),

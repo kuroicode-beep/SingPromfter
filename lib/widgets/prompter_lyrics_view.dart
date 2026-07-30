@@ -49,6 +49,9 @@ class PrompterLyricsView extends StatefulWidget {
   /// 줄을 길게 눌러 텍스트를 고쳤을 때(목록 모드 전용). null이면 편집 불가.
   final void Function(int index, String text)? onEditLine;
 
+  /// 단축키(E)로 들어오는 편집 요청.
+  final LineEditRequest? editRequest;
+
   const PrompterLyricsView({
     super.key,
     required this.lyricsText,
@@ -68,6 +71,7 @@ class PrompterLyricsView extends StatefulWidget {
     this.trackEnd,
     this.sweepBuilder,
     this.onEditLine,
+    this.editRequest,
   });
 
   @override
@@ -120,6 +124,7 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
       autoFollow: widget.autoFollow,
       sweepBuilder: widget.sweepBuilder,
       onEditLine: widget.onEditLine,
+      editRequest: widget.editRequest,
       scrollController: widget.scrollController,
     );
   }

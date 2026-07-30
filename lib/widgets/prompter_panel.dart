@@ -18,6 +18,7 @@ import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import 'pitch_hud.dart';
 import 'prompter_eq_meter.dart';
+import 'prompter_line_list_view.dart' show LineEditRequest;
 import 'prompter_lyrics_view.dart';
 import 'prompter_sweep_line.dart';
 import 'prompter_wheel_scope.dart';
@@ -53,6 +54,9 @@ class PrompterPanel extends StatelessWidget {
 
   /// 가사 줄을 길게 눌러 고쳤을 때. null이면 편집 불가.
   final void Function(int index, String text)? onEditLyricsLine;
+
+  /// 단축키(E)로 들어오는 인라인 편집 요청.
+  final LineEditRequest? lineEditRequest;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -123,6 +127,7 @@ class PrompterPanel extends StatelessWidget {
     this.onAnchorFirstLine,
     this.onSttLyrics,
     this.onEditLyricsLine,
+    this.lineEditRequest,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -245,6 +250,7 @@ class PrompterPanel extends StatelessWidget {
                           enabled: settings.showSyllableSweep,
                         ),
                         onEditLine: onEditLyricsLine,
+                        editRequest: lineEditRequest,
                       ),
                     ),
                     // 키·템포를 굴리는 동안 가사 위에 크게 띄운다.
