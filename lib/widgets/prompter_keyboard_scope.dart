@@ -17,13 +17,19 @@ const int lyricsNudgeStepMs = 200;
 ///
 /// v2.16까지는 반대였는데 사용자 감각과 어긋났다 — "."이 늦추고 "/"가
 /// 앞당기는 쪽이 손에 맞는다는 피드백으로 뒤집었다.
-int? lyricsNudgeFor(LogicalKeyboardKey key, {String? character}) {
-  // 세 겹으로 판정한다:
+int? lyricsNudgeFor(
+  LogicalKeyboardKey key, {
+  String? character,
+  PhysicalKeyboardKey? physicalKey,
+}) {
+  // 네 겹으로 판정한다:
   // 1) 논리 키(.·/) — 표준 경로.
   // 2) Shift 잔상(>·?) — Shift+→(30초 시크) 직후 흔하다.
   // 3) **실제 입력 문자** — Windows 한글 자판에서 OEM 문장부호 키의 논리 키
   //    매핑이 어긋나는 일이 있다(글자 키 T·E·R은 되는데 .·/만 안 먹는
   //    실사용 보고의 원인으로 추정). 문자는 배열과 무관하게 온다.
+  // 4) **물리 키(자판 위치)** — 논리 키도 문자도 안 온 실사용 보고([·])의
+  //    최후 안전망. IME·배열이 뭐라 하든 스캔코드 위치는 변하지 않는다.
   // [·]는 같은 기능의 예비 키다 — 어느 쪽이든 손에 맞는 걸 쓰면 된다.
   const delayKeys = ['.', '>', '[', '{'];
   const advanceKeys = ['/', '?', ']', '}'];
@@ -44,15 +50,27 @@ int? lyricsNudgeFor(LogicalKeyboardKey key, {String? character}) {
     if (delayKeys.contains(ch)) return lyricsNudgeStepMs;
     if (advanceKeys.contains(ch)) return -lyricsNudgeStepMs;
   }
+  if (physicalKey == PhysicalKeyboardKey.period ||
+      physicalKey == PhysicalKeyboardKey.bracketLeft) {
+    return lyricsNudgeStepMs;
+  }
+  if (physicalKey == PhysicalKeyboardKey.slash ||
+      physicalKey == PhysicalKeyboardKey.bracketRight) {
+    return -lyricsNudgeStepMs;
+  }
   return null;
 }
 
 /// O=이전 줄(-1), P=다음 줄(+1). 해당 키가 아니면 null. (순수 함수 — 테스트 대상)
 ///
-/// .·/와 같은 3겹 판정이다 — 논리 키에 더해 **실제 입력 문자**로도 받는다.
-/// 이 기기에서 논리 키 매핑이 어긋나는 실사용 보고(.·/)가 있었으므로
-/// 글자 키에도 같은 안전망을 깐다. 한글 자판에서 O·P 자리는 ㅐ·ㅔ다.
-int? stepLineFor(LogicalKeyboardKey key, {String? character}) {
+/// .·/와 같은 다겹 판정이다 — 논리 키·실제 입력 문자·물리 키(자판 위치)
+/// 순서로 받는다. 이 기기에서 논리 키 매핑이 어긋나는 실사용 보고(.·/)가
+/// 있었으므로 글자 키에도 같은 안전망을 깐다. 한글 자판에서 O·P 자리는 ㅐ·ㅔ다.
+int? stepLineFor(
+  LogicalKeyboardKey key, {
+  String? character,
+  PhysicalKeyboardKey? physicalKey,
+}) {
   if (key == LogicalKeyboardKey.keyO) return -1;
   if (key == LogicalKeyboardKey.keyP) return 1;
   const prevChars = ['o', 'O', 'ㅐ'];
@@ -62,6 +80,8 @@ int? stepLineFor(LogicalKeyboardKey key, {String? character}) {
     if (prevChars.contains(ch)) return -1;
     if (nextChars.contains(ch)) return 1;
   }
+  if (physicalKey == PhysicalKeyboardKey.keyO) return -1;
+  if (physicalKey == PhysicalKeyboardKey.keyP) return 1;
   return null;
 }
 
@@ -240,7 +260,11 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
 
     // 싱크 밀고 당기기는 꾹 누르면 반복되는 게 자연스럽다 — 반복 이벤트도
     // 받는다. 나머지 단축키는 최초 눌림만(토글이 튀지 않게).
-    final nudge = lyricsNudgeFor(key, character: event.character);
+    final nudge = lyricsNudgeFor(
+      key,
+      character: event.character,
+      physicalKey: event.physicalKey,
+    );
     if (nudge != null && widget.actions?.nudgeLyricsOffset != null) {
       widget.actions!.nudgeLyricsOffset!(nudge);
       return KeyEventResult.handled;
@@ -250,7 +274,11 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 꾹 누르면 죽 넘어간다.
     final stepLine = widget.actions?.stepLine;
     if (stepLine != null) {
-      final step = stepLineFor(key, character: event.character);
+      final step = stepLineFor(
+        key,
+        character: event.character,
+        physicalKey: event.physicalKey,
+      );
       if (step != null) {
         stepLine(step);
         return KeyEventResult.handled;

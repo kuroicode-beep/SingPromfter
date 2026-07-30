@@ -9,7 +9,10 @@
 // 섹션 이름 주의: '앱 화면'은 앱 전체 글꼴·배율(AppDisplayController)이고,
 // '무대 가사 표시'는 프롬프터 가사(PrompterSettings)다. 둘 다 '표시'라고
 // 부르면 구분이 안 돼 이름을 실체대로 바꿨다.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../constants/app_version.dart';
 import '../models/practice_session.dart';
@@ -123,6 +126,8 @@ class SettingsPanel extends StatelessWidget {
         const SizedBox(height: 24),
         const _ShortcutHelpSection(),
         const SizedBox(height: 24),
+        const _KeyDiagSection(),
+        const SizedBox(height: 24),
         _PracticeLogSection(summaries: practiceSummaries),
         const SizedBox(height: 32),
         Text('앱 정보', style: AppTypography.listTitle),
@@ -208,6 +213,127 @@ class _ShortcutHelpSection extends StatelessWidget {
               ],
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// 단축키 진단 — "키가 안 먹는다"는 보고가 자판/IME 환경마다 달라서,
+/// 이 기기에서 키가 실제로 어떻게 들어오는지 눈으로 확인하는 도구.
+/// 이벤트는 화면에 최근 순으로 쌓이고 exe 옆 key_diag.log에도 기록된다.
+class _KeyDiagSection extends StatefulWidget {
+  const _KeyDiagSection();
+
+  @override
+  State<_KeyDiagSection> createState() => _KeyDiagSectionState();
+}
+
+class _KeyDiagSectionState extends State<_KeyDiagSection> {
+  final FocusNode _node = FocusNode(debugLabel: 'keyDiag');
+  final List<String> _events = [];
+  bool _focused = false;
+
+  static const int _maxLines = 10;
+
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(() => setState(() => _focused = _node.hasFocus));
+  }
+
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  String _describe(KeyEvent event) {
+    final kind = switch (event) {
+      KeyDownEvent() => '↓',
+      KeyRepeatEvent() => '↻',
+      _ => '↑',
+    };
+    final ch = event.character;
+    final chText = (ch == null || ch.isEmpty)
+        ? '문자 없음'
+        : "'$ch'(U+${ch.codeUnitAt(0).toRadixString(16).toUpperCase()})";
+    return '$kind 논리=${event.logicalKey.debugName} · '
+        '물리=${event.physicalKey.debugName} · $chText';
+  }
+
+  void _appendLog(String line) {
+    try {
+      final dir = File(Platform.resolvedExecutable).parent.path;
+      File('$dir${Platform.pathSeparator}key_diag.log').writeAsStringSync(
+        '${DateTime.now().toIso8601String()} $line\n',
+        mode: FileMode.append,
+      );
+    } catch (_) {
+      // 진단 로그가 못 써져도 화면 표시는 계속한다.
+    }
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.handled;
+    final line = _describe(event);
+    setState(() {
+      _events.insert(0, line);
+      if (_events.length > _maxLines) _events.removeLast();
+    });
+    _appendLog(line);
+    return KeyEventResult.handled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('단축키 진단', style: AppTypography.listTitle),
+        const SizedBox(height: 4),
+        Text(
+          '단축키가 안 먹을 때 원인을 찾는 도구예요. 아래 상자를 클릭한 뒤 '
+          '문제의 키(예: O, P, [, ])를 눌러 보세요. 키가 어떻게 들어오는지 '
+          '표시되고 key_diag.log 파일에도 남습니다.',
+          style: AppTypography.bodyMuted.copyWith(height: 1.4),
+        ),
+        const SizedBox(height: 8),
+        InkWell(
+          onTap: _node.requestFocus,
+          borderRadius: BorderRadius.circular(10),
+          child: Focus(
+            focusNode: _node,
+            onKeyEvent: _onKey,
+            child: Container(
+              width: double.infinity,
+              constraints: const BoxConstraints(minHeight: 56),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                border: Border.all(
+                  color: _focused ? AppColors.primary : AppColors.borderStrong,
+                  width: 2,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                _focused ? '입력 대기 중 — 키를 눌러 보세요' : '여기를 클릭해서 진단 시작',
+                style: AppTypography.body,
+              ),
+            ),
+          ),
+        ),
+        if (_events.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          for (final line in _events)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text(line, style: AppTypography.mono),
+            ),
+        ],
       ],
     );
   }

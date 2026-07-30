@@ -238,6 +238,41 @@ void main() {
     expect(seeks, isEmpty);
   });
 
+  test('물리 키(자판 위치)만으로도 판정된다 — 논리 키·문자가 다 어긋난 경우', () {
+    // 실사용 보고: [·]가 아예 안 먹음 — 논리 키도 문자도 기대와 다르게
+    // 오는 환경(IME/자판)의 최후 안전망.
+    expect(
+      lyricsNudgeFor(
+        LogicalKeyboardKey.f19,
+        physicalKey: PhysicalKeyboardKey.bracketLeft,
+      ),
+      lyricsNudgeStepMs,
+    );
+    expect(
+      lyricsNudgeFor(
+        LogicalKeyboardKey.f19,
+        physicalKey: PhysicalKeyboardKey.bracketRight,
+      ),
+      -lyricsNudgeStepMs,
+    );
+    expect(
+      stepLineFor(LogicalKeyboardKey.f19, physicalKey: PhysicalKeyboardKey.keyO),
+      -1,
+    );
+    expect(
+      stepLineFor(LogicalKeyboardKey.f19, physicalKey: PhysicalKeyboardKey.keyP),
+      1,
+    );
+    // 관계없는 물리 키는 그대로 무시
+    expect(
+      lyricsNudgeFor(
+        LogicalKeyboardKey.f19,
+        physicalKey: PhysicalKeyboardKey.keyQ,
+      ),
+      isNull,
+    );
+  });
+
   test('stepLineFor — O/P 3겹 판정(논리 키·문자·한글 자판 ㅐ/ㅔ)', () {
     expect(stepLineFor(LogicalKeyboardKey.keyO), -1);
     expect(stepLineFor(LogicalKeyboardKey.keyP), 1);

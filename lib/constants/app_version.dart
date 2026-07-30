@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.4.1';
+  static const String current = '3.5.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.5.0',
+      '2026-07-31',
+      '단축키 물리 키(자판 위치) 판정 추가 — O/P·.·/·[·]가 논리 키·문자 '
+          '매핑이 어긋나는 환경(한글 IME 등)에서도 자판 위치로 동작. 설정에 '
+          '"단축키 진단" 도구 신설(키 입력이 어떻게 들어오는지 화면 표시 + '
+          'key_diag.log 기록)',
+    ),
     AppVersionEntry(
       '3.4.1',
       '2026-07-31',
