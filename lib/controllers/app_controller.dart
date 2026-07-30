@@ -800,8 +800,16 @@ class AppController extends ChangeNotifier {
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
   Future<void> adjustLyricsOffset(int deltaMs) async {
     final track = _selectedTrack();
-    if (track == null) return;
-    await _writeLyricsOffset(track.lyricsOffsetMs + deltaMs);
+    if (track == null) {
+      _emit('먼저 곡과 반주를 선택해 주세요.');
+      return;
+    }
+    final next = track.lyricsOffsetMs + deltaMs;
+    await _writeLyricsOffset(next);
+    // 0.2초 이동은 눈으로 못 느낀다 — 표시가 없으면 "단축키가 안 먹는다"로
+    // 보인다(실사용 보고). 방향과 누적값을 매번 알려 준다.
+    final dir = deltaMs > 0 ? '늦춤' : '앞당김';
+    _emit('가사 싱크 $dir — ${_formatOffsetLabel(next)}');
   }
 
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.

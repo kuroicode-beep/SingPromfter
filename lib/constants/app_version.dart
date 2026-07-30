@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.6.0';
+  static const String current = '3.6.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.6.1',
+      '2026-07-31',
+      '가사 싱크 조절(←/→·.·/·[·])에 즉시 피드백 — 방향과 누적 오프셋을 '
+          '스낵으로 표시. 0.2초 이동은 눈으로 못 느껴 "단축키가 안 먹는다"로 '
+          '보이던 문제의 마지막 조각',
+    ),
     AppVersionEntry(
       '3.6.0',
       '2026-07-31',
