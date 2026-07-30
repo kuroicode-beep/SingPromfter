@@ -11,12 +11,20 @@ import '../constants/app_constants.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
 import '../theme/app_theme.dart';
+import '../utils/key_label.dart';
 import '../utils/music_key.dart';
+import '../utils/pitch_math.dart';
 
 class SongEditDialog {
   SongEditDialog._();
 
-  static Future<SongEditDraft?> show(BuildContext context, Song song) {
+  /// [trackPitches]: 슬롯별 현재 재생 키(반음). 설정에 있는 값이라
+  /// 호출하는 쪽(코디네이터)이 넣어 준다.
+  static Future<SongEditDraft?> show(
+    BuildContext context,
+    Song song, {
+    Map<int, int> trackPitches = const {},
+  }) {
     final titleController = TextEditingController(text: song.title);
     final artistController = TextEditingController(text: song.artist);
     // 자동 감지값을 사람이 읽는 표기로 채워 둔다. 비우면 다시 감지한다.
@@ -42,6 +50,10 @@ class SongEditDialog {
     final trackBaked = <int, int>{
       for (final slot in AppConstants.backingTrackSlots)
         slot: song.trackForSlot(slot)?.bakedSemitones ?? 0,
+    };
+    final trackPitch = <int, int>{
+      for (final slot in AppConstants.backingTrackSlots)
+        slot: trackPitches[slot] ?? 0,
     };
     String? nextLyricsText;
     String? nextLyricsFileName;
@@ -196,6 +208,8 @@ class SongEditDialog {
                               ? trackPaths[slot]!.split('\\').last
                               : (song.trackForSlot(slot)?.fileName ?? '없음'),
                           selected: trackPaths[slot] != null,
+                          hasTrack: trackPaths[slot] != null ||
+                              song.trackForSlot(slot) != null,
                           labelValue: trackLabels[slot] ?? 'MR$slot',
                           onLabelChanged: (value) => trackLabels[slot] = value,
                           startMs: trackStartMs[slot],
@@ -205,8 +219,18 @@ class SongEditDialog {
                           onEndChanged: (value) =>
                               trackEndMs[slot] = _parseSeconds(value),
                           bakedSemitones: trackBaked[slot] ?? 0,
-                          onBakedChanged: (value) =>
-                              trackBaked[slot] = _parseSemitones(value),
+                          // 구운 키가 바뀌면 실효 키 표시도 따라가야 해서
+                          // setLocal로 감싼다.
+                          onBakedChanged: (value) => setLocal(
+                            () => trackBaked[slot] = _parseSemitones(value),
+                          ),
+                          pitchSemitones: trackPitch[slot] ?? 0,
+                          musicalKey: song.musicalKey,
+                          onPitchAdjust: (delta) => setLocal(
+                            () => trackPitch[slot] = clampSemitones(
+                              (trackPitch[slot] ?? 0) + delta,
+                            ),
+                          ),
                           onPick: () => pickTrack(slot),
                           onKeep: () => setLocal(() => trackPaths[slot] = null),
                         ),
@@ -264,6 +288,7 @@ class SongEditDialog {
                         applyMusicalKey: true,
                         musicalKey: parsedKey,
                         trackBakedSemitones: Map.of(trackBaked),
+                        trackPitchSemitones: Map.of(trackPitch),
                       ),
                     );
                   },
@@ -363,14 +388,24 @@ class _TrackEditRow extends StatelessWidget {
   final String label;
   final String value;
   final bool selected;
+
+  /// 기존 파일이 있거나 새로 골랐는지. 없으면 재생 키 줄을 그리지 않는다.
+  final bool hasTrack;
   final String labelValue;
   final int? startMs;
   final int? endMs;
   final int bakedSemitones;
+
+  /// 이 슬롯의 재생 키(반음). 파일은 그대로, 재생할 때 변환한다.
+  final int pitchSemitones;
+
+  /// 곡 조성. 알면 실효 조성(구운 키+재생 키 반영)을 함께 보여준다.
+  final MusicKey? musicalKey;
   final ValueChanged<String> onLabelChanged;
   final ValueChanged<String> onStartChanged;
   final ValueChanged<String> onEndChanged;
   final ValueChanged<String> onBakedChanged;
+  final ValueChanged<int> onPitchAdjust;
   final VoidCallback onPick;
   final VoidCallback onKeep;
 
@@ -378,14 +413,18 @@ class _TrackEditRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.selected,
+    required this.hasTrack,
     required this.labelValue,
     required this.startMs,
     required this.endMs,
     required this.bakedSemitones,
+    required this.pitchSemitones,
+    required this.musicalKey,
     required this.onLabelChanged,
     required this.onStartChanged,
     required this.onEndChanged,
     required this.onBakedChanged,
+    required this.onPitchAdjust,
     required this.onPick,
     required this.onKeep,
   });
@@ -503,6 +542,16 @@ class _TrackEditRow extends StatelessWidget {
                 ),
               ],
             ),
+            if (hasTrack) ...[
+              const SizedBox(height: 10),
+              _TrackPitchRow(
+                slotLabel: labelValue,
+                pitchSemitones: pitchSemitones,
+                bakedSemitones: bakedSemitones,
+                musicalKey: musicalKey,
+                onAdjust: onPitchAdjust,
+              ),
+            ],
           ],
         ),
       ),
@@ -511,6 +560,111 @@ class _TrackEditRow extends StatelessWidget {
 
   String _secondsText(int? value) =>
       value == null ? '' : (value / 1000).toStringAsFixed(1);
+}
+
+/// 트랙 하나의 재생 키 조절 줄. 재생바 키 줄과 같은 문법(큰 -/+ 버튼,
+/// '원키/2키 낮춤' 말 표기)을 쓰되, 이 반주에만 적용된다는 것을 함께 알린다.
+class _TrackPitchRow extends StatelessWidget {
+  final String slotLabel;
+  final int pitchSemitones;
+  final int bakedSemitones;
+  final MusicKey? musicalKey;
+  final ValueChanged<int> onAdjust;
+
+  const _TrackPitchRow({
+    required this.slotLabel,
+    required this.pitchSemitones,
+    required this.bakedSemitones,
+    required this.musicalKey,
+    required this.onAdjust,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 실제 들리는 키 = 파일에 구운 키 + 재생 키.
+    final effective = bakedSemitones + pitchSemitones;
+    final sounding = musicalKey?.transposed(effective);
+    final showEffective = sounding != null || bakedSemitones != 0;
+
+    return Row(
+      children: [
+        const Text('재생 키', style: TextStyle(color: AppColors.textPrimary)),
+        const SizedBox(width: 8),
+        Semantics(
+          label: '$slotLabel 키 한 음 내리기',
+          button: true,
+          child: IconButton(
+            icon: const Icon(Icons.remove),
+            tooltip: '키 한 음 내리기',
+            onPressed: pitchSemitones <= minPitchSemitones
+                ? null
+                : () => onAdjust(-1),
+            constraints: const BoxConstraints(
+              minWidth: AppConstants.minTouchTarget,
+              minHeight: AppConstants.minTouchTarget,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 92,
+          child: Semantics(
+            label: '$slotLabel 재생 키 ${formatKeyLabel(pitchSemitones)}',
+            child: Text(
+              formatKeyLabel(pitchSemitones),
+              textAlign: TextAlign.center,
+              style: AppTypography.mono,
+            ),
+          ),
+        ),
+        Semantics(
+          label: '$slotLabel 키 한 음 올리기',
+          button: true,
+          child: IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: '키 한 음 올리기',
+            onPressed: pitchSemitones >= maxPitchSemitones
+                ? null
+                : () => onAdjust(1),
+            constraints: const BoxConstraints(
+              minWidth: AppConstants.minTouchTarget,
+              minHeight: AppConstants.minTouchTarget,
+            ),
+          ),
+        ),
+        if (showEffective) ...[
+          const SizedBox(width: 10),
+          Semantics(
+            label: sounding != null
+                ? '실제 들리는 조성 ${sounding.label}, 원곡 대비 '
+                      '${formatKeyLabel(effective)}'
+                : '원곡 대비 ${formatKeyLabel(effective)}',
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.tertiary.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                sounding != null
+                    ? '실효 ${sounding.label} (${formatKeyShort(effective)})'
+                    : '실효 ${formatKeyShort(effective)}',
+                style: AppTypography.mono.copyWith(color: AppColors.tertiary),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            '이 반주에만 적용 — 파일은 그대로, 재생할 때 변환',
+            style: AppTypography.bodyMuted,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 void _showDialogSnack(BuildContext context, String message) {

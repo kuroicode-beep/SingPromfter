@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.1.0';
+  static const String current = '3.2.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.2.0',
+      '2026-07-30',
+      '곡 수정 창에서 반주(트랙)별 재생 키 조절 — 큰 -/+ 버튼과 원키/n키 '
+          '표기, 곡 조성을 알면 실효 조성(구운 키+재생 키)을 함께 표시. '
+          '저장하면 해당 반주에만 적용되고 재생 중이면 즉시 새 키로 전환',
+    ),
     AppVersionEntry(
       '3.1.0',
       '2026-07-30',
