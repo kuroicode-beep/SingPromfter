@@ -13,16 +13,34 @@ void main() {
 
     test('기준 줄부터만 옮기고 위 줄·메타 태그는 그대로', () {
       final next = shiftLrcFromLine(raw, displayIndex: 1, deltaMs: 200);
-      expect(next, contains('[ti:테스트]'));
-      expect(next, contains('[00:10.00]첫 줄'));
-      expect(next, contains('[00:14.20]둘째 줄'));
-      expect(next, contains('[00:19.20]셋째 줄'));
+      expect(next?.appliedDeltaMs, 200);
+      expect(next?.lrc, contains('[ti:테스트]'));
+      expect(next?.lrc, contains('[00:10.00]첫 줄'));
+      expect(next?.lrc, contains('[00:14.20]둘째 줄'));
+      expect(next?.lrc, contains('[00:19.20]셋째 줄'));
     });
 
     test('앞당김(음수)도 되고 0 밑으로는 내려가지 않는다', () {
       final next = shiftLrcFromLine(raw, displayIndex: 0, deltaMs: -11000);
-      expect(next, contains('[00:00.00]첫 줄'));
-      expect(next, contains('[00:03.00]둘째 줄'));
+      expect(next?.lrc, contains('[00:00.00]첫 줄'));
+      expect(next?.lrc, contains('[00:03.00]둘째 줄'));
+    });
+
+    test('앞당김이 바로 위 줄을 넘지 못한다 — 순서 보존 클램프', () {
+      // 둘째 줄(14초)을 4.5초 당기면 첫 줄(10초)을 추월한다 —
+      // 추월하면 파서가 재정렬해 줄 순서가 뒤섞인다("가사가 춤을 춤").
+      // 위 줄 직전(10.01초)까지만 당겨진다.
+      final next = shiftLrcFromLine(raw, displayIndex: 1, deltaMs: -4500);
+      expect(next?.appliedDeltaMs, -3990);
+      expect(next?.lrc, contains('[00:10.00]첫 줄'));
+      expect(next?.lrc, contains('[00:10.01]둘째 줄'));
+      expect(next?.lrc, contains('[00:15.01]셋째 줄'));
+    });
+
+    test('위 줄과 이미 붙어 있으면 적용 0으로 알려 준다', () {
+      const dense = '[00:10.00]첫 줄\n[00:10.00]둘째 줄';
+      final next = shiftLrcFromLine(dense, displayIndex: 1, deltaMs: -200);
+      expect(next?.appliedDeltaMs, 0);
     });
 
     test('후렴 반복(한 줄 다중 태그)은 시각 기준으로 각각 판정한다', () {
@@ -30,8 +48,8 @@ void main() {
       // 표시 시각순: 10(후렴)·20(중간)·30(후렴) — 20부터 밀면
       // 같은 원문 줄이라도 10초 태그는 남고 30초 태그만 움직인다.
       final next = shiftLrcFromLine(chorus, displayIndex: 1, deltaMs: 500);
-      expect(next, contains('[00:10.00][00:30.50]후렴'));
-      expect(next, contains('[00:20.50]중간 줄'));
+      expect(next?.lrc, contains('[00:10.00][00:30.50]후렴'));
+      expect(next?.lrc, contains('[00:20.50]중간 줄'));
     });
 
     test('없는 줄이면 null', () {

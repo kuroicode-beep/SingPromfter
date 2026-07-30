@@ -527,6 +527,29 @@ class PlaybackController {
   /// 일시정지 중에는 다음 틱이 없어 이걸 부르지 않으면 화면이 안 바뀐다.
   void refreshLineIndex() => _recomputeLineIndex(position.value);
 
+  /// **아직 시작하지 않은** 첫 줄 — Alt 부분 보정의 기준.
+  ///
+  /// 현재 줄(lineIndex)은 간주에서는 '방금 부른 줄'이라, 그걸 기준으로
+  /// 밀면 재생 위치 밑의 타임스탬프가 움직여 하이라이트가 널뛴다.
+  /// 전주면 0, 마지막 줄까지 다 시작했으면 lines.length(=밀 줄 없음).
+  int upcomingLineIndex() {
+    final synced = timedLyrics.value;
+    if (synced == null || synced.isEmpty) return 0;
+    final songTime = LyricsSyncMath.songTimeFor(
+      playerPosition: position.value,
+      trackStartMs: state.value.trackStartMs,
+      lyricsOffsetMs: state.value.lyricsOffsetMs,
+      tempoScale: state.value.tempoScale,
+    );
+    final target = songTime.inMilliseconds - synced.offsetMs;
+    var i = 0;
+    while (i < synced.lines.length &&
+        synced.lines[i].time.inMilliseconds <= target) {
+      i++;
+    }
+    return i;
+  }
+
   /// 현재 줄 기준 한 줄 간격(ms) — Ctrl+←/→ 줄 단위 싱크 이동용.
   /// 싱크 가사가 없거나 줄이 부족하면 null.
   int? currentLineGapMs({required bool towardPrevious}) {

@@ -59,14 +59,23 @@ String _formatTag(int ms) {
 final _timeTag = RegExp(r'^((?:\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+)(.*)$');
 final _firstTag = RegExp(r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]');
 
+/// 앞당김이 위 줄과 겹치지 않게 남겨 두는 최소 간격(ms).
+const int lrcShiftMinGapMs = 10;
+
 /// 표시 줄 [displayIndex]부터(시각순) 이후의 **모든 타임스탬프**를
-/// [deltaMs]만큼 옮긴 LRC 원문을 돌려준다. 그 앞 줄들은 건드리지 않는다 —
-/// "밑에서 맞추면 위가 틀어지는" 전체 오프셋의 한계를 푸는 부분 보정.
+/// [deltaMs]만큼 옮긴 LRC 원문과 실제 적용된 이동량을 돌려준다.
+/// 그 앞 줄들은 건드리지 않는다 — "밑에서 맞추면 위가 틀어지는"
+/// 전체 오프셋의 한계를 푸는 부분 보정.
 ///
 /// 기준은 그 줄의 시각이다: 같은 시각 이후의 태그는 후렴 반복
 /// (한 줄에 태그 여러 개)까지 포함해 전부 함께 움직인다.
-/// 결과 시각이 음수면 0으로 자른다. 해당 줄이 없으면 null.
-String? shiftLrcFromLine(
+///
+/// **순서 보존**: 앞당김(음수)은 바로 위 줄의 시각을 넘지 못하게 잘린다 —
+/// 넘어서면 파서가 시각순으로 재정렬해 줄 순서가 뒤섞이고, 하이라이트가
+/// 위아래로 널뛴다(실사용 보고 "가사가 춤을 춰"). 더 못 당기면
+/// appliedDeltaMs가 0이 된다. 결과 시각이 음수면 0으로 자른다.
+/// 해당 줄이 없으면 null.
+({String lrc, int appliedDeltaMs})? shiftLrcFromLine(
   String raw, {
   required int displayIndex,
   required int deltaMs,
@@ -89,6 +98,16 @@ String? shiftLrcFromLine(
   times.sort();
   final thresholdMs = times[displayIndex];
 
+  var applied = deltaMs;
+  if (deltaMs < 0 && displayIndex > 0) {
+    // 블록의 맨 앞(=기준 줄)이 바로 위 줄보다 뒤에 남아야 순서가 지켜진다.
+    final maxBelow = times[displayIndex - 1];
+    final floor = maxBelow + lrcShiftMinGapMs - thresholdMs;
+    if (applied < floor) applied = floor;
+    if (applied > 0) applied = 0; // 위 줄과 이미 붙어 있으면 못 당긴다.
+  }
+  if (applied == 0) return (lrc: raw, appliedDeltaMs: 0);
+
   String format(int ms) {
     final clamped = ms < 0 ? 0 : ms;
     final minutes = clamped ~/ 60000;
@@ -97,7 +116,7 @@ String? shiftLrcFromLine(
         '${seconds.toStringAsFixed(2).padLeft(5, '0')}]';
   }
 
-  return lines
+  final shifted = lines
       .map((line) {
         final match = _timeTag.firstMatch(line.trimRight());
         if (match == null) return line;
@@ -105,10 +124,11 @@ String? shiftLrcFromLine(
         return line.replaceAllMapped(_firstTag, (tag) {
           final ms = _tagToMs(tag);
           if (ms < thresholdMs) return tag.group(0)!;
-          return format(ms + deltaMs);
+          return format(ms + applied);
         });
       })
       .join('\n');
+  return (lrc: shifted, appliedDeltaMs: applied);
 }
 
 /// 파서(LrcParser)와 같은 소수부 해석: 3자리=1/1000초, 그 외=×10.

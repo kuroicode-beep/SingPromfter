@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.9.0';
+  static const String current = '3.9.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.9.1',
+      '2026-07-31',
+      '부분 보정(Alt) 후 가사가 위아래로 널뛰던 문제 수정 — ① 기준을 '
+          '"아직 나오지 않은 다음 줄"로(간주에서 방금 부른 줄이 밀리지 않게) '
+          '② 앞당김이 바로 위 줄을 추월하지 못하게 순서 보존 클램프'
+          '(추월하면 파서 재정렬로 줄이 뒤섞였다)',
+    ),
     AppVersionEntry(
       '3.9.0',
       '2026-07-31',

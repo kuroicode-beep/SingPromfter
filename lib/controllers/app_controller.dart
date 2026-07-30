@@ -879,9 +879,16 @@ class AppController extends ChangeNotifier {
       _emit('싱크 가사가 있어야 줄 단위 보정이 됩니다.');
       return;
     }
-    _partialShiftLineIndex ??= playback.lineIndex.value;
+    // 기준은 '아직 나오지 않은 다음 줄' — 간주에서 현재 줄(방금 부른 줄)을
+    // 밀면 재생 위치 밑의 시각이 움직여 하이라이트가 널뛴다(실사용 보고).
+    final anchor = _partialShiftLineIndex ??= playback.upcomingLineIndex();
+    if (anchor >= (playback.timedLyrics.value?.lines.length ?? 0)) {
+      _partialShiftLineIndex = null;
+      _emit('이 뒤에 나올 줄이 없습니다.');
+      return;
+    }
     _partialShiftPendingMs += deltaMs;
-    final line = _partialShiftLineIndex! + 1;
+    final line = anchor + 1;
     final pending = _partialShiftPendingMs;
     if (pending == 0) {
       _emit('$line번째 줄부터 — 예약 0초 (상쇄됨)');
@@ -917,16 +924,26 @@ class AppController extends ChangeNotifier {
       _emit('가사 원문(LRC)을 읽지 못했습니다.');
       return;
     }
-    final next = shiftLrcFromLine(raw, displayIndex: index, deltaMs: deltaMs);
-    if (next == null) return;
-    final saved = await lyricsSync.save(song, next);
+    final result = shiftLrcFromLine(raw, displayIndex: index, deltaMs: deltaMs);
+    if (result == null) {
+      _emit('밀 수 있는 줄이 없습니다.');
+      return;
+    }
+    if (result.appliedDeltaMs == 0) {
+      // 순서 보존 클램프 — 위 줄과 붙어 있어 더는 못 당긴다.
+      _emit('바로 위 줄과 겹쳐서 더 당길 수 없습니다.');
+      return;
+    }
+    final saved = await lyricsSync.save(song, result.lrc);
     if (saved == null) return;
     await replaceSongInList(saved);
     playback.timedLyrics.value = await lyricsSync.loadFor(saved);
     playback.refreshLineIndex();
-    final dir = deltaMs > 0 ? '늦춤' : '앞당김';
-    final amount = (deltaMs.abs() / 1000).toStringAsFixed(1);
-    _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir 적용 — 위 줄은 그대로');
+    final applied = result.appliedDeltaMs;
+    final dir = applied > 0 ? '늦춤' : '앞당김';
+    final amount = (applied.abs() / 1000).toStringAsFixed(1);
+    final limited = applied == deltaMs ? '' : ' (위 줄 직전까지만)';
+    _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir 적용$limited — 위 줄은 그대로');
   }
 
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
