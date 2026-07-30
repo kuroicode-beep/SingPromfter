@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.5.0';
+  static const String current = '3.6.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.6.0',
+      '2026-07-31',
+      '화살표 단축키 개편(사용자 요청) — ←/→=가사 싱크 늦춤/앞당김, '
+          '↑/↓=이전/다음 줄(꾹 누르면 연속). 기존 기능은 Shift로: '
+          'Shift+←/→=30초 이동, Shift+↑/↓=볼륨. 문장부호·글자 키가 '
+          '환경(IME·자판)에 따라 안 먹는 문제의 확실한 대안',
+    ),
     AppVersionEntry(
       '3.5.0',
       '2026-07-31',

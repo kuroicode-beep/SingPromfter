@@ -12,6 +12,8 @@ void main() {
   late int resetCalls;
   late int editCalls;
   late List<int> nudges;
+  late List<int> lineSteps;
+  late int settingsChanges;
 
   setUp(() {
     startCalls = 0;
@@ -20,12 +22,15 @@ void main() {
     resetCalls = 0;
     editCalls = 0;
     nudges = [];
+    lineSteps = [];
+    settingsChanges = 0;
   });
 
   Future<void> pump(
     WidgetTester tester, {
     bool withJumps = true,
     bool withSync = true,
+    bool withStepLine = true,
     bool enabled = true,
   }) async {
     await tester.pumpWidget(
@@ -34,13 +39,14 @@ void main() {
           body: PrompterKeyboardScope(
             enabled: enabled,
             settings: const PrompterSettings(),
-            onSettingsChanged: (_) {},
+            onSettingsChanged: (_) => settingsChanges++,
             actions: PrompterActions(
               jumpToStart: withJumps ? () => startCalls++ : null,
               jumpToEnd: withJumps ? () => endCalls++ : null,
               seekRelative: withJumps ? seeks.add : null,
               resetLyricsSync: withSync ? () => resetCalls++ : null,
               nudgeLyricsOffset: withSync ? nudges.add : null,
+              stepLine: withStepLine ? lineSteps.add : null,
             ),
             onEditCurrentLine: withSync ? () => editCalls++ : null,
             child: const SizedBox.expand(),
@@ -80,21 +86,26 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  // v2.8.0: 이 키가 가사 속도 조절이었다가 이동으로 바뀌었다.
-  testWidgets('→는 5초 앞으로', (tester) async {
+  // v3.6.0: 화살표가 본대가 됐다 — 문장부호·글자 키가 환경에 따라 안 먹는
+  // 실사용 보고 때문. ←/→=싱크, ↑/↓=줄, 원래 기능(이동·볼륨)은 Shift로.
+  testWidgets('←는 가사를 늦추고 →는 앞당긴다', (tester) async {
     await pump(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
 
-    expect(seeks, [const Duration(seconds: 5)]);
+    expect(nudges, [lyricsNudgeStepMs, -lyricsNudgeStepMs]);
+    expect(seeks, isEmpty);
   });
 
-  testWidgets('←는 5초 뒤로', (tester) async {
+  testWidgets('↑/↓는 이전/다음 줄', (tester) async {
     await pump(tester);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
 
-    expect(seeks, [const Duration(seconds: -5)]);
+    expect(lineSteps, [-1, 1]);
+    expect(settingsChanges, 0);
   });
 
   testWidgets('Shift+→는 30초 앞으로', (tester) async {
@@ -105,15 +116,34 @@ void main() {
     await tester.pump();
 
     expect(seeks, [const Duration(seconds: 30)]);
+    expect(nudges, isEmpty);
   });
 
-  testWidgets('이동 콜백이 없으면 아무 일도 없다', (tester) async {
-    await pump(tester, withJumps: false);
+  testWidgets('Shift+↑는 볼륨 조절로 간다', (tester) async {
+    await pump(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+
+    expect(settingsChanges, 1);
+    expect(lineSteps, isEmpty);
+  });
+
+  testWidgets('싱크 대상이 없으면 ←/→는 예전처럼 5초 이동', (tester) async {
+    await pump(tester, withSync: false);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
 
-    expect(seeks, isEmpty);
-    expect(tester.takeException(), isNull);
+    expect(seeks, [const Duration(seconds: 5)]);
+  });
+
+  testWidgets('줄 이동 대상이 없으면 ↑/↓는 예전처럼 볼륨', (tester) async {
+    await pump(tester, withStepLine: false);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.pump();
+
+    expect(settingsChanges, 1);
   });
 
   // 싱크를 노래하면서 맞추는 키들. 손이 마우스를 찾을 필요가 없어야 한다.

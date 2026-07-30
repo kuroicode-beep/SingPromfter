@@ -284,6 +284,59 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         return KeyEventResult.handled;
       }
     }
+
+    // 화살표 — ←/→ = 싱크 늦춤/앞당김, ↑/↓ = 이전/다음 줄. (v3.6.0)
+    // 문장부호·글자 키가 환경(IME·자판)에 따라 안 먹는 실사용 보고로,
+    // 어디서나 확실히 오는 화살표를 본대로 삼는다. 원래 기능은 Shift로:
+    // Shift+←/→ = 30초 이동, Shift+↑/↓ = 볼륨. 꾹 누르면 연속(반복 수용).
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.arrowRight) {
+      final back = key == LogicalKeyboardKey.arrowLeft;
+      if (shift) {
+        final seekCb = widget.actions?.seekRelative;
+        if (seekCb != null) {
+          seekCb(
+            back
+                ? -SongListShortcutService.seekStepLarge
+                : SongListShortcutService.seekStepLarge,
+          );
+          return KeyEventResult.handled;
+        }
+      } else {
+        final nudgeCb = widget.actions?.nudgeLyricsOffset;
+        if (nudgeCb != null) {
+          nudgeCb(back ? lyricsNudgeStepMs : -lyricsNudgeStepMs);
+          return KeyEventResult.handled;
+        }
+        // 싱크 대상이 없는 화면에서는 예전처럼 5초 이동으로.
+        final seekCb = widget.actions?.seekRelative;
+        if (seekCb != null) {
+          seekCb(
+            back
+                ? -SongListShortcutService.seekStep
+                : SongListShortcutService.seekStep,
+          );
+          return KeyEventResult.handled;
+        }
+      }
+    }
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown) {
+      final up = key == LogicalKeyboardKey.arrowUp;
+      if (!shift && stepLine != null) {
+        stepLine(up ? -1 : 1);
+        return KeyEventResult.handled;
+      }
+      final adjusted = SongListShortcutService.adjustSettings(
+        widget.settings,
+        up ? LogicalKeyboardKey.arrowUp : LogicalKeyboardKey.arrowDown,
+      );
+      if (adjusted != null) {
+        widget.onSettingsChanged(adjusted);
+        return KeyEventResult.handled;
+      }
+    }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {
       widget.onClose!();
@@ -333,21 +386,6 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       }
     }
 
-    final seek = SongListShortcutService.seekDeltaFor(
-      key,
-      shift: HardwareKeyboard.instance.isShiftPressed,
-    );
-    if (seek != null && widget.actions?.seekRelative != null) {
-      widget.actions!.seekRelative!(seek);
-      return KeyEventResult.handled;
-    }
-
-    final adjusted = SongListShortcutService.adjustSettings(widget.settings, key);
-    if (adjusted != null) {
-      widget.onSettingsChanged(adjusted);
-      return KeyEventResult.handled;
-    }
-
     return KeyEventResult.ignored;
   }
 
@@ -378,14 +416,37 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
 
   Map<ShortcutActivator, Intent> get _shortcutMap {
     return {
-      const SingleActivator(LogicalKeyboardKey.arrowUp): const _VolumeUpIntent(),
-      const SingleActivator(LogicalKeyboardKey.arrowDown):
+      // ↑/↓ = 이전/다음 줄, Shift+↑/↓ = 볼륨. 줄 이동 대상이 없으면
+      // 예전처럼 볼륨으로.
+      if (widget.actions?.stepLine != null) ...{
+        const SingleActivator(LogicalKeyboardKey.arrowUp):
+            const _StepLineIntent(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown):
+            const _StepLineIntent(1),
+      } else ...{
+        const SingleActivator(LogicalKeyboardKey.arrowUp):
+            const _VolumeUpIntent(),
+        const SingleActivator(LogicalKeyboardKey.arrowDown):
+            const _VolumeDownIntent(),
+      },
+      const SingleActivator(LogicalKeyboardKey.arrowUp, shift: true):
+          const _VolumeUpIntent(),
+      const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true):
           const _VolumeDownIntent(),
-      if (widget.actions?.seekRelative != null) ...{
+      // ←/→ = 싱크 늦춤/앞당김, Shift+←/→ = 30초 이동. 싱크 대상이
+      // 없으면 예전처럼 5초 이동으로.
+      if (widget.actions?.nudgeLyricsOffset != null) ...{
+        const SingleActivator(LogicalKeyboardKey.arrowLeft):
+            const _NudgeLyricsIntent(delay: true),
+        const SingleActivator(LogicalKeyboardKey.arrowRight):
+            const _NudgeLyricsIntent(delay: false),
+      } else if (widget.actions?.seekRelative != null) ...{
         const SingleActivator(LogicalKeyboardKey.arrowLeft):
             const _SeekBackIntent(),
         const SingleActivator(LogicalKeyboardKey.arrowRight):
             const _SeekForwardIntent(),
+      },
+      if (widget.actions?.seekRelative != null) ...{
         const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true):
             const _SeekBackIntent(large: true),
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true):
@@ -428,6 +489,24 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
           return null;
         },
       ),
+      if (widget.actions?.stepLine != null)
+        _StepLineIntent: CallbackAction<_StepLineIntent>(
+          onInvoke: (intent) {
+            if (SongListShortcutService.isTextInputFocused()) return null;
+            widget.actions!.stepLine!(intent.step);
+            return null;
+          },
+        ),
+      if (widget.actions?.nudgeLyricsOffset != null)
+        _NudgeLyricsIntent: CallbackAction<_NudgeLyricsIntent>(
+          onInvoke: (intent) {
+            if (SongListShortcutService.isTextInputFocused()) return null;
+            widget.actions!.nudgeLyricsOffset!(
+              intent.delay ? lyricsNudgeStepMs : -lyricsNudgeStepMs,
+            );
+            return null;
+          },
+        ),
       if (widget.actions?.seekRelative != null) ...{
         _SeekForwardIntent: CallbackAction<_SeekForwardIntent>(
           onInvoke: (intent) {
@@ -509,6 +588,18 @@ class _SeekForwardIntent extends Intent {
 class _SeekBackIntent extends Intent {
   final bool large;
   const _SeekBackIntent({this.large = false});
+}
+
+/// ↑/↓ 줄 이동. step: -1=이전, 1=다음.
+class _StepLineIntent extends Intent {
+  final int step;
+  const _StepLineIntent(this.step);
+}
+
+/// ←/→ 싱크 조절. delay=true면 늦춤(+), false면 앞당김(−).
+class _NudgeLyricsIntent extends Intent {
+  final bool delay;
+  const _NudgeLyricsIntent({required this.delay});
 }
 
 class _TogglePlayPauseIntent extends Intent {
