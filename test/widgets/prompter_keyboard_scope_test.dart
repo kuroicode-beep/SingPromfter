@@ -13,8 +13,8 @@ void main() {
   late int editCalls;
   late List<int> nudges;
   late List<int> lineSteps;
-  late List<int> lineNudges;
   late List<int> partialNudges;
+  late int holdToggles;
   late int settingsChanges;
 
   setUp(() {
@@ -25,8 +25,8 @@ void main() {
     editCalls = 0;
     nudges = [];
     lineSteps = [];
-    lineNudges = [];
     partialNudges = [];
+    holdToggles = 0;
     settingsChanges = 0;
   });
 
@@ -50,8 +50,8 @@ void main() {
               seekRelative: withJumps ? seeks.add : null,
               resetLyricsSync: withSync ? () => resetCalls++ : null,
               nudgeLyricsOffset: withSync ? nudges.add : null,
-              nudgeLyricsOffsetLine: withSync ? lineNudges.add : null,
               nudgeLyricsFromCurrentLine: withSync ? partialNudges.add : null,
+              toggleLyricsHold: withSync ? () => holdToggles++ : null,
               stepLine: withStepLine ? lineSteps.add : null,
             ),
             onEditCurrentLine: withSync ? () => editCalls++ : null,
@@ -114,7 +114,7 @@ void main() {
     expect(settingsChanges, 0);
   });
 
-  testWidgets('Ctrl+←는 한 줄 늦추고 Ctrl+→는 한 줄 앞당긴다', (tester) async {
+  testWidgets('Ctrl+←/→는 1초 걸음으로 민다', (tester) async {
     await pump(tester);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
@@ -122,9 +122,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump();
 
-    expect(lineNudges, [1, -1]);
-    // 0.2초 걸음·시크는 건드리지 않는다
-    expect(nudges, isEmpty);
+    expect(nudges, [lyricsNudgeStepLargeMs, -lyricsNudgeStepLargeMs]);
     expect(seeks, isEmpty);
   });
 
@@ -158,9 +156,8 @@ void main() {
     await tester.pump();
 
     expect(partialNudges, [lyricsNudgeStepMs, -lyricsNudgeStepMs]);
-    // 전체 오프셋·한 줄 간격 조절은 건드리지 않는다
+    // 전체 오프셋 조절은 건드리지 않는다
     expect(nudges, isEmpty);
-    expect(lineNudges, isEmpty);
   });
 
   testWidgets('Shift+→는 30초 앞으로', (tester) async {
@@ -254,12 +251,7 @@ void main() {
     expect(lyricsNudgeFor(LogicalKeyboardKey.question), -lyricsNudgeStepMs);
   });
 
-  test('lyricsNudgeFor — [·]는 예비 키, 문자 매칭은 자판 배열 무관 안전망', () {
-    expect(lyricsNudgeFor(LogicalKeyboardKey.bracketLeft), lyricsNudgeStepMs);
-    expect(
-      lyricsNudgeFor(LogicalKeyboardKey.bracketRight),
-      -lyricsNudgeStepMs,
-    );
+  test('lyricsNudgeFor — 문자 매칭은 자판 배열 무관 안전망, [·]는 이제 별개 역할', () {
     // 논리 키가 어긋나도(한글 자판 OEM 키) 실제 입력 문자로 잡는다.
     expect(
       lyricsNudgeFor(LogicalKeyboardKey.f19, character: '.'),
@@ -270,6 +262,9 @@ void main() {
       -lyricsNudgeStepMs,
     );
     expect(lyricsNudgeFor(LogicalKeyboardKey.f19, character: 'a'), isNull);
+    // v3.10.0: [·]는 리셋·싱크 대기로 역할이 바뀌어 밀당에서 빠졌다.
+    expect(lyricsNudgeFor(LogicalKeyboardKey.bracketLeft), isNull);
+    expect(lyricsNudgeFor(LogicalKeyboardKey.bracketRight), isNull);
   });
 
   testWidgets('O/P는 이전/다음 줄', (tester) async {
@@ -295,13 +290,17 @@ void main() {
     expect(lineSteps, [-1, 1]);
   });
 
-  testWidgets('[와 ]로도 싱크를 밀고 당길 수 있다', (tester) async {
+  testWidgets('[는 싱크 리셋, ]는 싱크 대기 토글', (tester) async {
     await pump(tester);
     await tester.sendKeyEvent(LogicalKeyboardKey.bracketLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.bracketRight);
+    await tester.sendKeyEvent(LogicalKeyboardKey.bracketRight);
     await tester.pump();
 
-    expect(nudges, [lyricsNudgeStepMs, -lyricsNudgeStepMs]);
+    expect(resetCalls, 1);
+    expect(holdToggles, 2);
+    // 밀당(0.2초)으로는 더 이상 안 간다
+    expect(nudges, isEmpty);
   });
 
 
@@ -324,19 +323,17 @@ void main() {
   });
 
   test('물리 키(자판 위치)만으로도 판정된다 — 논리 키·문자가 다 어긋난 경우', () {
-    // 실사용 보고: [·]가 아예 안 먹음 — 논리 키도 문자도 기대와 다르게
-    // 오는 환경(IME/자판)의 최후 안전망.
     expect(
       lyricsNudgeFor(
         LogicalKeyboardKey.f19,
-        physicalKey: PhysicalKeyboardKey.bracketLeft,
+        physicalKey: PhysicalKeyboardKey.period,
       ),
       lyricsNudgeStepMs,
     );
     expect(
       lyricsNudgeFor(
         LogicalKeyboardKey.f19,
-        physicalKey: PhysicalKeyboardKey.bracketRight,
+        physicalKey: PhysicalKeyboardKey.slash,
       ),
       -lyricsNudgeStepMs,
     );

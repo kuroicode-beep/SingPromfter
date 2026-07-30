@@ -135,9 +135,8 @@ class _SongListScreenState extends State<SongListScreen> {
     resetLyricsSync: _resetLyricsSync,
     anchorFirstLine: _anchorFirstLine,
     nudgeLyricsOffset: _adjustLyricsOffset,
-    nudgeLyricsOffsetLine: (dir) =>
-        _app.adjustLyricsOffsetByLine(delay: dir > 0),
     nudgeLyricsFromCurrentLine: _app.adjustLyricsFromCurrentLine,
+    toggleLyricsHold: _app.toggleLyricsHold,
     toggleSyncLock: _app.toggleSyncLock,
     stepLine: _playback.stepLine,
     editLyricsLine: _editLyricsLine,

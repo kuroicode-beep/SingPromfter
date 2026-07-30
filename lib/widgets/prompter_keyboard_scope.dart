@@ -28,21 +28,15 @@ int? lyricsNudgeFor(
   // 3) **실제 입력 문자** — Windows 한글 자판에서 OEM 문장부호 키의 논리 키
   //    매핑이 어긋나는 일이 있다(글자 키 T·E·R은 되는데 .·/만 안 먹는
   //    실사용 보고의 원인으로 추정). 문자는 배열과 무관하게 온다.
-  // 4) **물리 키(자판 위치)** — 논리 키도 문자도 안 온 실사용 보고([·])의
-  //    최후 안전망. IME·배열이 뭐라 하든 스캔코드 위치는 변하지 않는다.
-  // [·]는 같은 기능의 예비 키다 — 어느 쪽이든 손에 맞는 걸 쓰면 된다.
-  const delayKeys = ['.', '>', '[', '{'];
-  const advanceKeys = ['/', '?', ']', '}'];
-  if (key == LogicalKeyboardKey.period ||
-      key == LogicalKeyboardKey.greater ||
-      key == LogicalKeyboardKey.bracketLeft ||
-      key == LogicalKeyboardKey.braceLeft) {
+  // 4) **물리 키(자판 위치)** — 최후 안전망. IME·배열이 뭐라 하든
+  //    스캔코드 위치는 변하지 않는다.
+  // v3.10.0: [·]는 리셋·싱크 대기로 역할이 바뀌어 여기서 빠졌다.
+  const delayKeys = ['.', '>'];
+  const advanceKeys = ['/', '?'];
+  if (key == LogicalKeyboardKey.period || key == LogicalKeyboardKey.greater) {
     return lyricsNudgeStepMs;
   }
-  if (key == LogicalKeyboardKey.slash ||
-      key == LogicalKeyboardKey.question ||
-      key == LogicalKeyboardKey.bracketRight ||
-      key == LogicalKeyboardKey.braceRight) {
+  if (key == LogicalKeyboardKey.slash || key == LogicalKeyboardKey.question) {
     return -lyricsNudgeStepMs;
   }
   final ch = character;
@@ -50,16 +44,28 @@ int? lyricsNudgeFor(
     if (delayKeys.contains(ch)) return lyricsNudgeStepMs;
     if (advanceKeys.contains(ch)) return -lyricsNudgeStepMs;
   }
-  if (physicalKey == PhysicalKeyboardKey.period ||
-      physicalKey == PhysicalKeyboardKey.bracketLeft) {
-    return lyricsNudgeStepMs;
-  }
-  if (physicalKey == PhysicalKeyboardKey.slash ||
-      physicalKey == PhysicalKeyboardKey.bracketRight) {
-    return -lyricsNudgeStepMs;
-  }
+  if (physicalKey == PhysicalKeyboardKey.period) return lyricsNudgeStepMs;
+  if (physicalKey == PhysicalKeyboardKey.slash) return -lyricsNudgeStepMs;
   return null;
 }
+
+/// Ctrl+←/→의 굵은 걸음(ms).
+const int lyricsNudgeStepLargeMs = 1000;
+
+/// `[` = 싱크 리셋, `]` = 싱크 대기 — 논리 키·문자·물리 키 3겹 판정.
+bool isSyncResetKey(KeyEvent event) =>
+    event.logicalKey == LogicalKeyboardKey.bracketLeft ||
+    event.logicalKey == LogicalKeyboardKey.braceLeft ||
+    event.character == '[' ||
+    event.character == '{' ||
+    event.physicalKey == PhysicalKeyboardKey.bracketLeft;
+
+bool isSyncHoldKey(KeyEvent event) =>
+    event.logicalKey == LogicalKeyboardKey.bracketRight ||
+    event.logicalKey == LogicalKeyboardKey.braceRight ||
+    event.character == ']' ||
+    event.character == '}' ||
+    event.physicalKey == PhysicalKeyboardKey.bracketRight;
 
 /// O=이전 줄(-1), P=다음 줄(+1). 해당 키가 아니면 null. (순수 함수 — 테스트 대상)
 ///
@@ -99,13 +105,13 @@ class PrompterActions {
   final VoidCallback? anchorFirstLine;
   final ValueChanged<int>? nudgeLyricsOffset;
 
-  /// 한 줄 간격만큼 싱크 이동(Ctrl+←/→). +1=늦춤, -1=앞당김 —
-  /// [nudgeLyricsOffset]과 같은 부호 규약.
-  final ValueChanged<int>? nudgeLyricsOffsetLine;
-
   /// 현재 줄부터 아래만 밀기(Alt+←/→, ms). LRC 타임스탬프를 직접 고친다 —
   /// 위 줄은 그대로 두는 부분 보정. 부호 규약은 [nudgeLyricsOffset]과 같다.
   final ValueChanged<int>? nudgeLyricsFromCurrentLine;
+
+  /// 싱크 대기 토글(]). 가사를 멈춰 뒀다가, 다시 누르면 기다린 시간만큼
+  /// 늦춰서 이어간다.
+  final VoidCallback? toggleLyricsHold;
 
   /// 싱크 잠금 토글(L). 잠그면 싱크 조절 동작 전부가 거부된다.
   final VoidCallback? toggleSyncLock;
@@ -121,8 +127,8 @@ class PrompterActions {
     this.resetLyricsSync,
     this.anchorFirstLine,
     this.nudgeLyricsOffset,
-    this.nudgeLyricsOffsetLine,
     this.nudgeLyricsFromCurrentLine,
+    this.toggleLyricsHold,
     this.toggleSyncLock,
     this.stepLine,
     this.editLyricsLine,
@@ -317,11 +323,11 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
           return KeyEventResult.handled;
         }
       }
-      // Ctrl+←/→ = 한 줄 간격만큼 싱크 이동 (0.2초 걸음보다 굵은 조절).
+      // Ctrl+←/→ = 1초 걸음 (0.2초보다 굵은 조절).
       if (ctrl) {
-        final lineCb = widget.actions?.nudgeLyricsOffsetLine;
-        if (lineCb != null) {
-          lineCb(back ? 1 : -1);
+        final nudgeCb = widget.actions?.nudgeLyricsOffset;
+        if (nudgeCb != null) {
+          nudgeCb(back ? lyricsNudgeStepLargeMs : -lyricsNudgeStepLargeMs);
           return KeyEventResult.handled;
         }
       } else if (shift) {
@@ -393,6 +399,18 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             event.physicalKey == PhysicalKeyboardKey.keyL) &&
         widget.actions?.toggleSyncLock != null) {
       widget.actions!.toggleSyncLock!();
+      return KeyEventResult.handled;
+    }
+
+    // [ = 싱크 리셋(처음 세팅, T와 같음). 반복 없이 최초 눌림만.
+    if (isSyncResetKey(event) && widget.actions?.resetLyricsSync != null) {
+      widget.actions!.resetLyricsSync!();
+      return KeyEventResult.handled;
+    }
+
+    // ] = 싱크 대기 토글 — 가사를 멈췄다가 나올 타이밍에 다시 누른다.
+    if (isSyncHoldKey(event) && widget.actions?.toggleLyricsHold != null) {
+      widget.actions!.toggleLyricsHold!();
       return KeyEventResult.handled;
     }
 
@@ -476,9 +494,13 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       // 없으면 예전처럼 5초 이동으로.
       if (widget.actions?.nudgeLyricsOffset != null) ...{
         const SingleActivator(LogicalKeyboardKey.arrowLeft):
-            const _NudgeLyricsIntent(delay: true),
+            const _NudgeLyricsIntent(lyricsNudgeStepMs),
         const SingleActivator(LogicalKeyboardKey.arrowRight):
-            const _NudgeLyricsIntent(delay: false),
+            const _NudgeLyricsIntent(-lyricsNudgeStepMs),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true):
+            const _NudgeLyricsIntent(lyricsNudgeStepLargeMs),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, control: true):
+            const _NudgeLyricsIntent(-lyricsNudgeStepLargeMs),
       } else if (widget.actions?.seekRelative != null) ...{
         const SingleActivator(LogicalKeyboardKey.arrowLeft):
             const _SeekBackIntent(),
@@ -490,12 +512,6 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             const _SeekBackIntent(large: true),
         const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true):
             const _SeekForwardIntent(large: true),
-      },
-      if (widget.actions?.nudgeLyricsOffsetLine != null) ...{
-        const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true):
-            const _NudgeLineIntent(delay: true),
-        const SingleActivator(LogicalKeyboardKey.arrowRight, control: true):
-            const _NudgeLineIntent(delay: false),
       },
       if (widget.actions?.nudgeLyricsFromCurrentLine != null) ...{
         const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
@@ -552,17 +568,7 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         _NudgeLyricsIntent: CallbackAction<_NudgeLyricsIntent>(
           onInvoke: (intent) {
             if (SongListShortcutService.isTextInputFocused()) return null;
-            widget.actions!.nudgeLyricsOffset!(
-              intent.delay ? lyricsNudgeStepMs : -lyricsNudgeStepMs,
-            );
-            return null;
-          },
-        ),
-      if (widget.actions?.nudgeLyricsOffsetLine != null)
-        _NudgeLineIntent: CallbackAction<_NudgeLineIntent>(
-          onInvoke: (intent) {
-            if (SongListShortcutService.isTextInputFocused()) return null;
-            widget.actions!.nudgeLyricsOffsetLine!(intent.delay ? 1 : -1);
+            widget.actions!.nudgeLyricsOffset!(intent.stepMs);
             return null;
           },
         ),
@@ -665,16 +671,10 @@ class _StepLineIntent extends Intent {
   const _StepLineIntent(this.step);
 }
 
-/// ←/→ 싱크 조절. delay=true면 늦춤(+), false면 앞당김(−).
+/// ←/→(0.2초)·Ctrl+←/→(1초) 싱크 조절. 양수=늦춤, 음수=앞당김.
 class _NudgeLyricsIntent extends Intent {
-  final bool delay;
-  const _NudgeLyricsIntent({required this.delay});
-}
-
-/// Ctrl+←/→ 한 줄 간격 싱크 조절. delay 규약은 [_NudgeLyricsIntent]와 같다.
-class _NudgeLineIntent extends Intent {
-  final bool delay;
-  const _NudgeLineIntent({required this.delay});
+  final int stepMs;
+  const _NudgeLyricsIntent(this.stepMs);
 }
 
 /// Alt+←/→ 현재 줄부터 아래만 밀기. delay 규약은 [_NudgeLyricsIntent]와 같다.

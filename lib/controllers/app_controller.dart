@@ -836,27 +836,42 @@ class AppController extends ChangeNotifier {
     _emit('가사 싱크 $dir — ${_formatOffsetLabel(applied)}$limit');
   }
 
-  /// 싱크를 한 줄 간격만큼 민다 — Ctrl+←(늦춤)/Ctrl+→(앞당김).
-  /// 이동량은 현재 줄과 이웃 줄의 실제 시간 차라 곡마다 다르다.
-  Future<void> adjustLyricsOffsetByLine({required bool delay}) async {
+  /// 싱크 대기(]) 토글 — 가사를 멈춰 두고 기다렸다가, 다시 누르면
+  /// **기다린 시간만큼 늦춰서** 그 자리부터 이어간다. 이 판본의 간주가
+  /// 원곡보다 길 때 가사가 먼저 달아나는 것을 사람 타이밍으로 잡는 도구.
+  Future<void> toggleLyricsHold() async {
     if (_syncLockBlocked()) return;
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    if (_lyricsHoldStart == null) {
+      _lyricsHoldStart = playback.position.value;
+      _lyricsHoldSongId = song.id;
+      playback.lyricsHold.value = true;
+      _emit('싱크 대기 — 가사가 멈췄습니다. 나올 타이밍에 ]를 다시 누르세요');
+      return;
+    }
+    final heldMs =
+        (playback.position.value - _lyricsHoldStart!).inMilliseconds;
+    final sameSong = _lyricsHoldSongId == song.id;
+    _lyricsHoldStart = null;
+    _lyricsHoldSongId = null;
+    playback.lyricsHold.value = false;
     final track = _selectedTrack();
-    if (track == null) {
-      _emit('먼저 곡과 반주를 선택해 주세요.');
+    if (!sameSong || heldMs <= 0 || track == null) {
+      playback.refreshLineIndex();
+      _emit('싱크 재개');
       return;
     }
-    final gap = playback.currentLineGapMs(towardPrevious: delay);
-    if (gap == null || gap <= 0) {
-      _emit('싱크 가사가 있어야 줄 단위로 밀 수 있습니다.');
-      return;
-    }
-    final requested = track.lyricsOffsetMs + (delay ? gap : -gap);
-    final applied = await _writeLyricsOffset(requested);
-    final dir = delay ? '늦춤' : '앞당김';
-    final gapLabel = (gap / 1000).toStringAsFixed(1);
-    final limit = applied == requested ? '' : ' · 한계값';
-    _emit('가사 싱크 한 줄 $dir ($gapLabel초) — ${_formatOffsetLabel(applied)}$limit');
+    final applied = await _writeLyricsOffset(track.lyricsOffsetMs + heldMs);
+    final heldLabel = (heldMs / 1000).toStringAsFixed(1);
+    _emit('싱크 재개 — $heldLabel초 늦춤 반영 (${_formatOffsetLabel(applied)})');
   }
+
+  Duration? _lyricsHoldStart;
+  String? _lyricsHoldSongId;
 
   /// **현재 줄부터 아래만** [deltaMs]만큼 민다 — Alt+←(늦춤)/Alt+→(앞당김).
   ///
@@ -934,6 +949,9 @@ class AppController extends ChangeNotifier {
       _emit('바로 위 줄과 겹쳐서 더 당길 수 없습니다.');
       return;
     }
+    // 첫 파괴적 편집 전에 원본을 남긴다(있으면 안 덮음) — 재타이밍과 같은
+    // 예의. 백업이 없어 "리셋"이 불가능했던 실사용 사고의 재발 방지.
+    await lyricsSync.backupLrc(song);
     final saved = await lyricsSync.save(song, result.lrc);
     if (saved == null) return;
     await replaceSongInList(saved);

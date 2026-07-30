@@ -137,6 +137,10 @@ class PlaybackController {
   /// 사용자가 가사 자동 진행을 잠시 멈춘 상태. (전체화면의 자동 스크롤 토글)
   final ValueNotifier<bool> autoScrollPaused = ValueNotifier(false);
 
+  /// 싱크 대기(]) — 켜져 있는 동안 줄 진행이 얼어붙는다. 재생은 계속되고,
+  /// 해제할 때 기다린 시간이 오프셋으로 흡수된다(AppController 소관).
+  final ValueNotifier<bool> lyricsHold = ValueNotifier(false);
+
   /// 현재 곡의 싱크 가사. 없으면 null이고 timed 모드는 추정으로 되돌아간다.
   final ValueNotifier<TimedLyrics?> timedLyrics = ValueNotifier(null);
 
@@ -208,6 +212,7 @@ class PlaybackController {
     position.dispose();
     lineIndex.dispose();
     autoScrollPaused.dispose();
+    lyricsHold.dispose();
     timedLyrics.dispose();
     trackLevels.dispose();
   }
@@ -293,6 +298,8 @@ class PlaybackController {
   /// 추정**. 이전에는 `displayMode == timed`까지 만족해야 LRC를 썼는데,
   /// 전체화면에서는 그 모드에 도달할 수 없어 싱크가 무시됐다.
   void _recomputeLineIndex(Duration current) {
+    // 싱크 대기 중에는 줄이 움직이지 않는다 — 해제 때 오프셋이 흡수한다.
+    if (lyricsHold.value) return;
     final song = state.value.song;
     if (song == null) return;
 
@@ -550,14 +557,6 @@ class PlaybackController {
     return i;
   }
 
-  /// 현재 줄 기준 한 줄 간격(ms) — Ctrl+←/→ 줄 단위 싱크 이동용.
-  /// 싱크 가사가 없거나 줄이 부족하면 null.
-  int? currentLineGapMs({required bool towardPrevious}) {
-    final synced = timedLyrics.value;
-    if (synced == null) return null;
-    return synced.lineGapMsAt(lineIndex.value, towardPrevious: towardPrevious);
-  }
-
   // ── 연습 세션 집계 ────────────────────────────────────────
 
   void _accumulatePractice() {
@@ -619,6 +618,8 @@ class PlaybackController {
     _clock.reset();
     position.value = Duration.zero;
     lineIndex.value = 0;
+    // 곡이 바뀌면 싱크 대기는 무의미하다 — 얼어붙은 채 남지 않게 푼다.
+    lyricsHold.value = false;
     _update(
       state.value.copyWith(
         song: song,

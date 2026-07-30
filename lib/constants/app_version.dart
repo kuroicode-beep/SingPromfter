@@ -12,9 +12,23 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.9.1';
+  static const String current = '3.10.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.10.0',
+      '2026-07-31',
+      '싱크 단축키 개편(사용자 설계) — [=리셋(T와 같음), ]=싱크 대기 토글'
+          '(가사를 멈췄다가 나올 타이밍에 다시 누르면 기다린 시간만큼 늦춰 '
+          '이어감), ←/→=0.2초, Ctrl+←/→=1초(한 줄 간격 방식 폐지), '
+          'Alt+←/→=부분 보정, L=잠금',
+    ),
+    AppVersionEntry(
+      '3.9.2',
+      '2026-07-31',
+      '부분 보정(Alt)이 첫 편집 전에 LRC 원본을 .bak으로 백업 — 백업이 '
+          '없어 타이밍을 되돌릴 수 없던 사고 재발 방지(자동 정렬과 같은 예의)',
+    ),
     AppVersionEntry(
       '3.9.1',
       '2026-07-31',
