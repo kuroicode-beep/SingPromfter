@@ -804,12 +804,13 @@ class AppController extends ChangeNotifier {
       _emit('먼저 곡과 반주를 선택해 주세요.');
       return;
     }
-    final next = track.lyricsOffsetMs + deltaMs;
-    await _writeLyricsOffset(next);
+    final requested = track.lyricsOffsetMs + deltaMs;
+    final applied = await _writeLyricsOffset(requested);
     // 0.2초 이동은 눈으로 못 느낀다 — 표시가 없으면 "단축키가 안 먹는다"로
-    // 보인다(실사용 보고). 방향과 누적값을 매번 알려 준다.
+    // 보인다(실사용 보고). 방향과 **실제 적용된** 누적값을 매번 알려 준다.
     final dir = deltaMs > 0 ? '늦춤' : '앞당김';
-    _emit('가사 싱크 $dir — ${_formatOffsetLabel(next)}');
+    final limit = applied == requested ? '' : ' · 한계값';
+    _emit('가사 싱크 $dir — ${_formatOffsetLabel(applied)}$limit');
   }
 
   /// 싱크를 한 줄 간격만큼 민다 — Ctrl+←(늦춤)/Ctrl+→(앞당김).
@@ -825,11 +826,12 @@ class AppController extends ChangeNotifier {
       _emit('싱크 가사가 있어야 줄 단위로 밀 수 있습니다.');
       return;
     }
-    final next = track.lyricsOffsetMs + (delay ? gap : -gap);
-    await _writeLyricsOffset(next);
+    final requested = track.lyricsOffsetMs + (delay ? gap : -gap);
+    final applied = await _writeLyricsOffset(requested);
     final dir = delay ? '늦춤' : '앞당김';
     final gapLabel = (gap / 1000).toStringAsFixed(1);
-    _emit('가사 싱크 한 줄 $dir ($gapLabel초) — ${_formatOffsetLabel(next)}');
+    final limit = applied == requested ? '' : ' · 한계값';
+    _emit('가사 싱크 한 줄 $dir ($gapLabel초) — ${_formatOffsetLabel(applied)}$limit');
   }
 
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
@@ -889,16 +891,18 @@ class AppController extends ChangeNotifier {
     return song.trackForSlot(slot);
   }
 
-  Future<void> _writeLyricsOffset(int offsetMs) async {
+  /// 실제로 적용된(한계로 잘린) 값을 돌려준다 — 호출자가 요청값과 비교해
+  /// 한계 도달을 사용자에게 알릴 수 있게. 선택이 없으면 입력을 그대로 반환.
+  Future<int> _writeLyricsOffset(int offsetMs) async {
     final snapshotSong = selectedSong;
     final slot = selectedTrackSlot;
-    if (snapshotSong == null || slot == null) return;
+    if (snapshotSong == null || slot == null) return offsetMs;
     final song = songs.firstWhere(
       (s) => s.id == snapshotSong.id,
       orElse: () => snapshotSong,
     );
     final track = song.trackForSlot(slot);
-    if (track == null) return;
+    if (track == null) return offsetMs;
 
     final next = offsetMs.clamp(
       -AppConstants.maxLyricsOffsetMs,
@@ -908,6 +912,7 @@ class AppController extends ChangeNotifier {
     // 맞춰 둔 싱크가 유지된다. 노래방(4번)은 다른 녹음이라 자기 값만 갖는다.
     await replaceSongInList(song.withLyricsOffsetForSlot(slot, next));
     playback.applyLyricsOffset(next);
+    return next;
   }
 
   // ── EQ 레벨 ─────────────────────────────────────────────

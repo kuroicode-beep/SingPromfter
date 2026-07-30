@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.7.0';
+  static const String current = '3.7.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.7.1',
+      '2026-07-31',
+      '싱크 조절이 조용히 멎던 원인 수정 — 오프셋 한계 ±10초에 닿으면 '
+          '이후 입력이 소리 없이 무시됐다(실측: 노래방 트랙 −10초 포화). '
+          '한계를 ±60초로 확장(다른 녹음은 인트로 차가 큼), 한계 도달 시 '
+          '"한계값" 표시, 스낵에 실제 적용값 표시',
+    ),
     AppVersionEntry(
       '3.7.0',
       '2026-07-31',
