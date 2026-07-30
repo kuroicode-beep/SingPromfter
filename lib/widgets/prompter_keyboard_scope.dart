@@ -52,6 +52,14 @@ class PrompterKeyboardScope extends StatefulWidget {
 
   final bool enablePlaybackShortcuts;
 
+  /// 이 범위의 단축키 전체를 켜고 끈다.
+  ///
+  /// 이 위젯은 화면 전체를 감싸므로, 끄지 않으면 곡 검색·설정 같은
+  /// **다른 탭에서도** 단축키가 먹는다 — 검색 결과를 훑다가 R을 눌러
+  /// 녹음이 시작되는 식. 단축키는 메인(홈·즐겨찾기)과 전체화면 무대에서만
+  /// 살아 있어야 한다. 호출부가 현재 탭으로 판단해 넘긴다.
+  final bool enabled;
+
   const PrompterKeyboardScope({
     super.key,
     required this.child,
@@ -67,6 +75,7 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onAnchorFirstLine,
     this.onNudgeLyricsOffset,
     this.enablePlaybackShortcuts = true,
+    this.enabled = true,
   });
 
   @override
@@ -83,6 +92,16 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
   }
 
   @override
+  void didUpdateWidget(covariant PrompterKeyboardScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 다른 탭에 갔다가 돌아오면(비활성 → 활성) 포커스를 되찾아
+    // 단축키가 바로 살아나게 한다.
+    if (widget.enabled && !oldWidget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _requestScopeFocus());
+    }
+  }
+
+  @override
   void dispose() {
     _focusNode.dispose();
     super.dispose();
@@ -90,11 +109,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
 
   void _requestScopeFocus() {
     if (!mounted) return;
+    if (!widget.enabled) return;
     if (SongListShortcutService.isTextInputFocused()) return;
     _focusNode.requestFocus();
   }
 
   KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    // 꺼진 탭에서는 아무 키도 삼키지 않는다 — 그 탭의 위젯(목록 이동 등)이
+    // 키를 정상적으로 받아야 한다.
+    if (!widget.enabled) return KeyEventResult.ignored;
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (SongListShortcutService.isTextInputFocused()) {
       return KeyEventResult.ignored;
@@ -167,6 +190,10 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
 
   @override
   Widget build(BuildContext context) {
+    // 꺼진 탭에서는 단축키 층(Shortcuts·Actions·Focus)을 통째로 뺀다.
+    // _onKeyEvent만 막으면 Shortcuts 맵(화살표·Home/End)이 여전히 먹는다 —
+    // 실제로 그 경로로 새서 잡은 버그다.
+    if (!widget.enabled) return widget.child;
     return Shortcuts(
       shortcuts: _shortcutMap,
       child: Actions(

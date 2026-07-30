@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.13.0';
+  static const String current = '2.13.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.13.1',
+      '2026-07-30',
+      '재생·녹음·싱크 단축키가 곡 검색·설정 등 다른 탭에서도 먹던 문제 — '
+          '이제 홈·즐겨찾기·전체화면에서만 동작',
+    ),
     AppVersionEntry(
       '2.13.0',
       '2026-07-30',

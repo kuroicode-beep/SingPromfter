@@ -24,11 +24,13 @@ void main() {
     WidgetTester tester, {
     bool withJumps = true,
     bool withSync = true,
+    bool enabled = true,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: PrompterKeyboardScope(
+            enabled: enabled,
             settings: const PrompterSettings(),
             onSettingsChanged: (_) {},
             onJumpToStart: withJumps ? () => startCalls++ : null,
@@ -143,5 +145,37 @@ void main() {
     expect(lyricsNudgeFor(LogicalKeyboardKey.slash), lyricsNudgeStepMs);
     expect(lyricsNudgeFor(LogicalKeyboardKey.comma), isNull);
     expect(lyricsNudgeFor(LogicalKeyboardKey.keyT), isNull);
+  });
+
+  // 이 범위는 화면 전체를 감싼다 — 끄지 않으면 곡 검색·설정 같은 다른 탭에서도
+  // 단축키가 먹는다(검색 결과를 훑다가 R로 녹음이 시작되는 사고).
+  testWidgets('꺼진 범위에서는 어떤 단축키도 먹지 않는다', (tester) async {
+    await pump(tester, enabled: false);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.sendKeyEvent(LogicalKeyboardKey.period);
+    await tester.sendKeyEvent(LogicalKeyboardKey.slash);
+    await tester.sendKeyEvent(LogicalKeyboardKey.home);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    expect(anchorCalls, 0);
+    expect(nudges, isEmpty);
+    expect(startCalls, 0);
+    expect(seeks, isEmpty);
+  });
+
+  testWidgets('다시 켜지면(탭 복귀) 포커스를 되찾아 단축키가 살아난다', (tester) async {
+    await pump(tester, enabled: false);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+    expect(anchorCalls, 0);
+
+    await pump(tester, enabled: true);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+
+    expect(anchorCalls, 1);
   });
 }

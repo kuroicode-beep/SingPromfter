@@ -1046,6 +1046,11 @@ class _SongListScreenState extends State<SongListScreen> {
   Widget build(BuildContext context) {
     final snapshot = _playback.snapshot;
     return PrompterKeyboardScope(
+      // 재생·녹음·싱크 단축키는 재생 화면이 보이는 탭(홈·즐겨찾기)에서만.
+      // 곡 검색·설정 등 다른 탭에서 R·T·Space가 먹으면 사고다.
+      // 전체화면 무대는 자기 PrompterKeyboardScope를 따로 가진다.
+      enabled: _destination == AppDestination.home ||
+          _destination == AppDestination.favorites,
       settings: _settings,
       onSettingsChanged: _updateSettings,
       onTogglePlayPause: _togglePlayPause,
