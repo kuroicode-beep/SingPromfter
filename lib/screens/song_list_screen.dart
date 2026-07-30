@@ -618,6 +618,44 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 재생 중에 "지금이 첫 줄" — 사람이 직접 싱크를 맞추는 입구(단축키 T).
   Future<void> _anchorFirstLine() => _app.anchorLyricsToCurrentPosition();
 
+  /// AI 받아쓰기 — 이미 싱크 가사가 있으면 덮어쓰기 확인을 거친다.
+  Future<void> _generateSttLyrics() async {
+    final song = _selectedSong;
+    if (song == null) {
+      _showSnack('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    if ((song.lrcFileName ?? '').isNotEmpty) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('싱크 가사 덮어쓰기'),
+          content: const Text(
+            '이 곡에는 이미 싱크 가사가 있습니다. AI 받아쓰기로 새로 만들어 '
+            '덮어쓸까요? 기존 가사는 사라집니다.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('덮어쓰기'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+    await _app.generateSttLyrics(songId: song.id);
+  }
+
+  Future<void> _editLyricsLine(int index, String text) async {
+    final ok = await _app.editLyricsLine(index: index, text: text);
+    if (!ok && mounted) _showSnack('그 줄을 고치지 못했습니다.');
+  }
+
   Future<void> _adjustLyricsOffset(int deltaMs) =>
       _app.adjustLyricsOffset(deltaMs);
 
@@ -1130,6 +1168,8 @@ class _SongListScreenState extends State<SongListScreen> {
         onAdjustLyricsOffset: _adjustLyricsOffset,
         onAutoAlignLyrics: _autoAlignLyrics,
         onAnchorFirstLine: _anchorFirstLine,
+        onSttLyrics: _generateSttLyrics,
+        onEditLyricsLine: _editLyricsLine,
         pitchSemitones: _selectedSong == null
             ? 0
             : _settings.pitchForSong(_selectedSong!.id, _selectedTrackSlot),

@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.14.1';
+  static const String current = '2.15.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '2.15.0',
+      '2026-07-30',
+      '가사를 아무 데서도 못 구한 곡은 [받아쓰기 AI]로 — 로컬 STT가 노래를 '
+          '받아써 싱크 가사를 만든다 · 프롬프터에서 가사 줄을 길게 누르면 '
+          '그 자리에서 고칠 수 있다(받아쓰기 오탈자 교정용)',
+    ),
     AppVersionEntry(
       '2.14.1',
       '2026-07-30',

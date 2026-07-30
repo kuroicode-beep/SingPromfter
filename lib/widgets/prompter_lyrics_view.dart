@@ -46,6 +46,9 @@ class PrompterLyricsView extends StatefulWidget {
   /// 현재 줄을 한 글자씩 밝히는 렌더러. null이면 평범한 Text.
   final Widget Function(PrompterLine line, TextStyle style)? sweepBuilder;
 
+  /// 줄을 길게 눌러 텍스트를 고쳤을 때(목록 모드 전용). null이면 편집 불가.
+  final void Function(int index, String text)? onEditLine;
+
   const PrompterLyricsView({
     super.key,
     required this.lyricsText,
@@ -64,6 +67,7 @@ class PrompterLyricsView extends StatefulWidget {
     this.autoFollow = true,
     this.trackEnd,
     this.sweepBuilder,
+    this.onEditLine,
   });
 
   @override
@@ -115,6 +119,7 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
       onLineTap: widget.onLineTap,
       autoFollow: widget.autoFollow,
       sweepBuilder: widget.sweepBuilder,
+      onEditLine: widget.onEditLine,
       scrollController: widget.scrollController,
     );
   }

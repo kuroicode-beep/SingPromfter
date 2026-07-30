@@ -32,6 +32,10 @@ class PrompterLineListView extends StatefulWidget {
   /// 현재 줄을 한 글자씩 밝히는 렌더러. null이면 평범한 Text.
   final Widget Function(PrompterLine line, TextStyle style)? sweepBuilder;
 
+  /// 줄을 길게 눌러 텍스트를 고쳤을 때. null이면 편집 불가.
+  /// STT 받아쓰기의 오탈자를 재생을 멈추지 않고 그 자리에서 고치는 입구다.
+  final void Function(int index, String text)? onEditLine;
+
   final ScrollController? scrollController;
 
   const PrompterLineListView({
@@ -48,6 +52,7 @@ class PrompterLineListView extends StatefulWidget {
     this.onLineTap,
     this.autoFollow = true,
     this.sweepBuilder,
+    this.onEditLine,
     this.scrollController,
   });
 
@@ -57,6 +62,32 @@ class PrompterLineListView extends StatefulWidget {
 
 class _PrompterLineListViewState extends State<PrompterLineListView> {
   final _keys = <int, GlobalKey>{};
+
+  /// 지금 인라인 편집 중인 줄. TextField가 포커스를 가지는 동안에는
+  /// 키보드 단축키가 기존 텍스트 입력 가드로 자동으로 꺼진다.
+  int? _editingIndex;
+  final _editController = TextEditingController();
+
+  @override
+  void dispose() {
+    _editController.dispose();
+    super.dispose();
+  }
+
+  void _startEdit(int index, String text) {
+    _editController.text = text;
+    setState(() => _editingIndex = index);
+  }
+
+  void _commitEdit() {
+    final index = _editingIndex;
+    if (index == null) return;
+    final text = _editController.text.trim();
+    setState(() => _editingIndex = null);
+    if (text.isNotEmpty) widget.onEditLine?.call(index, text);
+  }
+
+  void _cancelEdit() => setState(() => _editingIndex = null);
 
   @override
   void didUpdateWidget(covariant PrompterLineListView oldWidget) {
@@ -109,24 +140,68 @@ class _PrompterLineListViewState extends State<PrompterLineListView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (var i = 0; i < lines.length; i++)
-            PrompterCurrentLine(
-              key: _keys.putIfAbsent(i, GlobalKey.new),
-              text: lines[i].text,
-              isCurrent: i == current,
-              fontSize: widget.fontSize,
-              mutedScale: listMutedScale,
-              lineHeight: widget.lineHeight,
-              fontFamily: widget.fontFamily,
-              boldText: widget.boldText,
-              mutedColor: widget.mutedColor,
-              margin: EdgeInsets.symmetric(vertical: widget.fontSize * 0.12),
-              sweepBuilder: widget.sweepBuilder == null
-                  ? null
-                  : (style) => widget.sweepBuilder!(lines[i], style),
-              onTap: widget.onLineTap == null
-                  ? null
-                  : () => widget.onLineTap!(i),
+            if (i == _editingIndex)
+              _buildEditor(i)
+            else
+              PrompterCurrentLine(
+                key: _keys.putIfAbsent(i, GlobalKey.new),
+                text: lines[i].text,
+                isCurrent: i == current,
+                fontSize: widget.fontSize,
+                mutedScale: listMutedScale,
+                lineHeight: widget.lineHeight,
+                fontFamily: widget.fontFamily,
+                boldText: widget.boldText,
+                mutedColor: widget.mutedColor,
+                margin: EdgeInsets.symmetric(vertical: widget.fontSize * 0.12),
+                sweepBuilder: widget.sweepBuilder == null
+                    ? null
+                    : (style) => widget.sweepBuilder!(lines[i], style),
+                onTap: widget.onLineTap == null
+                    ? null
+                    : () => widget.onLineTap!(i),
+                onLongPress: widget.onEditLine == null
+                    ? null
+                    : () => _startEdit(i, lines[i].text),
+              ),
+        ],
+      ),
+    );
+  }
+
+  /// 편집 중인 줄 — 같은 자리에서 입력한다. Enter=저장, [저장]/[취소] 버튼 병행.
+  Widget _buildEditor(int index) {
+    return Padding(
+      key: _keys.putIfAbsent(index, GlobalKey.new),
+      padding: EdgeInsets.symmetric(vertical: widget.fontSize * 0.12),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _editController,
+              autofocus: true,
+              style: TextStyle(
+                fontSize: widget.fontSize * 0.7,
+                color: widget.textColor,
+                fontFamily: widget.fontFamily,
+              ),
+              onSubmitted: (_) => _commitEdit(),
+              decoration: const InputDecoration(isDense: true),
             ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            icon: const Icon(Icons.check),
+            tooltip: '저장',
+            onPressed: _commitEdit,
+            constraints: const BoxConstraints(minWidth: 50, minHeight: 50),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '취소',
+            onPressed: _cancelEdit,
+            constraints: const BoxConstraints(minWidth: 50, minHeight: 50),
+          ),
         ],
       ),
     );

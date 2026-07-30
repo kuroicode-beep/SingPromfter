@@ -41,12 +41,15 @@ import '../services/prompter_audio_service.dart';
 import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
+import '../services/stt_lyrics_client.dart';
 import '../models/vocal_segments.dart';
 import '../services/vocal_segments_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
+import '../utils/lrc_edit.dart';
 import '../utils/lrc_retime.dart';
+import '../utils/lyrics_line_utils.dart';
 import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
@@ -115,6 +118,7 @@ class AppController extends ChangeNotifier {
     locator: toolLocator,
   );
   final VocalSeparationClient separation = VocalSeparationClient();
+  final SttLyricsClient sttLyrics = SttLyricsClient();
   late final PrompterAudioService audio = PrompterAudioService(repo);
   final ScrollController lyricsScrollController = ScrollController();
   late final ImportJobController importJobs;
@@ -175,6 +179,7 @@ class AppController extends ChangeNotifier {
     pendingPitch.dispose();
     pendingTempo.dispose();
     importJobs.dispose();
+    sttLyrics.close();
     playback.dispose();
     audio.dispose();
     lyricsScrollController.dispose();
@@ -461,6 +466,107 @@ class AppController extends ChangeNotifier {
       );
     }
     return updated;
+  }
+
+  /// 로컬 STT(faster-whisper)로 노래를 받아써 싱크 가사를 만든다 —
+  /// LRCLIB에 없는 곡의 마지막 수단. 받아쓰기라 오탈자가 있을 수 있고,
+  /// 그건 프롬프터에서 줄을 길게 눌러 고친다([editLyricsLine]).
+  Future<bool> generateSttLyrics({String? songId}) async {
+    final song = songId == null ? selectedSong : songById(songId);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return false;
+    }
+    // 보컬이 들어 있는 원곡(1번)을 우선한다 — MR을 받아쓰면 아무것도 없다.
+    final track =
+        song.trackForSlot(TrackVariant.original.preferredSlot) ??
+        song.backingTracks.firstOrNull;
+    if (track == null) {
+      _emit('받아쓸 음원이 없습니다. 먼저 반주를 등록해 주세요.');
+      return false;
+    }
+    final path = await repo.getBackingTrackPath(track.fileName);
+    if (path == null) {
+      _emit('음원 파일을 찾을 수 없습니다.');
+      return false;
+    }
+    if (!await sttLyrics.isOnline()) {
+      _emit('STT 서버가 꺼져 있습니다(포트 8769). 켜고 다시 시도해 주세요.');
+      return false;
+    }
+
+    _emit('AI 받아쓰기 중… 수십 초 걸립니다.');
+    final result = await sttLyrics.transcribe(path);
+    if (_disposed) return false;
+    if (!result.success) {
+      _emit(result.message ?? '받아쓰기에 실패했습니다.');
+      return false;
+    }
+
+    final isCurrent = selectedSong?.id == song.id;
+    final lrc = lrcFromSttSegments(
+      result.segments,
+      title: song.title,
+      artist: song.artist,
+      // 곡 길이 밖의 환청 가사를 걸러낸다(페이드아웃에서 지어내는 일이 있다).
+      duration: isCurrent && playback.snapshot.duration > Duration.zero
+          ? playback.snapshot.duration
+          : null,
+    );
+    final lineCount = result.segments.where((s) => s.text.isNotEmpty).length;
+    if (lineCount == 0) {
+      _emit('노래에서 가사를 알아듣지 못했습니다.');
+      return false;
+    }
+    final attached = await attachLrc(songId: song.id, content: lrc);
+    if (attached == null) {
+      _emit('받아쓴 가사를 붙이지 못했습니다.');
+      return false;
+    }
+    _emit('가사 $lineCount줄을 받아썼습니다. 틀린 줄은 가사를 길게 눌러 고칠 수 있습니다.');
+    return true;
+  }
+
+  /// 현재 곡의 표시 줄 [index]의 텍스트를 고친다 — 프롬프터 인라인 수정.
+  ///
+  /// 싱크 가사(LRC)가 있으면 타임스탬프는 그대로 두고 그 줄의 텍스트만
+  /// 바꾼다. 없으면 일반 가사 텍스트의 해당 줄을 바꾼다.
+  Future<bool> editLyricsLine({required int index, required String text}) async {
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) return false;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      _emit('빈 줄로는 바꿀 수 없습니다.');
+      return false;
+    }
+
+    final synced = playback.timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      final raw = await lyricsSync.rawFor(song);
+      if (raw == null) return false;
+      final next = replaceLrcLineText(
+        raw,
+        displayIndex: index,
+        newText: trimmed,
+      );
+      if (next == null) return false;
+      final saved = await lyricsSync.save(song, next);
+      if (saved == null) return false;
+      await replaceSongInList(saved);
+      playback.timedLyrics.value = await lyricsSync.loadFor(saved);
+      return true;
+    }
+
+    // 일반 가사 — 표시 줄(빈 줄 제외)을 원본 줄 번호로 되돌려 바꾼다.
+    final indexed = LyricsLineUtils.splitLinesIndexed(song.lyricsText);
+    if (index < 0 || index >= indexed.length) return false;
+    final sourceLines = song.lyricsText.split(RegExp(r'\r?\n'));
+    sourceLines[indexed[index].sourceIndex] = trimmed;
+    final updated = await updateSongFields(
+      song.id,
+      lyrics: sourceLines.join('\n'),
+    );
+    return updated != null;
   }
 
   /// LRCLIB에서 싱크 가사를 찾아 붙인다. [songId] 생략 시 현재 곡.

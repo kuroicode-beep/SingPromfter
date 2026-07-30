@@ -55,6 +55,9 @@ class PrompterBottomBar extends StatefulWidget {
 
   /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
   final VoidCallback? onAnchorFirstLine;
+
+  /// AI 받아쓰기(STT) — LRCLIB에 없는 곡의 싱크 가사를 만든다.
+  final VoidCallback? onSttLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -103,6 +106,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
     this.onAnchorFirstLine,
+    this.onSttLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.soundingKey,
@@ -284,6 +288,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   onAdjust: widget.onAdjustLyricsOffset,
                   onAutoAlign: widget.onAutoAlignLyrics,
                   onAnchorFirstLine: widget.onAnchorFirstLine,
+                  onSttLyrics: widget.onSttLyrics,
                 ),
               ],
             ),
@@ -309,6 +314,9 @@ class _SyncedLyricsRow extends StatelessWidget {
   /// 재생 중에 "지금이 첫 줄"을 지정한다. 사람이 직접 맞추는 입구.
   final VoidCallback? onAnchorFirstLine;
 
+  /// AI 받아쓰기 — 가사를 아무 데서도 못 구했을 때의 마지막 수단.
+  final VoidCallback? onSttLyrics;
+
   const _SyncedLyricsRow({
     required this.hasSyncedLyrics,
     required this.offsetMs,
@@ -317,6 +325,7 @@ class _SyncedLyricsRow extends StatelessWidget {
     required this.onAdjust,
     this.onAutoAlign,
     this.onAnchorFirstLine,
+    this.onSttLyrics,
   });
 
   /// 음수는 가사를 먼저 띄운다는 뜻이라 사용자 표현도 '먼저'로 쓴다.
@@ -357,6 +366,23 @@ class _SyncedLyricsRow extends StatelessWidget {
               ),
               child: const Text('.lrc 파일'),
             ),
+            if (onSttLyrics != null) ...[
+              const SizedBox(width: 8),
+              // 가사를 아무 데서도 못 구했을 때 — 노래를 AI가 받아써
+              // 싱크 가사를 만든다. 오탈자는 가사 줄을 길게 눌러 고친다.
+              OutlinedButton.icon(
+                onPressed: onSttLyrics,
+                icon: const Icon(Icons.hearing, size: 20),
+                label: const Text('받아쓰기 AI'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(130, AppConstants.minTouchTarget),
+                  side: const BorderSide(
+                    color: AppColors.borderStrong,
+                    width: 2,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 8),

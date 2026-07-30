@@ -47,6 +47,12 @@ class PrompterPanel extends StatelessWidget {
 
   /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
   final VoidCallback? onAnchorFirstLine;
+
+  /// AI 받아쓰기(STT)로 싱크 가사를 만든다. null이면 버튼을 감춘다.
+  final VoidCallback? onSttLyrics;
+
+  /// 가사 줄을 길게 눌러 고쳤을 때. null이면 편집 불가.
+  final void Function(int index, String text)? onEditLyricsLine;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -115,6 +121,8 @@ class PrompterPanel extends StatelessWidget {
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
     this.onAnchorFirstLine,
+    this.onSttLyrics,
+    this.onEditLyricsLine,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -236,6 +244,7 @@ class PrompterPanel extends StatelessWidget {
                           playback: playback,
                           enabled: settings.showSyllableSweep,
                         ),
+                        onEditLine: onEditLyricsLine,
                       ),
                     ),
                     // 키·템포를 굴리는 동안 가사 위에 크게 띄운다.
@@ -301,6 +310,7 @@ class PrompterPanel extends StatelessWidget {
             onAdjustLyricsOffset: onAdjustLyricsOffset,
             onAutoAlignLyrics: onAutoAlignLyrics,
             onAnchorFirstLine: onAnchorFirstLine,
+            onSttLyrics: onSttLyrics,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
             soundingKey: soundingKey,

@@ -86,6 +86,9 @@ class PrompterCurrentLine extends StatelessWidget {
 
   final VoidCallback? onTap;
 
+  /// 길게 눌렀을 때 — 프롬프터 인라인 가사 수정의 입구.
+  final VoidCallback? onLongPress;
+
   /// 현재 줄을 스윕으로 그릴 때 쓰는 대체 렌더러.
   /// null이면 평범한 Text. 스타일 인자는 [prompterLineStyle] 결과 그대로다.
   final Widget Function(TextStyle style)? sweepBuilder;
@@ -103,6 +106,7 @@ class PrompterCurrentLine extends StatelessWidget {
     this.margin = EdgeInsets.zero,
     this.fillWidth = true,
     this.onTap,
+    this.onLongPress,
     this.sweepBuilder,
   });
 
@@ -162,7 +166,7 @@ class PrompterCurrentLine extends StatelessWidget {
       selected: isCurrent,
       button: onTap != null,
       label: isCurrent ? '현재 줄: $text' : text,
-      child: InkWell(onTap: onTap, child: content),
+      child: InkWell(onTap: onTap, onLongPress: onLongPress, child: content),
     );
   }
 }
