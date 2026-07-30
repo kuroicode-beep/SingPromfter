@@ -14,6 +14,7 @@ void main() {
   late List<int> nudges;
   late List<int> lineSteps;
   late List<int> lineNudges;
+  late List<int> partialNudges;
   late int settingsChanges;
 
   setUp(() {
@@ -25,6 +26,7 @@ void main() {
     nudges = [];
     lineSteps = [];
     lineNudges = [];
+    partialNudges = [];
     settingsChanges = 0;
   });
 
@@ -49,6 +51,7 @@ void main() {
               resetLyricsSync: withSync ? () => resetCalls++ : null,
               nudgeLyricsOffset: withSync ? nudges.add : null,
               nudgeLyricsOffsetLine: withSync ? lineNudges.add : null,
+              nudgeLyricsFromCurrentLine: withSync ? partialNudges.add : null,
               stepLine: withStepLine ? lineSteps.add : null,
             ),
             onEditCurrentLine: withSync ? () => editCalls++ : null,
@@ -123,6 +126,20 @@ void main() {
     // 0.2초 걸음·시크는 건드리지 않는다
     expect(nudges, isEmpty);
     expect(seeks, isEmpty);
+  });
+
+  testWidgets('Alt+←/→는 현재 줄부터 아래만 민다', (tester) async {
+    await pump(tester);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pump();
+
+    expect(partialNudges, [lyricsNudgeStepMs, -lyricsNudgeStepMs]);
+    // 전체 오프셋·한 줄 간격 조절은 건드리지 않는다
+    expect(nudges, isEmpty);
+    expect(lineNudges, isEmpty);
   });
 
   testWidgets('Shift+→는 30초 앞으로', (tester) async {

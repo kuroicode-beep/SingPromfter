@@ -5,6 +5,41 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/utils/lrc_edit.dart';
 
 void main() {
+  group('shiftLrcFromLine — 현재 줄부터 아래만 밀기(Alt+←/→)', () {
+    const raw = '[ti:테스트]\n'
+        '[00:10.00]첫 줄\n'
+        '[00:14.00]둘째 줄\n'
+        '[00:19.00]셋째 줄';
+
+    test('기준 줄부터만 옮기고 위 줄·메타 태그는 그대로', () {
+      final next = shiftLrcFromLine(raw, displayIndex: 1, deltaMs: 200);
+      expect(next, contains('[ti:테스트]'));
+      expect(next, contains('[00:10.00]첫 줄'));
+      expect(next, contains('[00:14.20]둘째 줄'));
+      expect(next, contains('[00:19.20]셋째 줄'));
+    });
+
+    test('앞당김(음수)도 되고 0 밑으로는 내려가지 않는다', () {
+      final next = shiftLrcFromLine(raw, displayIndex: 0, deltaMs: -11000);
+      expect(next, contains('[00:00.00]첫 줄'));
+      expect(next, contains('[00:03.00]둘째 줄'));
+    });
+
+    test('후렴 반복(한 줄 다중 태그)은 시각 기준으로 각각 판정한다', () {
+      const chorus = '[00:10.00][00:30.00]후렴\n[00:20.00]중간 줄';
+      // 표시 시각순: 10(후렴)·20(중간)·30(후렴) — 20부터 밀면
+      // 같은 원문 줄이라도 10초 태그는 남고 30초 태그만 움직인다.
+      final next = shiftLrcFromLine(chorus, displayIndex: 1, deltaMs: 500);
+      expect(next, contains('[00:10.00][00:30.50]후렴'));
+      expect(next, contains('[00:20.50]중간 줄'));
+    });
+
+    test('없는 줄이면 null', () {
+      expect(shiftLrcFromLine(raw, displayIndex: 9, deltaMs: 200), isNull);
+      expect(shiftLrcFromLine(raw, displayIndex: -1, deltaMs: 200), isNull);
+    });
+  });
+
   group('lrcFromSttSegments', () {
     test('타임스탬프 형식과 메타 태그', () {
       final lrc = lrcFromSttSegments(

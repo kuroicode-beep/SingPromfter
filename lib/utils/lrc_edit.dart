@@ -59,6 +59,71 @@ String _formatTag(int ms) {
 final _timeTag = RegExp(r'^((?:\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+)(.*)$');
 final _firstTag = RegExp(r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]');
 
+/// 표시 줄 [displayIndex]부터(시각순) 이후의 **모든 타임스탬프**를
+/// [deltaMs]만큼 옮긴 LRC 원문을 돌려준다. 그 앞 줄들은 건드리지 않는다 —
+/// "밑에서 맞추면 위가 틀어지는" 전체 오프셋의 한계를 푸는 부분 보정.
+///
+/// 기준은 그 줄의 시각이다: 같은 시각 이후의 태그는 후렴 반복
+/// (한 줄에 태그 여러 개)까지 포함해 전부 함께 움직인다.
+/// 결과 시각이 음수면 0으로 자른다. 해당 줄이 없으면 null.
+String? shiftLrcFromLine(
+  String raw, {
+  required int displayIndex,
+  required int deltaMs,
+}) {
+  if (displayIndex < 0) return null;
+
+  // 파서(TimedLyrics)와 같은 규약으로 표시 줄 목록을 만든다:
+  // 본문 있는 줄의 타임태그 하나가 표시 줄 하나, 시각순 안정 정렬.
+  final lines = raw.split('\n');
+  final times = <int>[];
+  for (final line in lines) {
+    final match = _timeTag.firstMatch(line.trimRight());
+    if (match == null) continue;
+    if (match.group(2)!.trim().isEmpty) continue;
+    for (final tag in _firstTag.allMatches(match.group(1)!)) {
+      times.add(_tagToMs(tag));
+    }
+  }
+  if (displayIndex >= times.length) return null;
+  times.sort();
+  final thresholdMs = times[displayIndex];
+
+  String format(int ms) {
+    final clamped = ms < 0 ? 0 : ms;
+    final minutes = clamped ~/ 60000;
+    final seconds = (clamped % 60000) / 1000;
+    return '[${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toStringAsFixed(2).padLeft(5, '0')}]';
+  }
+
+  return lines
+      .map((line) {
+        final match = _timeTag.firstMatch(line.trimRight());
+        if (match == null) return line;
+        if (match.group(2)!.trim().isEmpty) return line;
+        return line.replaceAllMapped(_firstTag, (tag) {
+          final ms = _tagToMs(tag);
+          if (ms < thresholdMs) return tag.group(0)!;
+          return format(ms + deltaMs);
+        });
+      })
+      .join('\n');
+}
+
+/// 파서(LrcParser)와 같은 소수부 해석: 3자리=1/1000초, 그 외=×10.
+int _tagToMs(Match tag) {
+  final minutes = int.parse(tag.group(1)!);
+  final seconds = int.parse(tag.group(2)!);
+  final fracRaw = tag.group(3);
+  var millis = 0;
+  if (fracRaw != null && fracRaw.isNotEmpty) {
+    final value = int.parse(fracRaw);
+    millis = fracRaw.length == 3 ? value : value * 10;
+  }
+  return minutes * 60000 + seconds * 1000 + millis;
+}
+
 /// 표시 줄 [displayIndex]의 텍스트를 [newText]로 바꾼 LRC 원문을 돌려준다.
 ///
 /// 표시 줄 순서는 파서(TimedLyrics)와 같은 규약 — **시각순 정렬** 후의

@@ -523,6 +523,10 @@ class PlaybackController {
   Future<void> stepLine(int delta) =>
       seekToLine(lineIndex.value + delta);
 
+  /// 가사 타임스탬프가 바뀐 뒤(부분 보정 등) 현재 위치로 줄을 다시 잡는다.
+  /// 일시정지 중에는 다음 틱이 없어 이걸 부르지 않으면 화면이 안 바뀐다.
+  void refreshLineIndex() => _recomputeLineIndex(position.value);
+
   /// 현재 줄 기준 한 줄 간격(ms) — Ctrl+←/→ 줄 단위 싱크 이동용.
   /// 싱크 가사가 없거나 줄이 부족하면 null.
   int? currentLineGapMs({required bool towardPrevious}) {

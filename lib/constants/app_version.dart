@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.7.1';
+  static const String current = '3.8.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.8.0',
+      '2026-07-31',
+      'Alt+←/→ = 현재 줄부터 아래만 0.2초 늦추기/앞당기기 — 위 줄은 그대로 '
+          '두는 부분 싱크 보정. 전체 오프셋과 달리 LRC 타임스탬프 자체를 '
+          '고쳐 저장하므로 "밑에서 맞추면 위가 틀어지는" 문제가 없다',
+    ),
     AppVersionEntry(
       '3.7.1',
       '2026-07-31',

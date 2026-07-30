@@ -834,6 +834,41 @@ class AppController extends ChangeNotifier {
     _emit('가사 싱크 한 줄 $dir ($gapLabel초) — ${_formatOffsetLabel(applied)}$limit');
   }
 
+  /// **현재 줄부터 아래만** [deltaMs]만큼 민다 — Alt+←(늦춤)/Alt+→(앞당김).
+  ///
+  /// 전체 오프셋과 달리 LRC 타임스탬프 자체를 고쳐 저장한다. 위 줄들은
+  /// 그대로라 "밑에서 맞추면 위가 틀어지는" 문제가 없다. 같은 LRC를 쓰는
+  /// 슬롯 전부에 영향이 간다는 점은 전체 오프셋과 다르니 주의.
+  Future<bool> adjustLyricsFromCurrentLine(int deltaMs) async {
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return false;
+    }
+    final synced = playback.timedLyrics.value;
+    if (synced == null || synced.isEmpty) {
+      _emit('싱크 가사가 있어야 줄 단위 보정이 됩니다.');
+      return false;
+    }
+    final index = playback.lineIndex.value;
+    final raw = await lyricsSync.rawFor(song);
+    if (raw == null) {
+      _emit('가사 원문(LRC)을 읽지 못했습니다.');
+      return false;
+    }
+    final next = shiftLrcFromLine(raw, displayIndex: index, deltaMs: deltaMs);
+    if (next == null) return false;
+    final saved = await lyricsSync.save(song, next);
+    if (saved == null) return false;
+    await replaceSongInList(saved);
+    playback.timedLyrics.value = await lyricsSync.loadFor(saved);
+    playback.refreshLineIndex();
+    final dir = deltaMs > 0 ? '늦춤' : '앞당김';
+    final amount = (deltaMs.abs() / 1000).toStringAsFixed(1);
+    _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir — 위 줄은 그대로');
+    return true;
+  }
+
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
   /// `.`/`/`로 밀고 당기다 어긋났을 때 처음부터 다시 맞추는 리셋.
   Future<bool> resetLyricsOffset() async {

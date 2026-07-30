@@ -102,6 +102,10 @@ class PrompterActions {
   /// 한 줄 간격만큼 싱크 이동(Ctrl+←/→). +1=늦춤, -1=앞당김 —
   /// [nudgeLyricsOffset]과 같은 부호 규약.
   final ValueChanged<int>? nudgeLyricsOffsetLine;
+
+  /// 현재 줄부터 아래만 밀기(Alt+←/→, ms). LRC 타임스탬프를 직접 고친다 —
+  /// 위 줄은 그대로 두는 부분 보정. 부호 규약은 [nudgeLyricsOffset]과 같다.
+  final ValueChanged<int>? nudgeLyricsFromCurrentLine;
   final ValueChanged<int>? stepLine;
   final void Function(int index, String text)? editLyricsLine;
   final VoidCallback? jumpToStart;
@@ -115,6 +119,7 @@ class PrompterActions {
     this.anchorFirstLine,
     this.nudgeLyricsOffset,
     this.nudgeLyricsOffsetLine,
+    this.nudgeLyricsFromCurrentLine,
     this.stepLine,
     this.editLyricsLine,
     this.jumpToStart,
@@ -296,9 +301,18 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // Shift+←/→ = 30초 이동, Shift+↑/↓ = 볼륨. 꾹 누르면 연속(반복 수용).
     final shift = HardwareKeyboard.instance.isShiftPressed;
     final ctrl = HardwareKeyboard.instance.isControlPressed;
+    final alt = HardwareKeyboard.instance.isAltPressed;
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.arrowRight) {
       final back = key == LogicalKeyboardKey.arrowLeft;
+      // Alt+←/→ = 현재 줄부터 아래만 0.2초 밀기 (부분 보정 — 위는 그대로).
+      if (alt) {
+        final partialCb = widget.actions?.nudgeLyricsFromCurrentLine;
+        if (partialCb != null) {
+          partialCb(back ? lyricsNudgeStepMs : -lyricsNudgeStepMs);
+          return KeyEventResult.handled;
+        }
+      }
       // Ctrl+←/→ = 한 줄 간격만큼 싱크 이동 (0.2초 걸음보다 굵은 조절).
       if (ctrl) {
         final lineCb = widget.actions?.nudgeLyricsOffsetLine;
@@ -471,6 +485,12 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         const SingleActivator(LogicalKeyboardKey.arrowRight, control: true):
             const _NudgeLineIntent(delay: false),
       },
+      if (widget.actions?.nudgeLyricsFromCurrentLine != null) ...{
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+            const _NudgeFromLineIntent(delay: true),
+        const SingleActivator(LogicalKeyboardKey.arrowRight, alt: true):
+            const _NudgeFromLineIntent(delay: false),
+      },
       if (widget.enablePlaybackShortcuts) ...{
         const SingleActivator(LogicalKeyboardKey.space):
             const _TogglePlayPauseIntent(),
@@ -531,6 +551,16 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
           onInvoke: (intent) {
             if (SongListShortcutService.isTextInputFocused()) return null;
             widget.actions!.nudgeLyricsOffsetLine!(intent.delay ? 1 : -1);
+            return null;
+          },
+        ),
+      if (widget.actions?.nudgeLyricsFromCurrentLine != null)
+        _NudgeFromLineIntent: CallbackAction<_NudgeFromLineIntent>(
+          onInvoke: (intent) {
+            if (SongListShortcutService.isTextInputFocused()) return null;
+            widget.actions!.nudgeLyricsFromCurrentLine!(
+              intent.delay ? lyricsNudgeStepMs : -lyricsNudgeStepMs,
+            );
             return null;
           },
         ),
@@ -633,6 +663,12 @@ class _NudgeLyricsIntent extends Intent {
 class _NudgeLineIntent extends Intent {
   final bool delay;
   const _NudgeLineIntent({required this.delay});
+}
+
+/// Alt+←/→ 현재 줄부터 아래만 밀기. delay 규약은 [_NudgeLyricsIntent]와 같다.
+class _NudgeFromLineIntent extends Intent {
+  final bool delay;
+  const _NudgeFromLineIntent({required this.delay});
 }
 
 class _TogglePlayPauseIntent extends Intent {
