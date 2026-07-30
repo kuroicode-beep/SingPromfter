@@ -215,7 +215,6 @@ class PrompterPanel extends StatelessWidget {
           // 휠=줄 이동, Ctrl+휠=글자 크기, Alt+휠=키.
           Expanded(
             child: PrompterWheelScope(
-              onStepLine: playback.stepLine,
               onStepFontSize: _stepFontSize,
               onStepPitch: onStepPitch ?? onAdjustPitch,
               onStepTempo: (delta) => onAdjustTempo(delta * tempoStep),

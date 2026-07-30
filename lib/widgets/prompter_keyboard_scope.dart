@@ -16,14 +16,32 @@ const int lyricsNudgeStepMs = 200;
 ///
 /// v2.16까지는 반대였는데 사용자 감각과 어긋났다 — "."이 늦추고 "/"가
 /// 앞당기는 쪽이 손에 맞는다는 피드백으로 뒤집었다.
-int? lyricsNudgeFor(LogicalKeyboardKey key) {
-  // Shift가 눌린 채면 같은 물리 키가 >·?로 온다 — Shift+→(30초 시크) 직후
-  // 잔상으로 흔히 생긴다. 물리적으로 같은 키니 같은 뜻으로 받는다.
-  if (key == LogicalKeyboardKey.period || key == LogicalKeyboardKey.greater) {
+int? lyricsNudgeFor(LogicalKeyboardKey key, {String? character}) {
+  // 세 겹으로 판정한다:
+  // 1) 논리 키(.·/) — 표준 경로.
+  // 2) Shift 잔상(>·?) — Shift+→(30초 시크) 직후 흔하다.
+  // 3) **실제 입력 문자** — Windows 한글 자판에서 OEM 문장부호 키의 논리 키
+  //    매핑이 어긋나는 일이 있다(글자 키 T·E·R은 되는데 .·/만 안 먹는
+  //    실사용 보고의 원인으로 추정). 문자는 배열과 무관하게 온다.
+  // [·]는 같은 기능의 예비 키다 — 어느 쪽이든 손에 맞는 걸 쓰면 된다.
+  const delayKeys = ['.', '>', '[', '{'];
+  const advanceKeys = ['/', '?', ']', '}'];
+  if (key == LogicalKeyboardKey.period ||
+      key == LogicalKeyboardKey.greater ||
+      key == LogicalKeyboardKey.bracketLeft ||
+      key == LogicalKeyboardKey.braceLeft) {
     return lyricsNudgeStepMs;
   }
-  if (key == LogicalKeyboardKey.slash || key == LogicalKeyboardKey.question) {
+  if (key == LogicalKeyboardKey.slash ||
+      key == LogicalKeyboardKey.question ||
+      key == LogicalKeyboardKey.bracketRight ||
+      key == LogicalKeyboardKey.braceRight) {
     return -lyricsNudgeStepMs;
+  }
+  final ch = character;
+  if (ch != null) {
+    if (delayKeys.contains(ch)) return lyricsNudgeStepMs;
+    if (advanceKeys.contains(ch)) return -lyricsNudgeStepMs;
   }
   return null;
 }
@@ -57,6 +75,10 @@ class PrompterKeyboardScope extends StatefulWidget {
   /// 가드가 모든 단축키를 자동으로 끈다. ESC로 저장하고 나온다.
   final VoidCallback? onEditCurrentLine;
 
+  /// O/P — 이전/다음 가사 줄. 맨휠 줄 이동을 없애며 자리를 이어받았다.
+  /// 꾹 누르면 연속으로 넘어간다.
+  final ValueChanged<int>? onStepLine;
+
   /// . / — 가사 싱크를 당기고 미는 실시간 조절(ms 델타). 음수면 가사가 먼저.
   ///
   /// 노래하면서 바로 손댈 수 있어야 하는 값이다. 곡별로 즉시 저장되므로
@@ -87,6 +109,7 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onToggleRecording,
     this.onResetLyricsSync,
     this.onEditCurrentLine,
+    this.onStepLine,
     this.onNudgeLyricsOffset,
     this.enablePlaybackShortcuts = true,
     this.enabled = true,
@@ -141,10 +164,23 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
 
     // 싱크 밀고 당기기는 꾹 누르면 반복되는 게 자연스럽다 — 반복 이벤트도
     // 받는다. 나머지 단축키는 최초 눌림만(토글이 튀지 않게).
-    final nudge = lyricsNudgeFor(key);
+    final nudge = lyricsNudgeFor(key, character: event.character);
     if (nudge != null && widget.onNudgeLyricsOffset != null) {
       widget.onNudgeLyricsOffset!(nudge);
       return KeyEventResult.handled;
+    }
+
+    // O/P = 이전/다음 줄 — 맨휠 줄 이동의 후임. 반복 이벤트도 받아
+    // 꾹 누르면 죽 넘어간다.
+    if (widget.onStepLine != null) {
+      if (key == LogicalKeyboardKey.keyO) {
+        widget.onStepLine!(-1);
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.keyP) {
+        widget.onStepLine!(1);
+        return KeyEventResult.handled;
+      }
     }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {

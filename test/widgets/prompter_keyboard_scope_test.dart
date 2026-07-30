@@ -167,6 +167,56 @@ void main() {
     expect(lyricsNudgeFor(LogicalKeyboardKey.question), -lyricsNudgeStepMs);
   });
 
+  test('lyricsNudgeFor — [·]는 예비 키, 문자 매칭은 자판 배열 무관 안전망', () {
+    expect(lyricsNudgeFor(LogicalKeyboardKey.bracketLeft), lyricsNudgeStepMs);
+    expect(
+      lyricsNudgeFor(LogicalKeyboardKey.bracketRight),
+      -lyricsNudgeStepMs,
+    );
+    // 논리 키가 어긋나도(한글 자판 OEM 키) 실제 입력 문자로 잡는다.
+    expect(
+      lyricsNudgeFor(LogicalKeyboardKey.f19, character: '.'),
+      lyricsNudgeStepMs,
+    );
+    expect(
+      lyricsNudgeFor(LogicalKeyboardKey.f19, character: '/'),
+      -lyricsNudgeStepMs,
+    );
+    expect(lyricsNudgeFor(LogicalKeyboardKey.f19, character: 'a'), isNull);
+  });
+
+  testWidgets('O/P는 이전/다음 줄', (tester) async {
+    final lineSteps = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PrompterKeyboardScope(
+            settings: const PrompterSettings(),
+            onSettingsChanged: (_) {},
+            onStepLine: lineSteps.add,
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyO);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.pump();
+
+    expect(lineSteps, [-1, 1]);
+  });
+
+  testWidgets('[와 ]로도 싱크를 밀고 당길 수 있다', (tester) async {
+    await pump(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.bracketLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.bracketRight);
+    await tester.pump();
+
+    expect(nudges, [lyricsNudgeStepMs, -lyricsNudgeStepMs]);
+  });
+
 
   // 이 범위는 화면 전체를 감싼다 — 끄지 않으면 곡 검색·설정 같은 다른 탭에서도
   // 단축키가 먹는다(검색 결과를 훑다가 R로 녹음이 시작되는 사고).

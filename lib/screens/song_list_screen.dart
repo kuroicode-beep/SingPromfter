@@ -1272,6 +1272,7 @@ class _SongListScreenState extends State<SongListScreen> {
       onToggleRecording: _toggleRecording,
       onResetLyricsSync: _resetLyricsSync,
       onEditCurrentLine: _editCurrentLine,
+      onStepLine: _playback.stepLine,
       onNudgeLyricsOffset: _adjustLyricsOffset,
       onOpenPrompter: () {
         final song = _selectedSong;

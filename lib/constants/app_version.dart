@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.0.0';
+  static const String current = '3.0.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.0.1',
+      '2026-07-30',
+      '.·/ 단축키를 자판 배열과 무관하게(실제 입력 문자로) 판정 + 예비 키 '
+          '[·] 추가 · 맨휠 줄 이동 제거(Alt+휠 간섭 원천 차단), 대신 O/P = '
+          '이전/다음 줄 · 설정에 단축키 안내 추가',
+    ),
     AppVersionEntry(
       '3.0.0',
       '2026-07-30',

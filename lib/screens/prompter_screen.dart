@@ -227,13 +227,13 @@ class _PrompterScreenState extends State<PrompterScreen> {
         enablePlaybackShortcuts: false,
         onSettingsChanged: _applyKeyboardSettings,
         onResetLyricsSync: widget.onResetLyricsSync,
+        onStepLine: widget.playback.stepLine,
         onNudgeLyricsOffset: widget.onNudgeLyricsOffset,
         onClose: () => Navigator.pop(context),
         onJumpToStart: widget.playback.jumpToStart,
         onJumpToEnd: widget.playback.jumpToEnd,
         onSeekRelative: widget.playback.seekRelative,
         child: PrompterWheelScope(
-          onStepLine: widget.playback.stepLine,
           onStepFontSize: _stepFontSize,
           onStepPitch: widget.onStepPitch,
           onStepTempo: widget.onStepTempo == null

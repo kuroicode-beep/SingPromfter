@@ -121,6 +121,8 @@ class SettingsPanel extends StatelessWidget {
         const SizedBox(height: 24),
         const _AppDisplaySection(),
         const SizedBox(height: 24),
+        const _ShortcutHelpSection(),
+        const SizedBox(height: 24),
         _PracticeLogSection(summaries: practiceSummaries),
         const SizedBox(height: 32),
         Text('앱 정보', style: AppTypography.listTitle),
@@ -150,6 +152,62 @@ class SettingsPanel extends StatelessWidget {
           'Copyright SVIL. Powered by 디또 2026/03/10',
           style: AppTypography.bodyMuted.copyWith(height: 1.4),
         ),
+      ],
+    );
+  }
+}
+
+/// 단축키 안내 — 종류가 많아져서(사용자 요청) 한 곳에 정리한다.
+/// 홈·즐겨찾기·전체화면에서만 동작하고, 텍스트 입력 중에는 자동으로 꺼진다.
+class _ShortcutHelpSection extends StatelessWidget {
+  const _ShortcutHelpSection();
+
+  static const _shortcuts = <(String, String)>[
+    ('Space', '재생 / 일시정지'),
+    ('F5', '전체화면 무대 열기'),
+    ('ESC', '무대 닫기'),
+    ('R', '녹음 시작 / 중지'),
+    ('O / P', '이전 줄 / 다음 줄 (꾹 누르면 연속)'),
+    ('T', '가사 싱크를 원래대로 리셋'),
+    ('. 또는 [', '가사 0.2초 늦추기 (꾹 누르면 연속)'),
+    ('/ 또는 ]', '가사 0.2초 앞당기기 (꾹 누르면 연속)'),
+    ('E', '현재 가사 줄 편집 — ESC로 저장'),
+    ('← / →', '5초 이동 (Shift와 함께 30초)'),
+    ('Home / End', '곡 처음 / 끝으로'),
+    ('↑ / ↓', '볼륨'),
+    ('Ctrl+휠', '글자 크기'),
+    ('Alt+휠', '키(피치)'),
+    ('Shift+휠', '템포'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('단축키', style: AppTypography.listTitle),
+        const SizedBox(height: 4),
+        Text(
+          '홈·즐겨찾기·전체화면에서 동작합니다. 글자를 입력하는 중에는 꺼집니다.',
+          style: AppTypography.bodyMuted,
+        ),
+        const SizedBox(height: 8),
+        for (final (key, description) in _shortcuts)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 110,
+                  child: Text(key, style: AppTypography.mono),
+                ),
+                Expanded(
+                  child: Text(description, style: AppTypography.body),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
