@@ -143,6 +143,15 @@ void main() {
       expect(restored.durationMs, 60000);
     });
 
+    test('AI 보정본 표시(correctedFrom)가 왕복에 살아남는다', () {
+      final corrected = take(id: 'c').copyWith(correctedFrom: 'src-take');
+      final restored = RecordingTake.fromJson(corrected.toJson());
+      expect(restored.correctedFrom, 'src-take');
+      expect(restored.isCorrected, isTrue);
+      // v2.x 저장분(필드 없음)은 생녹음으로 읽힌다.
+      expect(RecordingTake.fromJson(const {}).isCorrected, isFalse);
+    });
+
     test('별점은 0~5로 제한한다', () {
       expect(RecordingTake.fromJson({'rating': 99}).rating, 5);
       expect(RecordingTake.fromJson({'rating': -3}).rating, 0);

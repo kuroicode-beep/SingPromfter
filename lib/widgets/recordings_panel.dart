@@ -24,6 +24,10 @@ class RecordingsPanel extends StatelessWidget {
   final ValueChanged<RecordingTake> onMix;
   final ValueChanged<RecordingTake> onPlayMix;
 
+  /// v3.0.0 음정 코치 — 채점과 AI 보정.
+  final ValueChanged<RecordingTake> onAnalyze;
+  final ValueChanged<RecordingTake> onCorrect;
+
   const RecordingsPanel({
     super.key,
     required this.takes,
@@ -40,6 +44,8 @@ class RecordingsPanel extends StatelessWidget {
     required this.onDelete,
     required this.onMix,
     required this.onPlayMix,
+    required this.onAnalyze,
+    required this.onCorrect,
   });
 
   @override
@@ -118,6 +124,8 @@ class RecordingsPanel extends StatelessWidget {
                       onDelete: () => onDelete(take),
                       onMix: () => onMix(take),
                       onPlayMix: () => onPlayMix(take),
+                      onAnalyze: () => onAnalyze(take),
+                      onCorrect: () => onCorrect(take),
                     );
                   },
                 ),
@@ -189,6 +197,8 @@ class _TakeRow extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onMix;
   final VoidCallback onPlayMix;
+  final VoidCallback onAnalyze;
+  final VoidCallback onCorrect;
 
   const _TakeRow({
     required this.take,
@@ -201,6 +211,8 @@ class _TakeRow extends StatelessWidget {
     required this.onDelete,
     required this.onMix,
     required this.onPlayMix,
+    required this.onAnalyze,
+    required this.onCorrect,
   });
 
   static String _formatDuration(Duration d) {
@@ -240,6 +252,11 @@ class _TakeRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (take.isCorrected)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text('AI 보정본', style: AppTypography.emphasis),
+                  ),
                 if (take.isKeep)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -293,6 +310,31 @@ class _TakeRow extends StatelessWidget {
                   ),
                   child: Text(take.isKeep ? '보관 해제' : '보관'),
                 ),
+                OutlinedButton.icon(
+                  onPressed: onAnalyze,
+                  icon: const Icon(Icons.music_note),
+                  label: const Text('음정 체크'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(120, AppConstants.minTouchTarget),
+                    side: const BorderSide(
+                      color: AppColors.borderStrong,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                if (!take.isCorrected)
+                  OutlinedButton.icon(
+                    onPressed: onCorrect,
+                    icon: const Icon(Icons.auto_fix_high),
+                    label: const Text('AI 보정'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(110, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 OutlinedButton.icon(
                   onPressed: onMix,
                   icon: const Icon(Icons.merge_type),

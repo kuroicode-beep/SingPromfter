@@ -61,6 +61,8 @@ class SongListScreenContent extends StatelessWidget {
   final String separatorStatusLabel;
   final VoidCallback onImportLrcFile;
   final ValueChanged<RecordingTake> onMixTake;
+  final ValueChanged<RecordingTake> onAnalyzeTake;
+  final ValueChanged<RecordingTake> onCorrectTake;
   final ValueChanged<RecordingTake> onPlayTakeMix;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
@@ -195,6 +197,8 @@ class SongListScreenContent extends StatelessWidget {
     required this.separatorStatusLabel,
     required this.onImportLrcFile,
     required this.onMixTake,
+    required this.onAnalyzeTake,
+    required this.onCorrectTake,
     required this.onPlayTakeMix,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
@@ -488,6 +492,8 @@ class SongListScreenContent extends StatelessWidget {
         onToggleKeep: onToggleTakeKeep,
         onDelete: onDeleteTake,
         onMix: onMixTake,
+        onAnalyze: onAnalyzeTake,
+        onCorrect: onCorrectTake,
         onPlayMix: onPlayTakeMix,
       ),
       importProgress: ImportProgressStrip(

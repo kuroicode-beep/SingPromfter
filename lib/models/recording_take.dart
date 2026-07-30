@@ -37,6 +37,9 @@ class RecordingTake {
   /// 반주와 합친 파일명(있으면). data/recordings 안.
   final String? mixedFileName;
 
+  /// AI 보정본이면 원본 테이크 id. null이면 생녹음이다.
+  final String? correctedFrom;
+
   const RecordingTake({
     required this.id,
     required this.songId,
@@ -51,6 +54,7 @@ class RecordingTake {
     this.rating = 0,
     this.isKeep = false,
     this.mixedFileName,
+    this.correctedFrom,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -61,8 +65,11 @@ class RecordingTake {
 
   bool get hasMix => (mixedFileName ?? '').isNotEmpty;
 
+  bool get isCorrected => (correctedFrom ?? '').isNotEmpty;
+
   RecordingTake copyWith({
     String? mixedFileName,
+    String? correctedFrom,
     String? songTitle,
     String? comment,
     int? rating,
@@ -84,6 +91,7 @@ class RecordingTake {
       rating: rating ?? this.rating,
       isKeep: isKeep ?? this.isKeep,
       mixedFileName: mixedFileName ?? this.mixedFileName,
+      correctedFrom: correctedFrom ?? this.correctedFrom,
     );
   }
 
@@ -101,6 +109,7 @@ class RecordingTake {
     'rating': rating,
     'isKeep': isKeep,
     'mixedFileName': mixedFileName,
+    'correctedFrom': correctedFrom,
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -120,6 +129,7 @@ class RecordingTake {
       rating: ((json['rating'] as num?)?.toInt() ?? 0).clamp(0, 5),
       isKeep: json['isKeep'] as bool? ?? false,
       mixedFileName: json['mixedFileName'] as String?,
+      correctedFrom: json['correctedFrom'] as String?,
     );
   }
 }

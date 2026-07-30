@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '2.17.1';
+  static const String current = '3.0.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.0.0',
+      '2026-07-30',
+      '녹음 코치 — 녹음한 노래를 원곡 보컬과 비교해 음정·박자 채점(AI 피치 '
+          '트래커, GPU), 틀린 곳을 시각·진단 문구로 표시 · AI 보정(PSOLA)으로 '
+          '음정을 원곡 멜로디에 맞추고 전체 박자 보정, 목소리만/반주와 믹싱 '
+          '저장 · 보정본도 녹음 목록에서 재생·삭제',
+    ),
     AppVersionEntry(
       '2.17.1',
       '2026-07-30',

@@ -22,6 +22,7 @@ import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
+import '../models/recording_take.dart';
 import '../models/backing_track.dart';
 import '../models/song.dart';
 import '../models/song_draft.dart';
@@ -42,6 +43,7 @@ import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
 import '../services/stt_lyrics_client.dart';
+import '../services/pitch_coach_client.dart';
 import '../models/vocal_segments.dart';
 import '../services/vocal_segments_service.dart';
 import '../services/vocal_separation_client.dart';
@@ -119,6 +121,7 @@ class AppController extends ChangeNotifier {
   );
   final VocalSeparationClient separation = VocalSeparationClient();
   final SttLyricsClient sttLyrics = SttLyricsClient();
+  final PitchCoachClient pitchCoach = PitchCoachClient();
   late final PrompterAudioService audio = PrompterAudioService(repo);
   final ScrollController lyricsScrollController = ScrollController();
   late final ImportJobController importJobs;
@@ -180,6 +183,7 @@ class AppController extends ChangeNotifier {
     pendingTempo.dispose();
     importJobs.dispose();
     sttLyrics.close();
+    pitchCoach.close();
     playback.dispose();
     audio.dispose();
     lyricsScrollController.dispose();
@@ -908,6 +912,42 @@ class AppController extends ChangeNotifier {
       mrPath: mrPath,
       cacheKey: mr.fileName,
     );
+  }
+
+  // ── 음정 코치 (녹음 채점·보정) ──────────────────────────
+
+  /// 원곡(1번 슬롯)에서 분리한 **보컬 스템** 경로 — 채점의 기준 멜로디.
+  /// 분리 서버가 꺼져 있으면 켜질 때까지 기다린다(가져오기와 같은 규약).
+  Future<String?> vocalStemForSong(Song song) async {
+    final original = song.trackForSlot(TrackVariant.original.preferredSlot);
+    if (original == null) {
+      _emit('원곡(1번 슬롯)이 있어야 채점 기준을 만들 수 있습니다.');
+      return null;
+    }
+    final path = await repo.getBackingTrackPath(original.fileName);
+    if (path == null) {
+      _emit('원곡 파일을 찾을 수 없습니다.');
+      return null;
+    }
+    if (!separatorOnline) {
+      _emit('분리 서버 켜는 중… (최대 2분)');
+      await ensureSeparatorOnline();
+    }
+    final separated = await separation.separate(path);
+    if (!separated.success || separated.vocalsPath == null) {
+      _emit(separated.message ?? '보컬 분리에 실패했습니다.');
+      return null;
+    }
+    return separated.vocalsPath;
+  }
+
+  /// 녹음 당시의 총 전조(구운 키 + 사용자 키) — 채점 기준을 옮길 반음.
+  int takeTranspose(Song song, RecordingTake take) {
+    final slot = take.backingTrackSlot;
+    final baked = slot == null
+        ? 0
+        : (song.trackForSlot(slot)?.bakedSemitones ?? 0);
+    return baked + take.pitchSemitones;
   }
 
   // ── 조성(키) ────────────────────────────────────────────

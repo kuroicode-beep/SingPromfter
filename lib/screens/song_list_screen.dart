@@ -15,6 +15,7 @@ import '../dialogs/add_song_dialog.dart';
 import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../dialogs/pick_song_dialog.dart';
+import '../dialogs/pitch_report_dialog.dart';
 import '../dialogs/youtube_import_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/import_plan.dart';
@@ -217,6 +218,132 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _selectTrackSlot(int slot) => _app.selectTrackSlot(slot);
 
   // ── 녹음 믹스다운 ───────────────────────────────────────
+
+  // ── 음정 코치 (v3.0.0) ──────────────────────────────────
+
+  /// 채점·보정의 공통 준비물 — (녹음 경로, 기준 보컬 경로, 전조).
+  /// 실패하면 스낵바로 사유를 알리고 null.
+  Future<(String, String, int)?> _pitchCoachInputs(RecordingTake take) async {
+    final song = _app.songById(take.songId);
+    if (song == null) {
+      _showSnack('원본 곡이 삭제돼 채점 기준을 만들 수 없습니다.');
+      return null;
+    }
+    if (!await _app.pitchCoach.isOnline()) {
+      _showSnack('음정 코치 서버가 꺼져 있습니다(포트 8773). 켜고 다시 시도해 주세요.');
+      return null;
+    }
+    _showSnack('채점 기준(원곡 보컬) 준비 중… 처음이면 수십 초 걸립니다.');
+    final reference = await _app.vocalStemForSong(song);
+    if (reference == null) return null;
+    final recording = await _buildRecordingPath(take.fileName);
+    if (!await File(recording).exists()) {
+      _showSnack('녹음 파일을 찾을 수 없습니다.');
+      return null;
+    }
+    return (recording, reference, _app.takeTranspose(song, take));
+  }
+
+  /// [음정 체크] — 녹음을 원곡 보컬과 비교해 점수와 틀린 곳을 보여 준다.
+  Future<void> _analyzeTake(RecordingTake take) async {
+    final inputs = await _pitchCoachInputs(take);
+    if (inputs == null || !mounted) return;
+    final (recording, reference, transpose) = inputs;
+
+    _showSnack('음정·박자 분석 중… (수십 초)');
+    final result = await _app.pitchCoach.analyze(
+      recordingPath: recording,
+      referencePath: reference,
+      alignMs: take.alignOffsetMs,
+      transpose: transpose,
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      _showSnack(result.message ?? '분석에 실패했습니다.');
+      return;
+    }
+    await PitchReportDialog.show(
+      context,
+      songTitle: take.songTitle,
+      analysis: result.analysis!,
+    );
+  }
+
+  /// [AI 보정] — 음정(과 전체 박자)을 보정해 새 테이크로 저장한다.
+  /// 목소리만 저장하거나, 이어서 반주와 믹싱까지 할 수 있다.
+  Future<void> _correctTake(RecordingTake take) async {
+    final mix = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('AI 보정 저장'),
+        content: const Text(
+          '음정을 원곡 멜로디에 맞추고 전체 박자를 보정합니다.\n'
+          '보정본을 어떻게 저장할까요?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('취소'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('목소리만'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('반주와 믹싱'),
+          ),
+        ],
+      ),
+    );
+    if (mix == null || !mounted) return;
+
+    final inputs = await _pitchCoachInputs(take);
+    if (inputs == null || !mounted) return;
+    final (recording, reference, transpose) = inputs;
+
+    _showSnack('AI 보정 중… (수십 초)');
+    final dir = await _recordingLibrary.directory();
+    final fileName =
+        '보정_${DateTime.now().millisecondsSinceEpoch}_${take.fileName}.wav';
+    final outputPath = '${dir.path}/$fileName';
+    final result = await _app.pitchCoach.correct(
+      recordingPath: recording,
+      referencePath: reference,
+      outputPath: outputPath,
+      alignMs: take.alignOffsetMs,
+      transpose: transpose,
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      _showSnack(result.message ?? '보정에 실패했습니다.');
+      return;
+    }
+
+    // 보정본은 기준 타임라인(반주 t=0)에 맞춰 나온다 — align 0.
+    var corrected = RecordingTake(
+      id: const Uuid().v4(),
+      songId: take.songId,
+      songTitle: take.songTitle,
+      fileName: fileName,
+      recordedAt: DateTime.now(),
+      durationMs: take.durationMs,
+      backingTrackSlot: take.backingTrackSlot,
+      pitchSemitones: take.pitchSemitones,
+      alignOffsetMs: 0,
+      comment: 'AI 보정'
+          '${result.timingFixedMs != 0 ? ' · 박자 ${(result.timingFixedMs.abs() / 1000).toStringAsFixed(1)}초 ${result.timingFixedMs > 0 ? '당김' : '밀음'}' : ''}',
+      correctedFrom: take.id,
+    );
+    await _recordingLibrary.add(corrected);
+    setState(() {});
+
+    if (mix) {
+      await _mixTake(corrected);
+    } else {
+      _showSnack('보정본을 저장했습니다. 녹음 목록에서 들어보세요.');
+    }
+  }
 
   Future<void> _mixTake(RecordingTake take) async {
     final songMatches = _songs.where((s) => s.id == take.songId).toList();
@@ -1181,6 +1308,8 @@ class _SongListScreenState extends State<SongListScreen> {
         separatorStatusLabel: _separatorStatusLabel,
         onImportLrcFile: _importLrcFile,
         onMixTake: _mixTake,
+        onAnalyzeTake: _analyzeTake,
+        onCorrectTake: _correctTake,
         onPlayTakeMix: _playTakeMix,
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
