@@ -135,15 +135,44 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 손잡이 두 개(재생바·조작판)를 **한 줄에 나란히** 둔다.
+          // 세로로 쌓으면 다 접어도 100px 넘게 남아, 드로어를 숨겨도
+          // 가사 창이 커진 게 티가 안 났다(실사용 불만). 이제 접힌 상태의
+          // 상시 크롬은 한 줄(50px+여백)뿐이다.
+          Row(
+            children: [
+              Expanded(
+                child: PrompterDrawerHandle(
+                  open: widget.settings.playbackBarOpen,
+                  label: '재생바',
+                  palette: PrompterDrawerPalette.main,
+                  margin: const EdgeInsets.fromLTRB(0, 4, 4, 0),
+                  onTap: () => widget.onSettingsChanged(
+                    widget.settings.copyWith(
+                      playbackBarOpen: !widget.settings.playbackBarOpen,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: PrompterDrawerHandle(
+                  open: widget.drawerOpen,
+                  label: '조작판',
+                  palette: PrompterDrawerPalette.main,
+                  margin: const EdgeInsets.fromLTRB(4, 4, 0, 0),
+                  onTap: () => widget.onDrawerChanged(!widget.drawerOpen),
+                ),
+              ),
+            ],
+          ),
           // 재생바(재생 버튼 줄+진행바)도 조작판처럼 드로어다 — 기본 숨김.
-          // 가사에 화면을 최대한 내주고, 재생은 단축키·목록의 [시작]으로도
-          // 되기 때문. 손잡이는 항상 보여 한 번에 열 수 있다.
           PrompterDrawer(
             open: widget.settings.playbackBarOpen,
             onOpenChanged: (open) => widget.onSettingsChanged(
               widget.settings.copyWith(playbackBarOpen: open),
             ),
             label: '재생바',
+            externalHandle: true,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -258,6 +287,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
           PrompterDrawer(
             open: widget.drawerOpen,
             onOpenChanged: widget.onDrawerChanged,
+            externalHandle: true,
             maxBodyHeight: widget.maxDrawerBodyHeight,
             child: Column(
               mainAxisSize: MainAxisSize.min,

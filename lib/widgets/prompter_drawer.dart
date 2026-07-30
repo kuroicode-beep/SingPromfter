@@ -101,6 +101,12 @@ class PrompterDrawer extends StatefulWidget {
   /// 애니메이션 진행도를 밖에서도 읽고 싶을 때(무대의 안정 크기 계산용).
   final ValueChanged<Animation<double>>? onAnimationReady;
 
+  /// true면 손잡이를 그리지 않는다 — 호출부가 [PrompterDrawerHandle]을
+  /// 따로(예: 두 드로어 손잡이를 한 줄에 나란히) 배치할 때 쓴다.
+  /// 손잡이 두 개가 세로로 쌓이면 접어도 100px 넘게 남아 "숨겨도 화면이
+  /// 안 커진다"는 실사용 불만의 원인이 됐다.
+  final bool externalHandle;
+
   const PrompterDrawer({
     super.key,
     required this.open,
@@ -111,6 +117,7 @@ class PrompterDrawer extends StatefulWidget {
     this.fixedHeight,
     this.maxBodyHeight,
     this.onAnimationReady,
+    this.externalHandle = false,
   });
 
   @override
@@ -200,12 +207,13 @@ class _PrompterDrawerState extends State<PrompterDrawer>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Handle(
-          open: widget.open,
-          label: widget.label,
-          palette: widget.palette,
-          onTap: () => widget.onOpenChanged(!widget.open),
-        ),
+        if (!widget.externalHandle)
+          PrompterDrawerHandle(
+            open: widget.open,
+            label: widget.label,
+            palette: widget.palette,
+            onTap: () => widget.onOpenChanged(!widget.open),
+          ),
         ClipRect(
           child: SizeTransition(
             sizeFactor: _size,
@@ -227,17 +235,23 @@ class _PrompterDrawerState extends State<PrompterDrawer>
 }
 
 /// 항상 보이는 손잡이. 텍스트 라벨을 함께 둔다(아이콘 전용 금지).
-class _Handle extends StatelessWidget {
+/// 공개 위젯이다 — 호출부가 여러 드로어의 손잡이를 한 줄에 배치할 수 있다.
+class PrompterDrawerHandle extends StatelessWidget {
   final bool open;
   final String label;
   final PrompterDrawerPalette palette;
   final VoidCallback onTap;
 
-  const _Handle({
+  /// 한 줄에 여러 개 나란히 둘 때는 좌우 마진을 호출부가 관리한다.
+  final EdgeInsets margin;
+
+  const PrompterDrawerHandle({
+    super.key,
     required this.open,
     required this.label,
     required this.palette,
     required this.onTap,
+    this.margin = const EdgeInsets.fromLTRB(12, 4, 12, 0),
   });
 
   @override
@@ -254,7 +268,7 @@ class _Handle extends StatelessWidget {
           child: Container(
             width: double.infinity,
             constraints: const BoxConstraints(minHeight: drawerHandleHeight),
-            margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            margin: margin,
             decoration: BoxDecoration(
               color: palette.surface,
               borderRadius: AppShapes.controlRadius,

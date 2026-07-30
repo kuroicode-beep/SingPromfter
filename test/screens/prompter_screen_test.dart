@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/controllers/playback_controller.dart';
 import 'package:singpromfter_app/screens/prompter_screen.dart';
 import 'package:singpromfter_app/widgets/prompter_keyboard_scope.dart' show PrompterActions;
+import 'package:singpromfter_app/widgets/prompter_lyrics_view.dart';
 import 'package:singpromfter_app/models/timed_lyrics.dart';
 import 'package:singpromfter_app/widgets/prompter_eq_meter.dart';
 
@@ -144,6 +145,44 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     fake.dispose();
+  });
+
+  testWidgets('조작판을 닫으면 무대 가사 뷰포트가 그만큼 커진다', (tester) async {
+    // v3.0.2까지는 닫아도 "열린 상태" 크기로 고정이었다 —
+    // "숨겼는데 출력창이 그대로"라는 실사용 불만의 원인.
+    final fakeOpen = buildFakePlayback(song: fakeSong());
+    await pumpStage(
+      tester,
+      args: PrompterScreenArgs(
+        playback: fakeOpen.controller,
+        controlsDrawerOpen: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final openHeight =
+        tester.getSize(find.byType(PrompterLyricsView)).height;
+    await tester.pumpWidget(const SizedBox.shrink());
+    fakeOpen.dispose();
+
+    final fakeClosed = buildFakePlayback(song: fakeSong());
+    await pumpStage(
+      tester,
+      args: PrompterScreenArgs(
+        playback: fakeClosed.controller,
+        controlsDrawerOpen: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final closedHeight =
+        tester.getSize(find.byType(PrompterLyricsView)).height;
+    await tester.pumpWidget(const SizedBox.shrink());
+    fakeClosed.dispose();
+
+    expect(
+      closedHeight,
+      greaterThan(openHeight + 100),
+      reason: '닫힌 조작판만큼 가사가 커져야 한다 (open $openHeight, closed $closedHeight)',
+    );
   });
 
   test('싱크 가사가 없으면 스윕 진행률은 null — 추정으로 음절을 가리키지 않는다', () {

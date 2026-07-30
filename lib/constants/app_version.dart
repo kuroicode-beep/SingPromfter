@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.0.2';
+  static const String current = '3.1.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.1.0',
+      '2026-07-30',
+      '드로어를 숨긴 만큼 가사 창이 실제로 커진다 — 하단 손잡이 두 개를 한 '
+          '줄로 합쳐 접힌 상태의 상시 영역을 절반 이하로, 전체화면도 조작판을 '
+          '닫으면 가사 뷰포트가 그만큼 확장',
+    ),
     AppVersionEntry(
       '3.0.2',
       '2026-07-30',

@@ -197,6 +197,33 @@ void main() {
     fake.dispose();
   });
 
+  testWidgets('드로어를 다 접으면 하단 바가 한 줄 크롬만 남는다 — 가사에 자리를 내준다', (
+    tester,
+  ) async {
+    // v3.0.2까지 손잡이 두 개가 세로로 쌓여 접어도 134px가 남았다 —
+    // "숨겼는데 가사 창이 그대로"라는 실사용 불만의 원인.
+    final fake = await pumpBar(
+      tester,
+      width: 720,
+      settings: const PrompterSettings(),
+    );
+
+    final barHeight = tester.getSize(find.byType(PrompterBottomBar)).height;
+    expect(
+      barHeight,
+      lessThan(90),
+      reason: '접힌 하단 바는 손잡이 한 줄(50px)+여백만 남아야 한다 (실측 $barHeight)',
+    );
+
+    // 손잡이 두 개가 같은 줄(같은 y)에 나란히 있다.
+    final playbackHandle = tester.getCenter(find.text('재생바 열기'));
+    final controlsHandle = tester.getCenter(find.text('조작판 열기'));
+    expect(playbackHandle.dy, closeTo(controlsHandle.dy, 1));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
   testWidgets('재생바는 기본 숨김 — 손잡이만 보인다', (tester) async {
     final fake = await pumpBar(
       tester,

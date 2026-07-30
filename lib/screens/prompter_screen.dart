@@ -113,11 +113,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
 
   bool _controlsVisible = true;
 
-  /// 드로어 애니메이션 진행도(0=닫힘, 1=열림).
-  /// 무대 크기 계산에 쓴다 — 접히는 동안 밴드가 리사이즈되면 가사가 통째로
-  /// 재레이아웃되기 때문에, 언제나 "열린 상태" 크기를 기준으로 잡는다.
-  Animation<double>? _drawerAnim;
-
   /// 드로어 열림 상태의 **로컬 소유본**.
   ///
   /// widget.controlsDrawerOpen을 그대로 쓰면 안 된다 — 무대는
@@ -312,15 +307,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final stage = Size(constraints.maxWidth, constraints.maxHeight);
-        // 드로어가 접힌 만큼 무대가 더 커져 있다. 그 몫을 빼 "열린 상태"
-        // 크기로 계산해야 애니메이션 내내 밴드·뷰포트가 상수로 남는다.
-        final hidden =
-            PrompterStageMetrics.stageDrawerHeight *
-            (1 - (_drawerAnim?.value ?? (_drawerOpen ? 1 : 0)));
-        final stable = PrompterStageMetrics.stableStage(
-          stage,
-          hiddenDrawerHeight: hidden,
-        );
+        // v3.0.2까지는 드로어가 접혀도 뷰포트를 "열린 상태" 크기로 고정했다
+        // (애니메이션 중 리레이아웃 방지). 실사용에서는 "숨겼는데 가사 창이
+        // 안 커진다"는 불만이 더 컸다 — 이제 실제 크기를 그대로 쓴다.
+        // 220ms 전환 동안의 리레이아웃은 감수한다.
+        final stable = stage;
         final band = PrompterStageMetrics.bandHeight(
           stable,
           showEq: widget.showEqMeter,
@@ -518,12 +509,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
       label: '조작판',
       palette: PrompterDrawerPalette.stage,
       fixedHeight: PrompterStageMetrics.stageDrawerHeight,
-      onAnimationReady: (anim) {
-        _drawerAnim = anim;
-        anim.addListener(() {
-          if (mounted) setState(() {});
-        });
-      },
       child: Container(
         margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
