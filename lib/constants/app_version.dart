@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.8.0';
+  static const String current = '3.9.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.9.0',
+      '2026-07-31',
+      '부분 보정(Alt+←/→) 연속입력을 모아서 한 번에 적용 — 누를 때마다 '
+          '가사가 깜빡이며 뒤집히던 문제 수정(예약 표시 → 입력 멈추면 적용). '
+          '싱크 잠금 신설: L 토글, 잠그면 싱크 조절 키 전부 거부(곡에 저장)',
+    ),
     AppVersionEntry(
       '3.8.0',
       '2026-07-31',

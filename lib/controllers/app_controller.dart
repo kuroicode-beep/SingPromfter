@@ -179,6 +179,7 @@ class AppController extends ChangeNotifier {
     _statusRefreshTimer?.cancel();
     _pitchApplyTimer?.cancel();
     _tempoApplyTimer?.cancel();
+    _partialShiftTimer?.cancel();
     pendingPitch.dispose();
     pendingTempo.dispose();
     importJobs.dispose();
@@ -797,8 +798,30 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  /// 싱크 잠금(L) — 다 맞춘 싱크를 오타로 망가뜨리지 않는 자물쇠.
+  /// 곡에 저장되므로 재실행해도 유지된다.
+  Future<void> toggleSyncLock() async {
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    final next = !song.syncLocked;
+    await replaceSongInList(song.copyWith(syncLocked: next));
+    _emit(next ? '싱크 잠금 — 조절 키가 꺼졌습니다 (L로 해제)' : '싱크 잠금 해제 — 조절할 수 있습니다');
+  }
+
+  /// 잠긴 곡이면 알리고 true. 모든 싱크 조절 입구가 이 가드를 지난다.
+  bool _syncLockBlocked() {
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null || !song.syncLocked) return false;
+    _emit('싱크 잠금 중 — L로 해제한 뒤 조절해 주세요.');
+    return true;
+  }
+
   /// 곡별 가사 선행/지연 오프셋을 바꾼다. 음수면 가사가 먼저 나온다.
   Future<void> adjustLyricsOffset(int deltaMs) async {
+    if (_syncLockBlocked()) return;
     final track = _selectedTrack();
     if (track == null) {
       _emit('먼저 곡과 반주를 선택해 주세요.');
@@ -816,6 +839,7 @@ class AppController extends ChangeNotifier {
   /// 싱크를 한 줄 간격만큼 민다 — Ctrl+←(늦춤)/Ctrl+→(앞당김).
   /// 이동량은 현재 줄과 이웃 줄의 실제 시간 차라 곡마다 다르다.
   Future<void> adjustLyricsOffsetByLine({required bool delay}) async {
+    if (_syncLockBlocked()) return;
     final track = _selectedTrack();
     if (track == null) {
       _emit('먼저 곡과 반주를 선택해 주세요.');
@@ -839,39 +863,76 @@ class AppController extends ChangeNotifier {
   /// 전체 오프셋과 달리 LRC 타임스탬프 자체를 고쳐 저장한다. 위 줄들은
   /// 그대로라 "밑에서 맞추면 위가 틀어지는" 문제가 없다. 같은 LRC를 쓰는
   /// 슬롯 전부에 영향이 간다는 점은 전체 오프셋과 다르니 주의.
-  Future<bool> adjustLyricsFromCurrentLine(int deltaMs) async {
+  ///
+  /// 연속입력은 **모았다가 한 번에** 적용한다 — 누를 때마다 파일을 다시
+  /// 쓰고 가사를 리로드하면 화면이 깜빡이며 뒤집힌다(실사용 보고).
+  /// 기준 줄은 첫 입력 순간의 줄로 고정한다(적용 후 줄이 밀려도 안 튄다).
+  Future<void> adjustLyricsFromCurrentLine(int deltaMs) async {
+    if (_syncLockBlocked()) return;
     final song = selectedSong == null ? null : songById(selectedSong!.id);
     if (song == null) {
       _emit('먼저 곡을 선택해 주세요.');
-      return false;
+      return;
     }
     final synced = playback.timedLyrics.value;
     if (synced == null || synced.isEmpty) {
       _emit('싱크 가사가 있어야 줄 단위 보정이 됩니다.');
-      return false;
+      return;
     }
-    final index = playback.lineIndex.value;
+    _partialShiftLineIndex ??= playback.lineIndex.value;
+    _partialShiftPendingMs += deltaMs;
+    final line = _partialShiftLineIndex! + 1;
+    final pending = _partialShiftPendingMs;
+    if (pending == 0) {
+      _emit('$line번째 줄부터 — 예약 0초 (상쇄됨)');
+    } else {
+      final dir = pending > 0 ? '늦춤' : '앞당김';
+      final amount = (pending.abs() / 1000).toStringAsFixed(1);
+      _emit('$line번째 줄부터 $amount초 $dir 예약 — 입력을 멈추면 적용됩니다');
+    }
+    _partialShiftTimer?.cancel();
+    _partialShiftTimer = Timer(
+      const Duration(milliseconds: 500),
+      () => unawaited(_commitPartialShift()),
+    );
+  }
+
+  int _partialShiftPendingMs = 0;
+  int? _partialShiftLineIndex;
+  Timer? _partialShiftTimer;
+
+  /// 모아 둔 부분 보정을 실제로 LRC에 쓴다 — 파일 쓰기·리로드는 여기 한 번.
+  Future<void> _commitPartialShift() async {
+    final deltaMs = _partialShiftPendingMs;
+    final index = _partialShiftLineIndex;
+    _partialShiftPendingMs = 0;
+    _partialShiftLineIndex = null;
+    _partialShiftTimer = null;
+    if (_disposed || deltaMs == 0 || index == null) return;
+
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) return;
     final raw = await lyricsSync.rawFor(song);
     if (raw == null) {
       _emit('가사 원문(LRC)을 읽지 못했습니다.');
-      return false;
+      return;
     }
     final next = shiftLrcFromLine(raw, displayIndex: index, deltaMs: deltaMs);
-    if (next == null) return false;
+    if (next == null) return;
     final saved = await lyricsSync.save(song, next);
-    if (saved == null) return false;
+    if (saved == null) return;
     await replaceSongInList(saved);
     playback.timedLyrics.value = await lyricsSync.loadFor(saved);
     playback.refreshLineIndex();
     final dir = deltaMs > 0 ? '늦춤' : '앞당김';
     final amount = (deltaMs.abs() / 1000).toStringAsFixed(1);
-    _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir — 위 줄은 그대로');
-    return true;
+    _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir 적용 — 위 줄은 그대로');
   }
 
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
   /// `.`/`/`로 밀고 당기다 어긋났을 때 처음부터 다시 맞추는 리셋.
   Future<bool> resetLyricsOffset() async {
+    if (_syncLockBlocked()) return false;
     if (_selectedTrack() == null) {
       _emit('먼저 곡과 반주를 선택해 주세요.');
       return false;
@@ -886,6 +947,7 @@ class AppController extends ChangeNotifier {
   /// 싱크 가사(LRC)든 노래 구간 배분이든 같은 오프셋 하나로 처리한다 —
   /// 사용자에게는 "첫 줄을 지금으로" 하나의 동작이다.
   Future<bool> anchorLyricsToCurrentPosition() async {
+    if (_syncLockBlocked()) return false;
     if (_selectedTrack() == null) {
       _emit('먼저 곡과 반주를 선택해 주세요.');
       return false;

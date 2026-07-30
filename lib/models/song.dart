@@ -22,6 +22,10 @@ class Song {
   /// 실제로 들리는 조성은 여기에 구운 키·사용자 키를 더한 값이다.
   final MusicKey? musicalKey;
 
+  /// 싱크 잠금(L 토글). 켜져 있으면 싱크 조절 동작 전부가 거부된다 —
+  /// 다 맞춘 싱크를 노래 중 오타로 망가뜨리지 않기 위한 자물쇠.
+  final bool syncLocked;
+
   const Song({
     required this.id,
     required this.title,
@@ -34,6 +38,7 @@ class Song {
     this.isFavorite = false,
     this.lrcFileName,
     this.musicalKey,
+    this.syncLocked = false,
   });
 
   String get lyrics => lyricsText;
@@ -86,6 +91,7 @@ class Song {
     bool? isFavorite,
     String? lrcFileName,
     MusicKey? musicalKey,
+    bool? syncLocked,
     bool clearLrcFileName = false,
     bool clearMusicalKey = false,
   }) {
@@ -105,6 +111,7 @@ class Song {
       musicalKey: clearMusicalKey
           ? null
           : (musicalKey ?? this.musicalKey),
+      syncLocked: syncLocked ?? this.syncLocked,
     );
   }
 
@@ -126,6 +133,7 @@ class Song {
     'isFavorite': isFavorite,
     'lrcFileName': lrcFileName,
     'musicalKey': musicalKey?.storageValue,
+    'syncLocked': syncLocked,
   };
 
   factory Song.fromJson(Map<String, dynamic> json) {
@@ -155,6 +163,7 @@ class Song {
       isFavorite: json['isFavorite'] as bool? ?? false,
       lrcFileName: json['lrcFileName'] as String?,
       musicalKey: MusicKey.fromStorage(json['musicalKey'] as String?),
+      syncLocked: json['syncLocked'] as bool? ?? false,
     );
   }
 

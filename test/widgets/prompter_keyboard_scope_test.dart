@@ -128,6 +128,27 @@ void main() {
     expect(seeks, isEmpty);
   });
 
+  testWidgets('L은 싱크 잠금을 토글한다', (tester) async {
+    var lockToggles = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PrompterKeyboardScope(
+            settings: const PrompterSettings(),
+            onSettingsChanged: (_) {},
+            actions: PrompterActions(toggleSyncLock: () => lockToggles++),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL);
+    await tester.pump();
+
+    expect(lockToggles, 1);
+  });
+
   testWidgets('Alt+←/→는 현재 줄부터 아래만 민다', (tester) async {
     await pump(tester);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);

@@ -106,6 +106,9 @@ class PrompterActions {
   /// 현재 줄부터 아래만 밀기(Alt+←/→, ms). LRC 타임스탬프를 직접 고친다 —
   /// 위 줄은 그대로 두는 부분 보정. 부호 규약은 [nudgeLyricsOffset]과 같다.
   final ValueChanged<int>? nudgeLyricsFromCurrentLine;
+
+  /// 싱크 잠금 토글(L). 잠그면 싱크 조절 동작 전부가 거부된다.
+  final VoidCallback? toggleSyncLock;
   final ValueChanged<int>? stepLine;
   final void Function(int index, String text)? editLyricsLine;
   final VoidCallback? jumpToStart;
@@ -120,6 +123,7 @@ class PrompterActions {
     this.nudgeLyricsOffset,
     this.nudgeLyricsOffsetLine,
     this.nudgeLyricsFromCurrentLine,
+    this.toggleSyncLock,
     this.stepLine,
     this.editLyricsLine,
     this.jumpToStart,
@@ -381,6 +385,14 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     if (key == LogicalKeyboardKey.keyT &&
         widget.actions?.resetLyricsSync != null) {
       widget.actions!.resetLyricsSync!();
+      return KeyEventResult.handled;
+    }
+
+    // L = 싱크 잠금 토글. 다 맞춘 싱크를 오타로 망가뜨리지 않는 자물쇠.
+    if ((key == LogicalKeyboardKey.keyL ||
+            event.physicalKey == PhysicalKeyboardKey.keyL) &&
+        widget.actions?.toggleSyncLock != null) {
+      widget.actions!.toggleSyncLock!();
       return KeyEventResult.handled;
     }
 
