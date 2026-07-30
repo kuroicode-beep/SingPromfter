@@ -30,6 +30,11 @@ void main() {
   // 다이얼로그가 닫힐 때 채워진다. 열려 있는 동안 await하면 교착이라
   // onPressed 안에서만 기다린다.
   SongEditDraft? result;
+  late List<(int, int)> pitchChanges;
+
+  setUp(() {
+    pitchChanges = [];
+  });
 
   Future<void> openDialog(
     WidgetTester tester,
@@ -48,6 +53,8 @@ void main() {
                   context,
                   song,
                   trackPitches: trackPitches,
+                  onPitchChanged: (slot, semitones) =>
+                      pitchChanges.add((slot, semitones)),
                 );
               },
               child: const Text('열기'),
@@ -106,7 +113,7 @@ void main() {
     expect(find.text('끝(초)'), findsOneWidget);
   });
 
-  testWidgets('+/-로 값을 바꿔 저장하면 드래프트에 실린다', (tester) async {
+  testWidgets('+를 누르면 저장 버튼 없이도 실시간 반영된다', (tester) async {
     await openDialog(tester, _song(), trackPitches: {1: 2});
 
     // 현재 값(+2)에서 한 음 더 올린다. 스크롤 영역 아래일 수 있어
@@ -118,9 +125,30 @@ void main() {
     await tester.pump();
     expect(find.text('3키 높임'), findsOneWidget);
 
+    // 디바운스(400ms)가 지나면 저장 버튼과 무관하게 콜백이 온다.
+    expect(pitchChanges, isEmpty);
+    await tester.pump(const Duration(milliseconds: 450));
+    expect(pitchChanges, [(1, 3)]);
+
+    // 저장으로 닫아도 중복 반영은 없다.
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
-    expect(result?.trackPitchSemitones[1], 3);
+    expect(pitchChanges, [(1, 3)]);
+    expect(result, isNotNull);
+  });
+
+  testWidgets('디바운스가 끝나기 전에 닫혀도 마지막 값이 반영된다', (tester) async {
+    await openDialog(tester, _song());
+
+    await tester.ensureVisible(find.byTooltip('키 한 음 내리기'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('키 한 음 내리기'));
+    await tester.pump();
+    // 디바운스를 기다리지 않고 바로 닫는다.
+    await tester.tap(find.text('닫기'));
+    await tester.pumpAndSettle();
+
+    expect(pitchChanges, [(1, -1)]);
   });
 
   testWidgets('조성을 알면 실효 조성(구운 키+재생 키)을 함께 보여준다', (tester) async {

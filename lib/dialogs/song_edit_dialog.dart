@@ -5,6 +5,7 @@
 // v3.3.0 정리: 트랙 카드에는 파일명·교체·재생 키만 상시 노출하고,
 // 라벨·시작/끝 구간은 '세부 설정' 접이식으로 내렸다. 구운 키는 시스템이
 // 파일을 만들 때 정해지는 고정값이라 수정 박스 대신 뱃지로만 보여준다.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -24,10 +25,14 @@ class SongEditDialog {
 
   /// [trackPitches]: 슬롯별 현재 재생 키(반음). 설정에 있는 값이라
   /// 호출하는 쪽(코디네이터)이 넣어 준다.
+  ///
+  /// [onPitchChanged]: 재생 키가 바뀔 때 즉시 불린다 — 저장 버튼과 무관하게
+  /// 실시간 반영(연타 대비 짧은 디바운스, 창이 닫힐 때 잔여분 플러시).
   static Future<SongEditDraft?> show(
     BuildContext context,
     Song song, {
     Map<int, int> trackPitches = const {},
+    void Function(int slot, int semitones)? onPitchChanged,
   }) {
     final titleController = TextEditingController(text: song.title);
     final artistController = TextEditingController(text: song.artist);
@@ -63,6 +68,30 @@ class SongEditDialog {
     };
     String? nextLyricsText;
     String? nextLyricsFileName;
+
+    // 재생 키 실시간 반영. 연타 중 반음마다 오디오를 다시 굽지 않도록
+    // 짧게 모았다가 보내고, 어떤 경로로 닫혀도(저장·닫기·ESC) 플러시한다.
+    final appliedPitch = Map<int, int>.from(trackPitch);
+    Timer? pitchApplyTimer;
+    void flushPitchChanges() {
+      pitchApplyTimer?.cancel();
+      if (onPitchChanged == null) return;
+      trackPitch.forEach((slot, value) {
+        if (appliedPitch[slot] != value) {
+          appliedPitch[slot] = value;
+          onPitchChanged(slot, value);
+        }
+      });
+    }
+
+    void schedulePitchApply() {
+      if (onPitchChanged == null) return;
+      pitchApplyTimer?.cancel();
+      pitchApplyTimer = Timer(
+        const Duration(milliseconds: 400),
+        flushPitchChanges,
+      );
+    }
 
     return showDialog<SongEditDraft>(
       context: context,
@@ -218,7 +247,7 @@ class SongEditDialog {
                       Text('반주', style: AppTypography.bodyMuted),
                       const SizedBox(height: 2),
                       Text(
-                        '재생 키는 그 반주에만 적용 — 파일은 그대로, 재생할 때 변환합니다.',
+                        '재생 키는 그 반주에만 적용 — 바꾸는 즉시 저장되고, 재생할 때 변환합니다.',
                         style: AppTypography.bodyMuted,
                       ),
                       const SizedBox(height: 8),
@@ -242,11 +271,14 @@ class SongEditDialog {
                           bakedSemitones: trackBaked[slot] ?? 0,
                           pitchSemitones: trackPitch[slot] ?? 0,
                           musicalKey: song.musicalKey,
-                          onPitchAdjust: (delta) => setLocal(
-                            () => trackPitch[slot] = clampSemitones(
-                              (trackPitch[slot] ?? 0) + delta,
-                            ),
-                          ),
+                          onPitchAdjust: (delta) {
+                            setLocal(
+                              () => trackPitch[slot] = clampSemitones(
+                                (trackPitch[slot] ?? 0) + delta,
+                              ),
+                            );
+                            schedulePitchApply();
+                          },
                           onPick: () => pickTrack(slot),
                           onKeep: () => setLocal(() => trackPaths[slot] = null),
                         ),
@@ -306,7 +338,6 @@ class SongEditDialog {
                         applyMusicalKey: true,
                         musicalKey: parsedKey,
                         trackBakedSemitones: Map.of(trackBaked),
-                        trackPitchSemitones: Map.of(trackPitch),
                       ),
                     );
                   },
@@ -317,7 +348,8 @@ class SongEditDialog {
           },
         );
       },
-    );
+      // ESC·배리어 클릭 등 어떤 경로로 닫혀도 마지막 조절분을 잃지 않는다.
+    ).whenComplete(flushPitchChanges);
   }
 
   static String _decodeLyricsFromBytes(List<int> bytes) {

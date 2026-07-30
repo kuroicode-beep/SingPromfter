@@ -238,6 +238,33 @@ void main() {
     expect(seeks, isEmpty);
   });
 
+  test('stepLineFor — O/P 3겹 판정(논리 키·문자·한글 자판 ㅐ/ㅔ)', () {
+    expect(stepLineFor(LogicalKeyboardKey.keyO), -1);
+    expect(stepLineFor(LogicalKeyboardKey.keyP), 1);
+    // 논리 키가 어긋나도(한글 IME/OEM 매핑) 실제 문자로 잡는다.
+    expect(stepLineFor(LogicalKeyboardKey.f19, character: 'o'), -1);
+    expect(stepLineFor(LogicalKeyboardKey.f19, character: 'ㅐ'), -1);
+    expect(stepLineFor(LogicalKeyboardKey.f19, character: 'P'), 1);
+    expect(stepLineFor(LogicalKeyboardKey.f19, character: 'ㅔ'), 1);
+    expect(stepLineFor(LogicalKeyboardKey.keyQ, character: 'q'), isNull);
+  });
+
+  // 실사용 보고: 곡 수정 창을 닫은 직후 O/P·[·]이 전부 안 먹음.
+  // 다이얼로그·팝업 메뉴가 닫히면서 포커스가 스코프 밖(루트/스코프 노드)으로
+  // 떨어지면 글자 단축키가 조용히 죽는다 — 스스로 되찾아야 한다.
+  testWidgets('포커스가 고아가 되면 스스로 되찾아 단축키가 살아난다', (tester) async {
+    await pump(tester);
+
+    // 다이얼로그가 닫히며 아무 위젯도 포커스를 안 가진 상황을 재현한다.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+    await tester.pump(); // 자가복구 postFrame 반영
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await tester.pump();
+    expect(resetCalls, 1);
+  });
+
   testWidgets('다시 켜지면(탭 복귀) 포커스를 되찾아 단축키가 살아난다', (tester) async {
     await pump(tester, enabled: false);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);

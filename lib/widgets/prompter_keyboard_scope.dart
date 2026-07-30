@@ -46,6 +46,24 @@ int? lyricsNudgeFor(LogicalKeyboardKey key, {String? character}) {
   return null;
 }
 
+/// O=이전 줄(-1), P=다음 줄(+1). 해당 키가 아니면 null. (순수 함수 — 테스트 대상)
+///
+/// .·/와 같은 3겹 판정이다 — 논리 키에 더해 **실제 입력 문자**로도 받는다.
+/// 이 기기에서 논리 키 매핑이 어긋나는 실사용 보고(.·/)가 있었으므로
+/// 글자 키에도 같은 안전망을 깐다. 한글 자판에서 O·P 자리는 ㅐ·ㅔ다.
+int? stepLineFor(LogicalKeyboardKey key, {String? character}) {
+  if (key == LogicalKeyboardKey.keyO) return -1;
+  if (key == LogicalKeyboardKey.keyP) return 1;
+  const prevChars = ['o', 'O', 'ㅐ'];
+  const nextChars = ['p', 'P', 'ㅔ'];
+  final ch = character;
+  if (ch != null) {
+    if (prevChars.contains(ch)) return -1;
+    if (nextChars.contains(ch)) return 1;
+  }
+  return null;
+}
+
 /// 홈과 무대(전체화면)가 **똑같이** 쓰는 동작 묶음.
 ///
 /// 예전에는 단축키 하나를 추가할 때마다 홈 배선과 무대 배선을 따로
@@ -133,6 +151,11 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _requestScopeFocus());
+    // 포커스 자가복구 — 다이얼로그·팝업 메뉴가 닫히면서 포커스가 아무 데도
+    // 안 남으면(루트로 떨어지면) 글자 단축키 전부가 조용히 죽는다.
+    // 실사용 보고: 곡 수정 창을 닫은 직후 O/P·[·]이 안 먹음. 화면을 한 번
+    // 클릭해야 살아나는데, 그 클릭을 사람에게 시키지 말고 여기서 되찾는다.
+    FocusManager.instance.addListener(_onGlobalFocusChanged);
   }
 
   @override
@@ -147,14 +170,31 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
 
   @override
   void dispose() {
+    FocusManager.instance.removeListener(_onGlobalFocusChanged);
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _onGlobalFocusChanged() {
+    if (!mounted || !widget.enabled) return;
+    final primary = FocusManager.instance.primaryFocus;
+    // 진짜 위젯(텍스트 입력·버튼 등)에 포커스가 남아 있으면 건드리지
+    // 않는다 — 키는 어차피 위로 버블된다. 루트(context 없음)나 스코프
+    // 노드에 걸쳐 있으면 아무도 키를 안 받는 상태다.
+    final orphaned =
+        primary == null || primary.context == null || primary is FocusScopeNode;
+    if (!orphaned) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestScopeFocus());
   }
 
   void _requestScopeFocus() {
     if (!mounted) return;
     if (!widget.enabled) return;
     if (SongListShortcutService.isTextInputFocused()) return;
+    // 무대(전체화면)가 위에 떠 있으면 홈 스코프는 손대지 않는다 —
+    // 두 스코프가 자가복구로 서로 포커스를 뺏는 것을 막는다.
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
     _focusNode.requestFocus();
   }
 
@@ -181,12 +221,9 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 꾹 누르면 죽 넘어간다.
     final stepLine = widget.actions?.stepLine;
     if (stepLine != null) {
-      if (key == LogicalKeyboardKey.keyO) {
-        stepLine(-1);
-        return KeyEventResult.handled;
-      }
-      if (key == LogicalKeyboardKey.keyP) {
-        stepLine(1);
+      final step = stepLineFor(key, character: event.character);
+      if (step != null) {
+        stepLine(step);
         return KeyEventResult.handled;
       }
     }

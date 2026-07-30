@@ -22,11 +22,13 @@ class SongActionCoordinator {
     required Song song,
     required Song? selectedSong,
     Map<int, int> trackPitches = const {},
+    void Function(int slot, int semitones)? onTrackPitchChanged,
   }) async {
     final draft = await SongEditDialog.show(
       context,
       song,
       trackPitches: trackPitches,
+      onPitchChanged: onTrackPitchChanged,
     );
     if (draft == null) return null;
     if (_libraryService.hasDuplicateTitle(
@@ -45,19 +47,11 @@ class SongActionCoordinator {
         song: song,
         draft: draft,
       );
-      // 재생 키는 songs.json이 아니라 설정에 사는 값이라, 바뀐 슬롯만
-      // 골라 outcome에 실어 화면이 컨트롤러로 반영하게 한다.
-      final pitchChanges = <int, int>{
-        for (final entry in draft.trackPitchSemitones.entries)
-          if ((trackPitches[entry.key] ?? 0) != entry.value)
-            entry.key: entry.value,
-      };
       final isSelected = selectedSong?.id == song.id;
       return SongActionOutcome(
         songs: result.songs,
         selectedSong: isSelected ? result.song : selectedSong,
         loadSong: isSelected ? result.song : null,
-        trackPitchChanges: pitchChanges.isEmpty ? null : pitchChanges,
         message: '곡 정보가 수정되었습니다.',
       );
     } catch (e, stack) {
@@ -107,10 +101,6 @@ class SongActionOutcome {
   final Song? deletedSong;
   final bool clearSelectedTrackSlot;
   final bool stopPlayback;
-
-  /// 수정 다이얼로그에서 바뀐 슬롯별 재생 키(반음). 없으면 null.
-  /// 설정에 사는 값이라 화면이 AppController.setPitch로 반영한다.
-  final Map<int, int>? trackPitchChanges;
   final String? message;
 
   const SongActionOutcome({
@@ -121,7 +111,6 @@ class SongActionOutcome {
     this.deletedSong,
     this.clearSelectedTrackSlot = false,
     this.stopPlayback = false,
-    this.trackPitchChanges,
     this.message,
   });
 

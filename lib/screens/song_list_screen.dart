@@ -1089,22 +1089,13 @@ class _SongListScreenState extends State<SongListScreen> {
         for (final track in song.backingTracks)
           track.slot: _app.settings.pitchForSong(song.id, track.slot),
       },
+      // 재생 키는 저장 버튼과 무관하게 조절 즉시 반영. setPitch가 저장·
+      // 클램프와 '지금 재생 중인 트랙이면 새 키로 재준비'까지 처리한다.
+      onTrackPitchChanged: (slot, semitones) => unawaited(
+        _app.setPitch(song.id, semitones, slot: slot, keepPosition: true),
+      ),
     );
     await _applySongActionOutcome(outcome, preferredSlot: _selectedTrackSlot);
-
-    // 다이얼로그에서 바꾼 슬롯별 재생 키. setPitch가 저장·클램프와
-    // '지금 재생 중인 트랙이면 새 키로 재준비'까지 처리한다.
-    final pitchChanges = outcome?.trackPitchChanges;
-    if (pitchChanges != null) {
-      for (final entry in pitchChanges.entries) {
-        await _app.setPitch(
-          song.id,
-          entry.value,
-          slot: entry.key,
-          keepPosition: true,
-        );
-      }
-    }
 
     // 반주를 갈아끼웠는데 파일명이 같으면(같은 제목·슬롯) 예전 오디오의
     // 키 변형본·EQ 분석이 그대로 서빙된다. 그 캐시를 비운다.

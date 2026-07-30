@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.3.0';
+  static const String current = '3.4.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.4.0',
+      '2026-07-31',
+      '단축키 포커스 자가복구 — 곡 수정 창·팝업을 닫은 직후 O/P·[·] 등 '
+          '글자 단축키가 죽던 문제 수정(포커스가 고아가 되면 스코프가 즉시 '
+          '되찾음), O/P도 문자 3겹 판정(한글 자판 ㅐ/ㅔ). 곡 수정 창의 '
+          '재생 키는 저장 버튼 없이 조절 즉시 반영',
+    ),
     AppVersionEntry(
       '3.3.0',
       '2026-07-30',

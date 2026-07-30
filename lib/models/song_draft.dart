@@ -43,12 +43,10 @@ class SongEditDraft {
 
   /// 슬롯별 '이미 파일에 구워진' 키(반음). 조성 표시를 바로잡는 값이며
   /// 재생에는 쓰지 않는다(이중 적용 방지).
+  ///
+  /// 재생 키는 여기 없다 — 다이얼로그에서 조절하는 즉시 콜백으로 반영되는
+  /// 실시간 값이라(설정 소관) 드래프트에 실을 것이 없다.
   final Map<int, int> trackBakedSemitones;
-
-  /// 슬롯별 재생 키(반음) — 파일은 그대로 두고 재생할 때 변환하는 값.
-  /// songs.json이 아니라 설정(pitchSemitonesBySong)에 저장되므로 곡 저장과
-  /// 별도로 반영한다. 맵에 없는 슬롯은 건드리지 않는다는 뜻이다.
-  final Map<int, int> trackPitchSemitones;
 
   const SongEditDraft({
     required this.title,
@@ -61,6 +59,5 @@ class SongEditDraft {
     this.applyMusicalKey = false,
     this.musicalKey,
     this.trackBakedSemitones = const {},
-    this.trackPitchSemitones = const {},
   });
 }
