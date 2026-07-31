@@ -177,6 +177,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    stopManagedServers(); // 앱이 띄운 서버는 앱과 함께 끈다.
     _statusRefreshTimer?.cancel();
     _pitchApplyTimer?.cancel();
     _tempoApplyTimer?.cancel();
@@ -1357,6 +1358,44 @@ class AppController extends ChangeNotifier {
     return File(cmd).exists();
   }
 
+  /// 앱이 직접 띄운 로컬 서버들(분리·STT). 앱이 수명을 관리한다 —
+  /// 콘솔창 없이 백그라운드로 켜고, 앱이 닫힐 때 함께 끈다(사용자 규약).
+  /// 사용자가 밖에서 직접 켠 서버는 여기 없으므로 건드리지 않는다.
+  final List<Process> _managedServers = [];
+
+  /// .bat 서버를 콘솔창 없이 켠다. normal 모드는 stdio를 파이프로 물려
+  /// CREATE_NO_WINDOW로 뜬다(detached는 창 관리도 수명 관리도 안 된다).
+  Future<bool> _startManagedServer(String cmd) async {
+    try {
+      final proc = await Process.start(
+        'cmd.exe',
+        ['/c', cmd],
+        workingDirectory: File(cmd).parent.path,
+      );
+      // 파이프가 가득 차면 서버가 멈춘다 — 출력은 흘려보낸다.
+      unawaited(proc.stdout.drain<void>());
+      unawaited(proc.stderr.drain<void>());
+      _managedServers.add(proc);
+      return true;
+    } catch (e) {
+      debugPrint('서버 기동 실패($cmd): $e');
+      return false;
+    }
+  }
+
+  /// 앱이 띄운 서버를 트리째 끝낸다(cmd 아래 python까지 — /T).
+  /// 앱 종료 경로(창 닫기·dispose)에서 부른다. 여러 번 불려도 안전하다.
+  void stopManagedServers() {
+    for (final proc in _managedServers) {
+      try {
+        Process.runSync('taskkill', ['/PID', '${proc.pid}', '/T', '/F']);
+      } catch (e) {
+        debugPrint('서버 종료 실패(pid ${proc.pid}): $e');
+      }
+    }
+    _managedServers.clear();
+  }
+
   bool _separatorStarting = false;
 
   /// 분리 서버가 꺼져 있으면 등록된 명령으로 켜고 온라인까지 기다린다.
@@ -1373,16 +1412,7 @@ class AppController extends ChangeNotifier {
 
     if (!_separatorStarting) {
       _separatorStarting = true;
-      try {
-        await Process.start(
-          cmd,
-          const [],
-          workingDirectory: File(cmd).parent.path,
-          mode: ProcessStartMode.detached,
-          runInShell: true, // .bat은 셸이 있어야 돈다.
-        );
-      } catch (e) {
-        debugPrint('분리 서버 기동 실패: $e');
+      if (!await _startManagedServer(cmd)) {
         _separatorStarting = false;
         return false;
       }
@@ -1422,16 +1452,7 @@ class AppController extends ChangeNotifier {
 
     if (!_sttStarting) {
       _sttStarting = true;
-      try {
-        await Process.start(
-          cmd,
-          const [],
-          workingDirectory: File(cmd).parent.path,
-          mode: ProcessStartMode.detached,
-          runInShell: true, // .bat은 셸이 있어야 돈다.
-        );
-      } catch (e) {
-        debugPrint('STT 서버 기동 실패: $e');
+      if (!await _startManagedServer(cmd)) {
         _sttStarting = false;
         return false;
       }

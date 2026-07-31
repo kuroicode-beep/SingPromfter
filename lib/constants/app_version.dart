@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.16.0';
+  static const String current = '3.17.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.17.0',
+      '2026-07-31',
+      '로컬 서버(분리·STT) 수명 관리 — 앱이 띄울 때 콘솔창 없이 백그라운드로 '
+          '켜고, 앱을 닫으면 함께 꺼진다(트리째 종료). 밖에서 직접 켠 서버는 '
+          '건드리지 않음',
+    ),
     AppVersionEntry(
       '3.16.0',
       '2026-07-31',

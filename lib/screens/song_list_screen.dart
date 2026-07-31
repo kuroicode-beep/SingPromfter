@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:uuid/uuid.dart';
@@ -170,6 +171,14 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.isRecordingProvider = () => _recording.isRecording;
     // 우하단 '녹음 중' 배지가 듣는 표시용 거울 — 잠금 배지와 같은 패턴.
     _recording.addListener(_syncRecordingView);
+    // 창을 X로 닫아도 앱이 띄운 서버(분리·STT)가 남지 않게 — dispose는
+    // 창 파괴 경로에서 안 불릴 수 있어 종료 요청 훅에서 먼저 끈다.
+    _exitListener = AppLifecycleListener(
+      onExitRequested: () async {
+        _app.stopManagedServers();
+        return AppExitResponse.exit;
+      },
+    );
     // 테이크 재생이 끝나면 '정지' 버튼이 '듣기'로 돌아오게 한다.
     _takeBindings = _takePlayer.bind(
       onPlayingChanged: (playing) {
@@ -192,6 +201,8 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.recordingView.value = _recording.isRecording;
   }
 
+  AppLifecycleListener? _exitListener;
+
   @override
   void dispose() {
     for (final timer in _pendingDeleteTimers.values) {
@@ -200,6 +211,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.removeListener(_onPlaybackStateChanged);
+    _exitListener?.dispose();
     _recording.removeListener(_syncRecordingView);
     _recording.dispose();
     _takeBindings?.cancel();
