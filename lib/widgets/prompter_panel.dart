@@ -23,6 +23,7 @@ import 'prompter_lyrics_view.dart';
 import 'prompter_sweep_line.dart';
 import 'prompter_wheel_scope.dart';
 import 'queue_panel.dart';
+import 'recording_badge.dart';
 import 'sync_lock_badge.dart';
 
 class PrompterPanel extends StatelessWidget {
@@ -283,6 +284,12 @@ class PrompterPanel extends StatelessWidget {
                       top: 10,
                       right: 10,
                       child: SyncLockBadge(locked: playback.syncLockedView),
+                    ),
+                    // 녹음 중(R) 배지 — 우하단.
+                    Positioned(
+                      bottom: 10,
+                      right: 10,
+                      child: RecordingBadge(recording: playback.recordingView),
                     ),
                   ],
                 ),

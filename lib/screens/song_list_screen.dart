@@ -168,6 +168,8 @@ class _SongListScreenState extends State<SongListScreen> {
     )..addListener(_onPlaybackStateChanged);
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     _playback.isRecordingProvider = () => _recording.isRecording;
+    // 우하단 '녹음 중' 배지가 듣는 표시용 거울 — 잠금 배지와 같은 패턴.
+    _recording.addListener(_syncRecordingView);
     // 테이크 재생이 끝나면 '정지' 버튼이 '듣기'로 돌아오게 한다.
     _takeBindings = _takePlayer.bind(
       onPlayingChanged: (playing) {
@@ -186,6 +188,10 @@ class _SongListScreenState extends State<SongListScreen> {
     if (mounted) setState(() {});
   }
 
+  void _syncRecordingView() {
+    _playback.recordingView.value = _recording.isRecording;
+  }
+
   @override
   void dispose() {
     for (final timer in _pendingDeleteTimers.values) {
@@ -194,6 +200,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.removeListener(_onPlaybackStateChanged);
+    _recording.removeListener(_syncRecordingView);
     _recording.dispose();
     _takeBindings?.cancel();
     _takePlayer.dispose();

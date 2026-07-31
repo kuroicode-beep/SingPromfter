@@ -16,6 +16,7 @@ import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_drawer.dart';
 import '../widgets/prompter_stage_metrics.dart';
+import '../widgets/recording_badge.dart';
 import '../widgets/sync_lock_badge.dart';
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../widgets/prompter_lyrics_view.dart';
@@ -383,6 +384,12 @@ class _PrompterScreenState extends State<PrompterScreen> {
               top: _controlsVisible ? 68 : 12,
               right: 12,
               child: SyncLockBadge(locked: widget.playback.syncLockedView),
+            ),
+            // 녹음 중(R) 배지 — 우하단, EQ 밴드 위로 비킨다.
+            Positioned(
+              bottom: band + 12,
+              right: 12,
+              child: RecordingBadge(recording: widget.playback.recordingView),
             ),
             if (widget.pendingPitch != null)
               Positioned.fill(

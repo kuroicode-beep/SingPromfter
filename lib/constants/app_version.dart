@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.14.1';
+  static const String current = '3.15.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.15.0',
+      '2026-07-31',
+      '녹음 중(R) 배지 — 프롬프터 우하단에 ●+글자로 상시 표시(메인·무대 '
+          '공통, 무대는 EQ 밴드 위로 비킴). 잠금 배지와 같은 문법',
+    ),
     AppVersionEntry(
       '3.14.1',
       '2026-07-31',

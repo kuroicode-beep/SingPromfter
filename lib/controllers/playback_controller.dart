@@ -141,10 +141,15 @@ class PlaybackController {
   /// 해제할 때 기다린 시간이 오프셋으로 흡수된다(AppController 소관).
   final ValueNotifier<bool> lyricsHold = ValueNotifier(false);
 
-  /// 현재 곡의 싱크 잠금(L) 상태 — 프롬프터 좌상단 자물쇠 배지가 듣는다.
+  /// 현재 곡의 싱크 잠금(L) 상태 — 프롬프터 우상단 자물쇠 배지가 듣는다.
   /// 정본은 Song.syncLocked이고, 여기는 화면 표시용 거울이다
   /// (곡 로드·토글 때 AppController가 채운다).
   final ValueNotifier<bool> syncLockedView = ValueNotifier(false);
+
+  /// 녹음 중(R) 상태 — 프롬프터 우하단 배지가 듣는다.
+  /// 정본은 RecordingController이고, 여기는 표시용 거울이다
+  /// (화면이 리스너로 채운다 — 잠금 배지와 같은 패턴).
+  final ValueNotifier<bool> recordingView = ValueNotifier(false);
 
   /// 현재 곡의 싱크 가사. 없으면 null이고 timed 모드는 추정으로 되돌아간다.
   final ValueNotifier<TimedLyrics?> timedLyrics = ValueNotifier(null);
@@ -219,6 +224,7 @@ class PlaybackController {
     autoScrollPaused.dispose();
     lyricsHold.dispose();
     syncLockedView.dispose();
+    recordingView.dispose();
     timedLyrics.dispose();
     trackLevels.dispose();
   }
