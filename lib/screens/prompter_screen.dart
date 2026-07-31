@@ -16,6 +16,7 @@ import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_drawer.dart';
 import '../widgets/prompter_stage_metrics.dart';
+import '../widgets/sync_lock_badge.dart';
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_sweep_line.dart';
@@ -376,6 +377,12 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
+            // 싱크 잠금(L) 배지 — 상단 바가 열려 있으면 그 아래로 비킨다.
+            Positioned(
+              top: _controlsVisible ? 68 : 12,
+              left: 12,
+              child: SyncLockBadge(locked: widget.playback.syncLockedView),
+            ),
             if (widget.pendingPitch != null)
               Positioned.fill(
                 child: ValueListenableBuilder<int?>(

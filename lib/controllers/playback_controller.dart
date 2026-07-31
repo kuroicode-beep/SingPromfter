@@ -141,6 +141,11 @@ class PlaybackController {
   /// 해제할 때 기다린 시간이 오프셋으로 흡수된다(AppController 소관).
   final ValueNotifier<bool> lyricsHold = ValueNotifier(false);
 
+  /// 현재 곡의 싱크 잠금(L) 상태 — 프롬프터 좌상단 자물쇠 배지가 듣는다.
+  /// 정본은 Song.syncLocked이고, 여기는 화면 표시용 거울이다
+  /// (곡 로드·토글 때 AppController가 채운다).
+  final ValueNotifier<bool> syncLockedView = ValueNotifier(false);
+
   /// 현재 곡의 싱크 가사. 없으면 null이고 timed 모드는 추정으로 되돌아간다.
   final ValueNotifier<TimedLyrics?> timedLyrics = ValueNotifier(null);
 
@@ -213,6 +218,7 @@ class PlaybackController {
     lineIndex.dispose();
     autoScrollPaused.dispose();
     lyricsHold.dispose();
+    syncLockedView.dispose();
     timedLyrics.dispose();
     trackLevels.dispose();
   }
@@ -620,6 +626,7 @@ class PlaybackController {
     lineIndex.value = 0;
     // 곡이 바뀌면 싱크 대기는 무의미하다 — 얼어붙은 채 남지 않게 푼다.
     lyricsHold.value = false;
+    syncLockedView.value = song.syncLocked;
     _update(
       state.value.copyWith(
         song: song,

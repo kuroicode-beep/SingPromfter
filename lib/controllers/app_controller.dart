@@ -815,6 +815,7 @@ class AppController extends ChangeNotifier {
     }
     final next = !song.syncLocked;
     await replaceSongInList(song.copyWith(syncLocked: next));
+    playback.syncLockedView.value = next; // 좌상단 자물쇠 배지 즉시 갱신
     _emit(next ? '싱크 잠금 — 조절 키가 꺼졌습니다 (L로 해제)' : '싱크 잠금 해제 — 조절할 수 있습니다');
   }
 

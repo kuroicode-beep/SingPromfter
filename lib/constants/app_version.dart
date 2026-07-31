@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.13.0';
+  static const String current = '3.14.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.14.0',
+      '2026-07-31',
+      '싱크 잠금(L) 배지 — 프롬프터 좌상단에 큰 자물쇠+글자로 상시 표시'
+          '(메인·무대 공통). "L이 눌렸는지 모르겠다"는 실사용 요청, 색이 '
+          '아니라 아이콘·글자로 알림',
+    ),
     AppVersionEntry(
       '3.13.0',
       '2026-07-31',

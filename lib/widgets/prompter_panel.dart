@@ -23,6 +23,7 @@ import 'prompter_lyrics_view.dart';
 import 'prompter_sweep_line.dart';
 import 'prompter_wheel_scope.dart';
 import 'queue_panel.dart';
+import 'sync_lock_badge.dart';
 
 class PrompterPanel extends StatelessWidget {
   final Song? song;
@@ -276,6 +277,12 @@ class PrompterPanel extends StatelessWidget {
                           ),
                         ),
                       ),
+                    // 싱크 잠금(L) 배지 — "눌렸는지 모르겠다"는 실사용 요청.
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: SyncLockBadge(locked: playback.syncLockedView),
+                    ),
                   ],
                 ),
               ),
