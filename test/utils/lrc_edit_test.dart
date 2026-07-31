@@ -58,6 +58,38 @@ void main() {
     });
   });
 
+  group('removeLrcLine — 현재 줄 삭제(D)', () {
+    const raw = '[ti:테스트]\n'
+        '[00:10.00]첫 줄\n'
+        '[00:14.00]둘째 줄\n'
+        '[00:19.00]셋째 줄';
+
+    test('표시 줄 하나를 지우고 나머지·메타는 그대로', () {
+      final next = removeLrcLine(raw, displayIndex: 1);
+      expect(next?.removedText, '둘째 줄');
+      expect(next?.lrc, contains('[ti:테스트]'));
+      expect(next?.lrc, contains('[00:10.00]첫 줄'));
+      expect(next?.lrc, isNot(contains('둘째 줄')));
+      expect(next?.lrc, contains('[00:19.00]셋째 줄'));
+    });
+
+    test('다중 태그(후렴 반복)는 해당 시각의 태그만 지운다', () {
+      const chorus = '[00:10.00][00:30.00]후렴\n[00:20.00]중간 줄';
+      // 표시 시각순: 10(후렴)·20(중간)·30(후렴) — 30초 것만 지우면
+      // 10초 후렴은 남는다.
+      final next = removeLrcLine(chorus, displayIndex: 2);
+      expect(next?.removedText, '후렴');
+      expect(next?.lrc, contains('[00:10.00]후렴'));
+      expect(next?.lrc, isNot(contains('[00:30.00]')));
+      expect(next?.lrc, contains('[00:20.00]중간 줄'));
+    });
+
+    test('없는 줄이면 null', () {
+      expect(removeLrcLine(raw, displayIndex: 9), isNull);
+      expect(removeLrcLine(raw, displayIndex: -1), isNull);
+    });
+  });
+
   group('lrcFromSttSegments', () {
     test('타임스탬프 형식과 메타 태그', () {
       final lrc = lrcFromSttSegments(

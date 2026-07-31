@@ -144,6 +144,63 @@ int _tagToMs(Match tag) {
   return minutes * 60000 + seconds * 1000 + millis;
 }
 
+/// 표시 줄 [displayIndex]를 지운 LRC 원문과 지워진 텍스트를 돌려준다.
+///
+/// 노래가 끝난 뒤에도 이어지는 환청 줄(STT가 페이드아웃에서 지어낸 가사)을
+/// D 단축키로 지우는 입구. 다중 태그(후렴 반복) 줄은 해당 시각의 태그
+/// 하나만 지우고, 마지막 태그였으면 원문 줄 전체를 지운다.
+/// 해당 줄이 없으면 null.
+({String lrc, String removedText})? removeLrcLine(
+  String raw, {
+  required int displayIndex,
+}) {
+  if (displayIndex < 0) return null;
+  final lines = raw.split('\n');
+
+  // 파서(TimedLyrics)와 같은 규약: 본문 있는 줄의 태그 하나가 표시 줄 하나.
+  final entries = <({int timeMs, int rawLine, int tagStart, int tagEnd})>[];
+  for (var i = 0; i < lines.length; i++) {
+    final match = _timeTag.firstMatch(lines[i].trimRight());
+    if (match == null) continue;
+    if (match.group(2)!.trim().isEmpty) continue;
+    for (final tag in _firstTag.allMatches(match.group(1)!)) {
+      entries.add((
+        timeMs: _tagToMs(tag),
+        rawLine: i,
+        tagStart: tag.start,
+        tagEnd: tag.end,
+      ));
+    }
+  }
+  if (displayIndex >= entries.length) return null;
+
+  final order = List<int>.generate(entries.length, (i) => i);
+  order.sort((a, b) {
+    final diff = entries[a].timeMs - entries[b].timeMs;
+    return diff != 0 ? diff : a - b;
+  });
+  final target = entries[order[displayIndex]];
+
+  final rawLine = lines[target.rawLine];
+  final match = _timeTag.firstMatch(rawLine.trimRight())!;
+  final tags = match.group(1)!;
+  final text = match.group(2)!.trim();
+  final tagCount = _firstTag.allMatches(tags).length;
+
+  final out = <String>[];
+  for (var i = 0; i < lines.length; i++) {
+    if (i != target.rawLine) {
+      out.add(lines[i]);
+      continue;
+    }
+    if (tagCount <= 1) continue; // 태그가 하나뿐이면 줄 전체 삭제
+    final newTags =
+        tags.substring(0, target.tagStart) + tags.substring(target.tagEnd);
+    out.add('$newTags$text');
+  }
+  return (lrc: out.join('\n'), removedText: text);
+}
+
 /// 표시 줄 [displayIndex]의 텍스트를 [newText]로 바꾼 LRC 원문을 돌려준다.
 ///
 /// 표시 줄 순서는 파서(TimedLyrics)와 같은 규약 — **시각순 정렬** 후의

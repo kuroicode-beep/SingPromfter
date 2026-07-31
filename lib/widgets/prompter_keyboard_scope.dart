@@ -115,6 +115,9 @@ class PrompterActions {
 
   /// 싱크 잠금 토글(L). 잠그면 싱크 조절 동작 전부가 거부된다.
   final VoidCallback? toggleSyncLock;
+
+  /// 현재 줄 삭제(D). 노래 끝난 뒤 이어지는 환청 줄을 지우는 용도.
+  final VoidCallback? deleteCurrentLine;
   final ValueChanged<int>? stepLine;
   final void Function(int index, String text)? editLyricsLine;
   final VoidCallback? jumpToStart;
@@ -130,6 +133,7 @@ class PrompterActions {
     this.nudgeLyricsFromCurrentLine,
     this.toggleLyricsHold,
     this.toggleSyncLock,
+    this.deleteCurrentLine,
     this.stepLine,
     this.editLyricsLine,
     this.jumpToStart,
@@ -399,6 +403,14 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             event.physicalKey == PhysicalKeyboardKey.keyL) &&
         widget.actions?.toggleSyncLock != null) {
       widget.actions!.toggleSyncLock!();
+      return KeyEventResult.handled;
+    }
+
+    // D = 현재 줄 삭제 — 노래 끝난 뒤 이어지는 환청 줄 지우기.
+    if ((key == LogicalKeyboardKey.keyD ||
+            event.physicalKey == PhysicalKeyboardKey.keyD) &&
+        widget.actions?.deleteCurrentLine != null) {
+      widget.actions!.deleteCurrentLine!();
       return KeyEventResult.handled;
     }
 

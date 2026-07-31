@@ -126,6 +126,27 @@ void main() {
     expect(seeks, isEmpty);
   });
 
+  testWidgets('D는 현재 줄을 삭제한다', (tester) async {
+    var deletes = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PrompterKeyboardScope(
+            settings: const PrompterSettings(),
+            onSettingsChanged: (_) {},
+            actions: PrompterActions(deleteCurrentLine: () => deletes++),
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+    await tester.pump();
+
+    expect(deletes, 1);
+  });
+
   testWidgets('L은 싱크 잠금을 토글한다', (tester) async {
     var lockToggles = 0;
     await tester.pumpWidget(

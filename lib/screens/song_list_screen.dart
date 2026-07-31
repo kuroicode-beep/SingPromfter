@@ -138,6 +138,7 @@ class _SongListScreenState extends State<SongListScreen> {
     nudgeLyricsFromCurrentLine: _app.adjustLyricsFromCurrentLine,
     toggleLyricsHold: _app.toggleLyricsHold,
     toggleSyncLock: _app.toggleSyncLock,
+    deleteCurrentLine: _app.deleteCurrentLyricsLine,
     stepLine: _playback.stepLine,
     editLyricsLine: _editLyricsLine,
     jumpToStart: _playback.jumpToStart,

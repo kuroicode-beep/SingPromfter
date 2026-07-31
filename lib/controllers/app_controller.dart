@@ -964,6 +964,62 @@ class AppController extends ChangeNotifier {
     _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir 적용$limited — 위 줄은 그대로');
   }
 
+  /// 현재 줄을 가사에서 지운다 — 단축키 D.
+  ///
+  /// 노래가 끝난 뒤에도 이어지는 환청 줄(STT가 페이드아웃에서 지어낸
+  /// 가사)을 그 자리에서 지우는 용도. 지우기 전 원본을 .bak으로 남긴다.
+  Future<void> deleteCurrentLyricsLine() async {
+    if (_syncLockBlocked()) return;
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    final index = playback.lineIndex.value;
+
+    final synced = playback.timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      final raw = await lyricsSync.rawFor(song);
+      if (raw == null) {
+        _emit('가사 원문(LRC)을 읽지 못했습니다.');
+        return;
+      }
+      final result = removeLrcLine(raw, displayIndex: index);
+      if (result == null) {
+        _emit('지울 줄이 없습니다.');
+        return;
+      }
+      await lyricsSync.backupLrc(song);
+      final saved = await lyricsSync.save(song, result.lrc);
+      if (saved == null) {
+        // 마지막 남은 줄을 지우면 LRC가 비어 저장이 거부된다.
+        _emit('마지막 줄은 지울 수 없습니다. 가사 제거는 곡 수정에서 해 주세요.');
+        return;
+      }
+      await replaceSongInList(saved);
+      playback.timedLyrics.value = await lyricsSync.loadFor(saved);
+      playback.refreshLineIndex();
+      _emit('${index + 1}번째 줄 삭제: "${result.removedText}" (원본은 .bak)');
+      return;
+    }
+
+    // 일반 가사 — 표시 줄(빈 줄 제외)을 원본 줄 번호로 되돌려 지운다.
+    final indexed = LyricsLineUtils.splitLinesIndexed(song.lyricsText);
+    if (index < 0 || index >= indexed.length) {
+      _emit('지울 줄이 없습니다.');
+      return;
+    }
+    final sourceLines = song.lyricsText.split(RegExp(r'\r?\n'));
+    final removed = sourceLines.removeAt(indexed[index].sourceIndex).trim();
+    final updated = await updateSongFields(
+      song.id,
+      lyrics: sourceLines.join('\n'),
+    );
+    if (updated != null) {
+      _emit('${index + 1}번째 줄 삭제: "$removed"');
+    }
+  }
+
   /// 싱크를 원래대로 되돌린다(오프셋 0) — 단축키 T.
   /// `.`/`/`로 밀고 당기다 어긋났을 때 처음부터 다시 맞추는 리셋.
   Future<bool> resetLyricsOffset() async {

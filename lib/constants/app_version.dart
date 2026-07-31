@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.10.0';
+  static const String current = '3.11.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.11.0',
+      '2026-07-31',
+      'D = 현재 가사 줄 삭제 — 노래가 끝난 뒤에도 이어지는 환청 줄(STT가 '
+          '페이드아웃에서 지어낸 가사)을 그 자리에서 지운다. 후렴 반복 줄은 '
+          '해당 시각 것만, 삭제 전 원본 .bak 백업, L 잠금 중엔 거부',
+    ),
     AppVersionEntry(
       '3.10.0',
       '2026-07-31',
