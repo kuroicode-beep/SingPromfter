@@ -462,6 +462,9 @@ class AppController extends ChangeNotifier {
     if (song == null) return null;
     final updated = await lyricsSync.save(song, content);
     if (updated == null) return null;
+    // 새 가사가 부착됐다 — 옛 .bak은 남의 판본이라 복구(G) 대상이 아니다.
+    await lyricsSync.invalidateBackup(updated);
+    _lyricsUndoStack.remove(songId);
     await replaceSongInList(updated);
     if (selectedSong?.id == songId) {
       // 화면에 즉시 반영하고 싱크 모드로 전환한다(가져오기와 같은 규약).
@@ -593,6 +596,9 @@ class AppController extends ChangeNotifier {
 
     if (outcome.success && outcome.song != null) {
       final updated = outcome.song!;
+      // 새 가사가 부착됐다 — 옛 .bak·실행취소 스택은 예전 판본의 것이다.
+      await lyricsSync.invalidateBackup(updated);
+      _lyricsUndoStack.remove(updated.id);
       await replaceSongInList(updated);
       if (isCurrent) {
         // 새로 받은 가사를 즉시 반영하고 싱크 모드로 전환한다.
@@ -997,6 +1003,34 @@ class AppController extends ChangeNotifier {
     playback.timedLyrics.value = await lyricsSync.loadFor(saved);
     playback.refreshLineIndex();
     _emit('가사 편집 실행취소 — 남은 ${stack.length}단계');
+  }
+
+  /// 가사를 보관된 원본(.bak)으로 복구한다 — 단축키 G(화면에서 확인 후).
+  /// 복구 직전 상태는 실행취소 스택에 쌓여 F로 되돌릴 수 있다.
+  Future<bool> restoreLyricsBackup() async {
+    if (_syncLockBlocked()) return false;
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return false;
+    }
+    final backup = await lyricsSync.readBackup(song);
+    if (backup == null) {
+      _emit('보관된 원본(.bak)이 없습니다 — 가사를 고치면 그때 만들어집니다.');
+      return false;
+    }
+    final current = await lyricsSync.rawFor(song);
+    final saved = await lyricsSync.save(song, backup);
+    if (saved == null) {
+      _emit('원본을 해석하지 못했습니다.');
+      return false;
+    }
+    if (current != null) _pushLyricsUndo(song.id, current);
+    await replaceSongInList(saved);
+    playback.timedLyrics.value = await lyricsSync.loadFor(saved);
+    playback.refreshLineIndex();
+    _emit('가사를 원본으로 복구했습니다 — 직전 상태는 F로 되돌릴 수 있어요');
+    return true;
   }
 
   /// 현재 줄을 가사에서 지운다 — 단축키 D.

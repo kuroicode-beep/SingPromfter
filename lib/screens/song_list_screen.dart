@@ -140,6 +140,7 @@ class _SongListScreenState extends State<SongListScreen> {
     toggleSyncLock: _app.toggleSyncLock,
     deleteCurrentLine: _app.deleteCurrentLyricsLine,
     undoLyricsEdit: _app.undoLyricsEdit,
+    restoreLyricsBackup: _confirmRestoreLyricsBackup,
     stepLine: _playback.stepLine,
     editLyricsLine: _editLyricsLine,
     jumpToStart: _playback.jumpToStart,
@@ -821,6 +822,38 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Future<void> _adjustLyricsOffset(int deltaMs) =>
       _app.adjustLyricsOffset(deltaMs);
+
+  /// G — 원본 복구는 되돌릴 게 많아서 확인을 받고 실행한다.
+  Future<void> _confirmRestoreLyricsBackup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.elevated,
+        title: const Text(
+          '가사 원본 복구',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          '보관된 원본(.bak)으로 가사를 되돌립니다.\n'
+          '그동안의 삭제·타이밍 보정이 모두 원본 시점으로 돌아갑니다.\n'
+          '복구 직전 상태는 F(실행취소)로 되돌릴 수 있습니다.',
+          style: TextStyle(color: AppColors.textPrimary, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('원본으로 복구'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _app.restoreLyricsBackup();
+  }
 
   // ── 유튜브 가져오기 ─────────────────────────────────────
 

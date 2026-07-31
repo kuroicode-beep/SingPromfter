@@ -65,6 +65,30 @@ class LrcStore {
     }
   }
 
+  /// 보관된 원본(.bak)을 읽는다. 없으면 null.
+  Future<String?> readBackup(String songId) async {
+    try {
+      final bak = File('${(await fileFor(songId)).path}.bak');
+      if (!await bak.exists()) return null;
+      final raw = await bak.readAsString();
+      return raw.trim().isEmpty ? null : raw;
+    } catch (e) {
+      debugPrint('lrc 백업 읽기 실패($songId): $e');
+      return null;
+    }
+  }
+
+  /// 보관된 원본(.bak)을 지운다 — 새 가사가 부착돼 옛 원본이 남의 판본이
+  /// 됐을 때. (안 지우면 G 복구가 예전 판본을 되살린다)
+  Future<void> deleteBackup(String songId) async {
+    try {
+      final bak = File('${(await fileFor(songId)).path}.bak');
+      if (await bak.exists()) await bak.delete();
+    } catch (e) {
+      debugPrint('lrc 백업 삭제 실패($songId): $e');
+    }
+  }
+
   Future<void> delete(String songId) async {
     try {
       final file = await fileFor(songId);

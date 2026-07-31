@@ -121,6 +121,9 @@ class PrompterActions {
 
   /// 가사 편집 실행취소(F). D 삭제·부분 보정·줄 편집을 한 단계씩 되돌린다.
   final VoidCallback? undoLyricsEdit;
+
+  /// 가사 원본(.bak) 복구(G). 화면이 확인창을 띄운 뒤 실행한다.
+  final VoidCallback? restoreLyricsBackup;
   final ValueChanged<int>? stepLine;
   final void Function(int index, String text)? editLyricsLine;
   final VoidCallback? jumpToStart;
@@ -138,6 +141,7 @@ class PrompterActions {
     this.toggleSyncLock,
     this.deleteCurrentLine,
     this.undoLyricsEdit,
+    this.restoreLyricsBackup,
     this.stepLine,
     this.editLyricsLine,
     this.jumpToStart,
@@ -423,6 +427,14 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             event.physicalKey == PhysicalKeyboardKey.keyF) &&
         widget.actions?.undoLyricsEdit != null) {
       widget.actions!.undoLyricsEdit!();
+      return KeyEventResult.handled;
+    }
+
+    // G = 가사 원본(.bak) 복구 — 화면이 확인창을 띄운다.
+    if ((key == LogicalKeyboardKey.keyG ||
+            event.physicalKey == PhysicalKeyboardKey.keyG) &&
+        widget.actions?.restoreLyricsBackup != null) {
+      widget.actions!.restoreLyricsBackup!();
       return KeyEventResult.handled;
     }
 

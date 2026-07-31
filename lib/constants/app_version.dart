@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.12.0';
+  static const String current = '3.13.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.13.0',
+      '2026-07-31',
+      'G = 가사 원본(.bak) 복구 — 확인창을 거쳐 실행, 복구 직전 상태는 '
+          'F로 되돌림. 새 가사(받아쓰기·가져오기·부착)가 붙으면 옛 .bak과 '
+          '실행취소 스택을 무효화해 예전 판본이 되살아나는 사고 차단',
+    ),
     AppVersionEntry(
       '3.12.0',
       '2026-07-31',

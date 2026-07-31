@@ -126,9 +126,10 @@ void main() {
     expect(seeks, isEmpty);
   });
 
-  testWidgets('D는 현재 줄 삭제, F는 실행취소', (tester) async {
+  testWidgets('D는 현재 줄 삭제, F는 실행취소, G는 원본 복구', (tester) async {
     var deletes = 0;
     var undos = 0;
+    var restores = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -138,6 +139,7 @@ void main() {
             actions: PrompterActions(
               deleteCurrentLine: () => deletes++,
               undoLyricsEdit: () => undos++,
+              restoreLyricsBackup: () => restores++,
             ),
             child: const SizedBox.expand(),
           ),
@@ -147,10 +149,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyG);
     await tester.pump();
 
     expect(deletes, 1);
     expect(undos, 1);
+    expect(restores, 1);
   });
 
   testWidgets('L은 싱크 잠금을 토글한다', (tester) async {

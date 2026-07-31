@@ -110,6 +110,13 @@ class LyricsSyncService {
   /// 원문을 .bak으로 남긴다. 이미 백업이 있으면 덮지 않는다.
   Future<void> backupLrc(Song song) => _store.backup(song.id);
 
+  /// 보관된 원본(.bak). 없으면 null.
+  Future<String?> readBackup(Song song) => _store.readBackup(song.id);
+
+  /// 옛 원본(.bak)을 무효화한다 — 새 가사가 부착되면 예전 백업은
+  /// 남의 판본이라 복구 대상이 아니다.
+  Future<void> invalidateBackup(Song song) => _store.deleteBackup(song.id);
+
   /// LRC 원문을 저장하고 파일명이 반영된 곡을 돌려준다.
   Future<Song?> save(Song song, String lrcContent) async {
     final parsed = LrcParser.parse(lrcContent);
