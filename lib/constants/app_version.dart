@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.15.0';
+  static const String current = '3.16.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.16.0',
+      '2026-07-31',
+      '곡 추가 가사 파이프라인 완결 — LRCLIB에서 못 찾으면 자동으로 AI '
+          '받아쓰기로 채운다. STT 서버가 꺼져 있으면 앱이 스스로 켠다'
+          '(분리 서버와 같은 규약). 가사 찾기·받아쓰기 등 비율 없는 단계는 '
+          '홈 상단 진행바가 흐르는 표시로 바뀌어 멈춘 것처럼 보이지 않음',
+    ),
     AppVersionEntry(
       '3.15.0',
       '2026-07-31',

@@ -257,6 +257,9 @@ class ImportJobController extends ChangeNotifier {
           update(
             current.copyWith(
               ratio: progress.ratio,
+              // 비율 없는 단계(가사 찾기·받아쓰기·분리)는 미정 진행바로 —
+              // 예전 비율(가득 찬 바)이 남아 멈춘 것처럼 보이지 않게.
+              clearRatio: progress.ratio == null,
               statusDetail: progress.label ?? current.statusDetail,
             ),
           );

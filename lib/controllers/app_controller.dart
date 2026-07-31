@@ -80,6 +80,7 @@ class ImportEnqueueOutcome {
 class AppController extends ChangeNotifier {
   static const _kYtNoticeAckKey = 'yt_notice_ack';
   static const _kSeparatorCmdKey = 'separator_start_command';
+  static const _kSttCmdKey = 'stt_start_command';
 
   /// 이 PC의 분리 서버 기동 스크립트. 부팅 시 값이 없으면 이걸 심는다.
   /// 값을 비우면 자동 기동을 끈 것으로 본다.
@@ -479,7 +480,7 @@ class AppController extends ChangeNotifier {
   /// 로컬 STT(faster-whisper)로 노래를 받아써 싱크 가사를 만든다 —
   /// LRCLIB에 없는 곡의 마지막 수단. 받아쓰기라 오탈자가 있을 수 있고,
   /// 그건 프롬프터에서 줄을 길게 눌러 고친다([editLyricsLine]).
-  Future<bool> generateSttLyrics({String? songId}) async {
+  Future<bool> generateSttLyrics({String? songId, Duration? duration}) async {
     final song = songId == null ? selectedSong : songById(songId);
     if (song == null) {
       _emit('먼저 곡을 선택해 주세요.');
@@ -499,8 +500,11 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (!await sttLyrics.isOnline()) {
-      _emit('STT 서버가 꺼져 있습니다(포트 8769). 켜고 다시 시도해 주세요.');
-      return false;
+      _emit('STT 서버 켜는 중… (최대 1~2분)');
+      if (!await ensureSttOnline()) {
+        _emit('STT 서버를 켜지 못했습니다(8769). start.bat 경로를 확인해 주세요.');
+        return false;
+      }
     }
 
     _emit('AI 받아쓰기 중… 수십 초 걸립니다.');
@@ -517,9 +521,12 @@ class AppController extends ChangeNotifier {
       title: song.title,
       artist: song.artist,
       // 곡 길이 밖의 환청 가사를 걸러낸다(페이드아웃에서 지어내는 일이 있다).
-      duration: isCurrent && playback.snapshot.duration > Duration.zero
-          ? playback.snapshot.duration
-          : null,
+      // 가져오기 흐름은 메타데이터 길이를 넘겨준다(아직 재생 전이라).
+      duration:
+          duration ??
+          (isCurrent && playback.snapshot.duration > Duration.zero
+              ? playback.snapshot.duration
+              : null),
     );
     final lineCount = result.segments.where((s) => s.text.isNotEmpty).length;
     if (lineCount == 0) {
@@ -1392,6 +1399,56 @@ class AppController extends ChangeNotifier {
     return separatorOnline;
   }
 
+  bool _sttStarting = false;
+
+  /// STT 서버 기동 명령. 등록이 없으면 SVIL 표준 경로를 써 본다.
+  Future<String> _sttStartCommand() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = (prefs.getString(_kSttCmdKey) ?? '').trim();
+    if (saved.isNotEmpty) return saved;
+    const fallback = r'C:\Projects\svil-ai-work\stt_system\start.bat';
+    return await File(fallback).exists() ? fallback : '';
+  }
+
+  /// STT 서버가 꺼져 있으면 켜고 온라인까지 기다린다 — 분리 서버와 같은
+  /// 규약. 창을 닫아 서버가 죽어 있어도 받아쓰기가 스스로 살린다
+  /// (실사용 보고: "받아쓰기 작동 안 함" = 서버 꺼짐).
+  Future<bool> ensureSttOnline({
+    Duration timeout = const Duration(seconds: 90),
+  }) async {
+    if (await sttLyrics.isOnline()) return true;
+    final cmd = await _sttStartCommand();
+    if (cmd.isEmpty || !await File(cmd).exists()) return false;
+
+    if (!_sttStarting) {
+      _sttStarting = true;
+      try {
+        await Process.start(
+          cmd,
+          const [],
+          workingDirectory: File(cmd).parent.path,
+          mode: ProcessStartMode.detached,
+          runInShell: true, // .bat은 셸이 있어야 돈다.
+        );
+      } catch (e) {
+        debugPrint('STT 서버 기동 실패: $e');
+        _sttStarting = false;
+        return false;
+      }
+    }
+
+    final deadline = DateTime.now().add(timeout);
+    var online = false;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(seconds: 3));
+      if (_disposed) break;
+      online = await sttLyrics.isOnline();
+      if (online) break;
+    }
+    _sttStarting = false;
+    return online;
+  }
+
   Future<void> _refreshSeparatorStatus() async {
     final status = await separation.status();
     if (_disposed) return;
@@ -1700,9 +1757,10 @@ class AppController extends ChangeNotifier {
     unawaited(ensureSongKey(song, duration: metadata.duration));
 
     // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
+    // 규약(사용자 지정): 가져오기 시도 → 못 찾으면 AI 받아쓰기로 채움.
     var lyricsNote = '';
     if (job.fetchLyrics) {
-      onProgress(const JobProgress(ratio: 1, label: '가사 찾는 중'));
+      onProgress(const JobProgress(label: '가사 찾는 중 (LRCLIB)'));
       final outcome = await lyricsSync.fetchFor(
         song,
         duration: metadata.duration,
@@ -1711,10 +1769,22 @@ class AppController extends ChangeNotifier {
         song = outcome.song!;
         await replaceSongInList(song);
         lyricsNote = ' · 가사 포함';
-        onProgress(const JobProgress(ratio: 1, label: '가사 싱크 맞추는 중'));
+        onProgress(const JobProgress(label: '가사 싱크 맞추는 중'));
         lyricsNote += await _autoAlignNoteFor(song);
       } else {
-        lyricsNote = ' · 가사는 찾지 못함';
+        onProgress(
+          const JobProgress(label: '가사가 없어 AI 받아쓰기 중 (수십 초)'),
+        );
+        final stt = await generateSttLyrics(
+          songId: song.id,
+          duration: metadata.duration,
+        );
+        if (stt) {
+          song = songById(song.id) ?? song;
+          lyricsNote = ' · 받아쓴 가사 포함';
+        } else {
+          lyricsNote = ' · 가사는 찾지 못함(받아쓰기도 실패)';
+        }
       }
     }
 
