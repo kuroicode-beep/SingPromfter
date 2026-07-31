@@ -377,10 +377,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
-            // 싱크 잠금(L) 배지 — 상단 바가 열려 있으면 그 아래로 비킨다.
+            // 싱크 잠금(L) 배지 — 우상단(좌상단은 가사와 겹쳐 거슬림),
+            // 상단 바가 열려 있으면 그 아래로 비킨다.
             Positioned(
               top: _controlsVisible ? 68 : 12,
-              left: 12,
+              right: 12,
               child: SyncLockBadge(locked: widget.playback.syncLockedView),
             ),
             if (widget.pendingPitch != null)

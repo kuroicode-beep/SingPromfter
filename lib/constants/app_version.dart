@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.14.0';
+  static const String current = '3.14.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.14.1',
+      '2026-07-31',
+      '싱크 잠금 배지를 우상단으로 이동 — 좌상단은 가사 첫 줄과 겹쳐 '
+          '거슬린다는 피드백',
+    ),
     AppVersionEntry(
       '3.14.0',
       '2026-07-31',
