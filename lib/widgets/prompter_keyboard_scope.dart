@@ -118,6 +118,9 @@ class PrompterActions {
 
   /// 현재 줄 삭제(D). 노래 끝난 뒤 이어지는 환청 줄을 지우는 용도.
   final VoidCallback? deleteCurrentLine;
+
+  /// 가사 편집 실행취소(F). D 삭제·부분 보정·줄 편집을 한 단계씩 되돌린다.
+  final VoidCallback? undoLyricsEdit;
   final ValueChanged<int>? stepLine;
   final void Function(int index, String text)? editLyricsLine;
   final VoidCallback? jumpToStart;
@@ -134,6 +137,7 @@ class PrompterActions {
     this.toggleLyricsHold,
     this.toggleSyncLock,
     this.deleteCurrentLine,
+    this.undoLyricsEdit,
     this.stepLine,
     this.editLyricsLine,
     this.jumpToStart,
@@ -411,6 +415,14 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             event.physicalKey == PhysicalKeyboardKey.keyD) &&
         widget.actions?.deleteCurrentLine != null) {
       widget.actions!.deleteCurrentLine!();
+      return KeyEventResult.handled;
+    }
+
+    // F = 가사 편집 실행취소 — D를 잘못 눌렀을 때의 구명줄.
+    if ((key == LogicalKeyboardKey.keyF ||
+            event.physicalKey == PhysicalKeyboardKey.keyF) &&
+        widget.actions?.undoLyricsEdit != null) {
+      widget.actions!.undoLyricsEdit!();
       return KeyEventResult.handled;
     }
 

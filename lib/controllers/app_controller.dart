@@ -555,6 +555,7 @@ class AppController extends ChangeNotifier {
         newText: trimmed,
       );
       if (next == null) return false;
+      _pushLyricsUndo(song.id, raw);
       final saved = await lyricsSync.save(song, next);
       if (saved == null) return false;
       await replaceSongInList(saved);
@@ -952,6 +953,7 @@ class AppController extends ChangeNotifier {
     // 첫 파괴적 편집 전에 원본을 남긴다(있으면 안 덮음) — 재타이밍과 같은
     // 예의. 백업이 없어 "리셋"이 불가능했던 실사용 사고의 재발 방지.
     await lyricsSync.backupLrc(song);
+    _pushLyricsUndo(song.id, raw);
     final saved = await lyricsSync.save(song, result.lrc);
     if (saved == null) return;
     await replaceSongInList(saved);
@@ -962,6 +964,39 @@ class AppController extends ChangeNotifier {
     final amount = (applied.abs() / 1000).toStringAsFixed(1);
     final limited = applied == deltaMs ? '' : ' (위 줄 직전까지만)';
     _emit('${index + 1}번째 줄부터 아래만 $amount초 $dir 적용$limited — 위 줄은 그대로');
+  }
+
+  /// 가사 편집 실행취소 스택 — 곡별 직전 LRC 원문(세션 한정, 최대 20단계).
+  /// D 삭제·Alt 부분 보정·E 줄 편집이 저장 직전 상태를 쌓고, F가 되돌린다.
+  final Map<String, List<String>> _lyricsUndoStack = {};
+  static const int _lyricsUndoLimit = 20;
+
+  void _pushLyricsUndo(String songId, String raw) {
+    final stack = _lyricsUndoStack.putIfAbsent(songId, () => []);
+    stack.add(raw);
+    if (stack.length > _lyricsUndoLimit) stack.removeAt(0);
+  }
+
+  /// 가사 편집 실행취소 — 단축키 F. 방금 지운 줄·민 타이밍을 되돌린다.
+  Future<void> undoLyricsEdit() async {
+    if (_syncLockBlocked()) return;
+    final song = selectedSong == null ? null : songById(selectedSong!.id);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    final stack = _lyricsUndoStack[song.id];
+    if (stack == null || stack.isEmpty) {
+      _emit('되돌릴 가사 편집이 없습니다.');
+      return;
+    }
+    final raw = stack.removeLast();
+    final saved = await lyricsSync.save(song, raw);
+    if (saved == null) return;
+    await replaceSongInList(saved);
+    playback.timedLyrics.value = await lyricsSync.loadFor(saved);
+    playback.refreshLineIndex();
+    _emit('가사 편집 실행취소 — 남은 ${stack.length}단계');
   }
 
   /// 현재 줄을 가사에서 지운다 — 단축키 D.
@@ -990,6 +1025,7 @@ class AppController extends ChangeNotifier {
         return;
       }
       await lyricsSync.backupLrc(song);
+      _pushLyricsUndo(song.id, raw);
       final saved = await lyricsSync.save(song, result.lrc);
       if (saved == null) {
         // 마지막 남은 줄을 지우면 LRC가 비어 저장이 거부된다.

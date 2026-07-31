@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.11.0';
+  static const String current = '3.12.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.12.0',
+      '2026-07-31',
+      'F = 가사 편집 실행취소 — D 삭제·부분 보정(Alt)·줄 편집(E)의 저장 '
+          '직전 상태를 곡별 20단계까지 기억해 한 단계씩 되돌린다(세션 한정). '
+          'D를 잘못 눌러 줄을 날린 실사용 사고의 구명줄',
+    ),
     AppVersionEntry(
       '3.11.0',
       '2026-07-31',

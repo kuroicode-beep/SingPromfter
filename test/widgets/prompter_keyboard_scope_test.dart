@@ -126,15 +126,19 @@ void main() {
     expect(seeks, isEmpty);
   });
 
-  testWidgets('D는 현재 줄을 삭제한다', (tester) async {
+  testWidgets('D는 현재 줄 삭제, F는 실행취소', (tester) async {
     var deletes = 0;
+    var undos = 0;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: PrompterKeyboardScope(
             settings: const PrompterSettings(),
             onSettingsChanged: (_) {},
-            actions: PrompterActions(deleteCurrentLine: () => deletes++),
+            actions: PrompterActions(
+              deleteCurrentLine: () => deletes++,
+              undoLyricsEdit: () => undos++,
+            ),
             child: const SizedBox.expand(),
           ),
         ),
@@ -142,9 +146,11 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.keyD);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
     await tester.pump();
 
     expect(deletes, 1);
+    expect(undos, 1);
   });
 
   testWidgets('L은 싱크 잠금을 토글한다', (tester) async {
