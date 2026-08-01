@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.22.0';
+  static const String current = '3.23.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.23.0',
+      '2026-08-02',
+      '곡 목록 폴더 관리(새 폴더 버튼·▲▼ 순서 이동·펼침 상태 기억) + '
+          '예약 큐 3슬롯 탭([예약]은 선택된 큐로, 큐별 저장·기존 큐는 큐1) + '
+          'MR 내보내기 폴더를 설정에서 지정',
+    ),
     AppVersionEntry(
       '3.22.0',
       '2026-08-01',

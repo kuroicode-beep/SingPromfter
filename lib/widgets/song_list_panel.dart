@@ -48,6 +48,22 @@ class SongListPanel extends StatefulWidget {
   final void Function(List<String> visibleIds, int oldIndex, int newIndex)?
   onReorder;
 
+  /// 폴더 표시 순서(설정). 여기 있는 이름은 곡이 없어도 폴더로 보인다.
+  final List<String> folderOrder;
+
+  /// 펼쳐 둔 폴더(설정). [onToggleFolder]가 있을 때만 쓰이는 제어형 값 —
+  /// 없으면 패널이 스스로 상태를 든다(즐겨찾기 화면 등).
+  final Set<String> expandedFolders;
+  final ValueChanged<String>? onToggleFolder;
+
+  /// 제목줄 [새 폴더] 버튼. null이면 그리지 않는다.
+  final VoidCallback? onCreateFolder;
+
+  /// 폴더를 위(-1)/아래(+1)로 옮긴다. 현재 표시 순서 전체를 함께 넘겨
+  /// 호출부가 그대로 저장할 수 있게 한다. null이면 ▲▼을 그리지 않는다.
+  final void Function(List<String> displayOrder, String name, int delta)?
+  onMoveFolder;
+
   const SongListPanel({
     super.key,
     required this.songs,
@@ -73,6 +89,11 @@ class SongListPanel extends StatefulWidget {
     required this.onDelete,
     required this.onToggleFavorite,
     this.onReorder,
+    this.folderOrder = const [],
+    this.expandedFolders = const {},
+    this.onToggleFolder,
+    this.onCreateFolder,
+    this.onMoveFolder,
   });
 
   @override
@@ -80,8 +101,25 @@ class SongListPanel extends StatefulWidget {
 }
 
 class _SongListPanelState extends State<SongListPanel> {
-  /// 펼쳐진 폴더 이름들. 기본은 전부 닫힘.
-  final Set<String> _expanded = {};
+  /// 펼쳐진 폴더 이름들(비제어형 폴백). 기본은 전부 닫힘.
+  final Set<String> _localExpanded = {};
+
+  /// 제어형이면 설정값을, 아니면 로컬 상태를 쓴다.
+  Set<String> get _expanded =>
+      widget.onToggleFolder != null ? widget.expandedFolders : _localExpanded;
+
+  void _toggleFolder(String name) {
+    final external = widget.onToggleFolder;
+    if (external != null) {
+      external(name);
+      return;
+    }
+    setState(() {
+      _localExpanded.contains(name)
+          ? _localExpanded.remove(name)
+          : _localExpanded.add(name);
+    });
+  }
 
   static const _chips = <(String, SongListFilterMode)>[
     ('전체', SongListFilterMode.all),
@@ -150,6 +188,16 @@ class _SongListPanelState extends State<SongListPanel> {
                   '${filteredSongs.length}/${songs.length}곡',
                   style: AppTypography.monoMuted,
                 ),
+                if (widget.onCreateFolder != null)
+                  IconButton(
+                    onPressed: widget.onCreateFolder,
+                    icon: const Icon(Icons.create_new_folder_outlined, size: 22),
+                    tooltip: '새 폴더',
+                    constraints: const BoxConstraints(
+                      minWidth: AppConstants.minTouchTarget,
+                      minHeight: AppConstants.denseTouchTarget,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -197,7 +245,12 @@ class _SongListPanelState extends State<SongListPanel> {
   Widget _buildList(List<Song> filteredSongs) {
     Widget tileFor(Song song) => _tileFor(song);
 
-    final folders = Song.folderNames(filteredSongs);
+    // 설정에 등록된 폴더(빈 폴더 포함)를 먼저, 곡에만 적힌 폴더를 뒤에.
+    final fromSongs = Song.folderNames(filteredSongs);
+    final folders = <String>[
+      ...widget.folderOrder,
+      ...fromSongs.where((f) => !widget.folderOrder.contains(f)),
+    ];
     if (folders.isNotEmpty && query.trim().isEmpty) {
       return _buildFolderTree(filteredSongs, folders);
     }
@@ -277,8 +330,10 @@ class _SongListPanelState extends State<SongListPanel> {
       }
       rows.add(_tileFor(song));
     }
-    for (final name in folders) {
-      final members = byFolder[name]!;
+    final moveFolder = widget.onMoveFolder;
+    for (var f = 0; f < folders.length; f++) {
+      final name = folders[f];
+      final members = byFolder[name] ?? const <Song>[];
       final open = _expanded.contains(name);
       if (rows.isNotEmpty) {
         rows.add(const Divider(height: 1, thickness: 1));
@@ -288,12 +343,28 @@ class _SongListPanelState extends State<SongListPanel> {
           name: name,
           count: members.length,
           open: open,
-          onTap: () => setState(() {
-            open ? _expanded.remove(name) : _expanded.add(name);
-          }),
+          onTap: () => _toggleFolder(name),
+          onMoveUp: moveFolder == null || f == 0
+              ? null
+              : () => moveFolder(folders, name, -1),
+          onMoveDown: moveFolder == null || f == folders.length - 1
+              ? null
+              : () => moveFolder(folders, name, 1),
         ),
       );
       if (open) {
+        if (members.isEmpty) {
+          rows.add(const Divider(height: 1, thickness: 1));
+          rows.add(
+            const Padding(
+              padding: EdgeInsets.fromLTRB(36, 10, 8, 10),
+              child: Text(
+                '비어 있는 폴더 — 곡 수정에서 이 폴더를 지정해 담습니다',
+                style: AppTypography.bodyMuted,
+              ),
+            ),
+          );
+        }
         for (final song in members) {
           rows.add(const Divider(height: 1, thickness: 1));
           // 폴더 소속임이 보이도록 들여쓴다.
@@ -382,15 +453,22 @@ class _FolderHeader extends StatelessWidget {
   final bool open;
   final VoidCallback onTap;
 
+  /// 순서 이동. 맨 위/맨 아래 폴더는 해당 방향이 null(흐리게)이다.
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+
   const _FolderHeader({
     required this.name,
     required this.count,
     required this.open,
     required this.onTap,
+    this.onMoveUp,
+    this.onMoveDown,
   });
 
   @override
   Widget build(BuildContext context) {
+    final showMove = onMoveUp != null || onMoveDown != null;
     return Semantics(
       button: true,
       expanded: open,
@@ -420,6 +498,28 @@ class _FolderHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (showMove) ...[
+                IconButton(
+                  onPressed: onMoveUp,
+                  icon: const Icon(Icons.arrow_upward, size: 20),
+                  tooltip: '폴더 위로',
+                  constraints: const BoxConstraints(
+                    minWidth: AppConstants.denseTouchTarget,
+                    minHeight: AppConstants.denseTouchTarget,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  onPressed: onMoveDown,
+                  icon: const Icon(Icons.arrow_downward, size: 20),
+                  tooltip: '폴더 아래로',
+                  constraints: const BoxConstraints(
+                    minWidth: AppConstants.denseTouchTarget,
+                    minHeight: AppConstants.denseTouchTarget,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
               Text('$count곡', style: AppTypography.monoMuted),
               const SizedBox(width: 4),
               Icon(

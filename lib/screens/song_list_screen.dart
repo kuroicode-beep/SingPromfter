@@ -393,8 +393,8 @@ class _SongListScreenState extends State<SongListScreen> {
     }
   }
 
-  /// 현재 선택된 반주 mp3를 C:\Downloads로 복사한다 — USB·폰으로 옮겨
-  /// 외부 노래방·연습에 쓰기 위한 반출 경로.
+  /// 현재 선택된 반주 mp3를 내보내기 폴더(설정)로 복사한다 — USB·폰으로
+  /// 옮겨 외부 노래방·연습에 쓰기 위한 반출 경로.
   Future<void> _exportCurrentTrack() async {
     final song = _selectedSong;
     final slot = _selectedTrackSlot;
@@ -411,7 +411,7 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
     try {
-      final dir = Directory(r'C:\Downloads');
+      final dir = Directory(_settings.exportFolder);
       if (!dir.existsSync()) dir.createSync(recursive: true);
       // 곡 제목·반주 라벨로 알아볼 수 있는 이름을 만든다(금지 문자는 _).
       final stem = '${song.title}_${track.label}'
@@ -604,6 +604,78 @@ class _SongListScreenState extends State<SongListScreen> {
 
   Future<void> _changeRoutine(String routineId) async {
     await _dailyGoals.changeRoutine(_dailyGoals.today(), routineId);
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// 새 폴더 이름을 받아 설정의 폴더 순서에 등록한다(빈 폴더 허용).
+  Future<void> _createFolder() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('새 폴더'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: '폴더 이름'),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('만들기'),
+          ),
+        ],
+      ),
+    );
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty) return;
+    final current = [
+      ..._settings.folderOrder,
+      ...Song.folderNames(_songs).where(
+        (f) => !_settings.folderOrder.contains(f),
+      ),
+    ];
+    if (current.contains(trimmed)) {
+      _showSnack('"$trimmed" 폴더가 이미 있습니다.');
+      return;
+    }
+    await _updateSettings(
+      _settings.copyWith(folderOrder: [...current, trimmed]),
+    );
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('"$trimmed" 폴더를 만들었습니다. 곡 수정에서 지정해 담습니다.');
+  }
+
+  /// 폴더를 위/아래로 옮긴다. 화면의 표시 순서를 그대로 저장해
+  /// 곡에만 적혀 있던 폴더도 이때 순서에 편입된다.
+  Future<void> _moveFolder(
+    List<String> displayOrder,
+    String name,
+    int delta,
+  ) async {
+    final order = List<String>.from(displayOrder);
+    final index = order.indexOf(name);
+    final next = index + delta;
+    if (index < 0 || next < 0 || next >= order.length) return;
+    order.removeAt(index);
+    order.insert(next, name);
+    await _updateSettings(_settings.copyWith(folderOrder: order));
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// 폴더 펼침 토글 — 설정에 저장해 재실행해도 유지된다.
+  Future<void> _toggleFolder(String name) async {
+    final expanded = List<String>.from(_settings.expandedFolders);
+    expanded.contains(name) ? expanded.remove(name) : expanded.add(name);
+    await _updateSettings(_settings.copyWith(expandedFolders: expanded));
     if (!mounted) return;
     setState(() {});
   }
@@ -1514,6 +1586,14 @@ class _SongListScreenState extends State<SongListScreen> {
             setState(() => _searchFilterMode = value),
         onAddSong: _addSong,
         onExportTrack: _exportCurrentTrack,
+        queueLengths: [for (final q in _app.queueSlots) q.length],
+        activeQueueSlot: _app.activeQueueSlot,
+        onSelectQueueSlot: (i) => _app.switchQueueSlot(i),
+        folderOrder: _settings.folderOrder,
+        expandedFolders: _settings.expandedFolders.toSet(),
+        onToggleFolder: _toggleFolder,
+        onCreateFolder: _createFolder,
+        onMoveFolder: _moveFolder,
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),

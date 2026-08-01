@@ -152,6 +152,15 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<YoutubeVideo> onYoutubeImport;
   final VoidCallback onAddSong;
   final VoidCallback? onExportTrack;
+  final List<int> queueLengths;
+  final int activeQueueSlot;
+  final ValueChanged<int> onSelectQueueSlot;
+  final List<String> folderOrder;
+  final Set<String> expandedFolders;
+  final ValueChanged<String>? onToggleFolder;
+  final VoidCallback? onCreateFolder;
+  final void Function(List<String> displayOrder, String name, int delta)?
+  onMoveFolder;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -274,6 +283,14 @@ class SongListScreenContent extends StatelessWidget {
     required this.onYoutubeImport,
     required this.onAddSong,
     this.onExportTrack,
+    this.queueLengths = const [0, 0, 0],
+    this.activeQueueSlot = 0,
+    required this.onSelectQueueSlot,
+    this.folderOrder = const [],
+    this.expandedFolders = const {},
+    this.onToggleFolder,
+    this.onCreateFolder,
+    this.onMoveFolder,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -347,6 +364,11 @@ class SongListScreenContent extends StatelessWidget {
       onDelete: onDeleteSong,
       onToggleFavorite: onToggleFavorite,
       onReorder: onReorderSongs,
+      folderOrder: folderOrder,
+      expandedFolders: expandedFolders,
+      onToggleFolder: onToggleFolder,
+      onCreateFolder: onCreateFolder,
+      onMoveFolder: onMoveFolder,
     );
   }
 
@@ -410,27 +432,41 @@ class SongListScreenContent extends StatelessWidget {
   }
 
   Widget _buildQueuePanel() {
-    if (queue.isEmpty) {
-      return Center(
-        child: Text(
-          '예약된 곡이 없습니다',
-          style: AppTypography.bodyMuted,
-        ),
-      );
-    }
-
-    // 사이드바에 상단 고정으로 꽉 차게 — 스크롤은 패널 안 목록이 맡는다.
+    // 탭은 큐가 비어도 항상 보인다 — 다른 큐로 갈아탈 입구이기 때문.
     return Padding(
       padding: const EdgeInsets.all(6),
-      child: QueuePanel(
-        queue: queue,
-        songs: songs,
-        playingSongId: selectedSong?.id,
-        playing: playing,
-        onClear: onClearQueue,
-        onReorder: onReorderQueue,
-        onRemove: onRemoveQueueItem,
-        expand: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          QueueSlotTabs(
+            queueLengths: queueLengths,
+            activeSlot: activeQueueSlot,
+            onSelectSlot: onSelectQueueSlot,
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: queue.isEmpty
+                ? Center(
+                    child: Text(
+                      '큐${activeQueueSlot + 1}에 예약된 곡이 없습니다\n'
+                      '곡의 [예약]을 누르면 이 큐에 담깁니다',
+                      style: AppTypography.bodyMuted,
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                // 사이드바에 상단 고정으로 꽉 차게 — 스크롤은 패널 안 목록이 맡는다.
+                : QueuePanel(
+                    queue: queue,
+                    songs: songs,
+                    playingSongId: selectedSong?.id,
+                    playing: playing,
+                    onClear: onClearQueue,
+                    onReorder: onReorderQueue,
+                    onRemove: onRemoveQueueItem,
+                    expand: true,
+                  ),
+          ),
+        ],
       ),
     );
   }

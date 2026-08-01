@@ -138,7 +138,15 @@ class AppController extends ChangeNotifier {
 
   // ── 상태 ────────────────────────────────────────────────
   List<Song> songs = [];
-  List<QueueItem> queue = [];
+
+  /// 예약 큐 3슬롯. [queue]는 활성 슬롯의 별칭이라 기존 코드(서비스·API)가
+  /// 슬롯을 모른 채 그대로 동작한다 — 저장도 저장소가 활성 슬롯을 따라간다.
+  List<List<QueueItem>> queueSlots = [[], [], []];
+  int activeQueueSlot = 0;
+
+  List<QueueItem> get queue => queueSlots[activeQueueSlot];
+  set queue(List<QueueItem> next) => queueSlots[activeQueueSlot] = next;
+
   PrompterSettings settings = const PrompterSettings();
   bool loading = true;
 
@@ -219,7 +227,8 @@ class AppController extends ChangeNotifier {
     final initial = await bootstrapService.load();
     if (_disposed) return;
     songs = initial.songs;
-    queue = initial.queue;
+    queueSlots = List.of(initial.queueSlots);
+    activeQueueSlot = initial.activeQueueSlot;
     settings = initial.settings;
     loading = false;
     _notify();
@@ -2422,6 +2431,16 @@ class AppController extends ChangeNotifier {
   }
 
   // ── 예약 큐 ─────────────────────────────────────────────
+
+  /// 활성 예약 큐를 바꾼다(탭). 저장소도 같이 갈아타 이후의 예약·저장이
+  /// 전부 새 슬롯으로 간다.
+  Future<void> switchQueueSlot(int slot) async {
+    final next = slot.clamp(0, queueSlots.length - 1);
+    if (next == activeQueueSlot) return;
+    activeQueueSlot = next;
+    await repo.saveActiveQueueSlot(next);
+    _notify();
+  }
 
   Future<void> reserveSong(Song song) async {
     await _applyQueueChange(

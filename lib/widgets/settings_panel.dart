@@ -11,6 +11,7 @@
 // 부르면 구분이 안 돼 이름을 실체대로 바꿨다.
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -83,6 +84,19 @@ class SettingsPanel extends StatelessWidget {
           title: '라이브러리 정리',
           subtitle: '사용하지 않는 파일·임시 항목 정리, 중복 제목 확인',
           onTap: onRunMaintenance,
+        ),
+        _SettingsTile(
+          icon: Icons.drive_file_move_outlined,
+          title: 'MR 내보내기 폴더',
+          subtitle: settings.exportFolder,
+          onTap: () async {
+            final picked = await FilePicker.platform.getDirectoryPath(
+              dialogTitle: 'MR 내보내기 폴더 선택',
+              initialDirectory: settings.exportFolder,
+            );
+            if (picked == null || picked.trim().isEmpty) return;
+            onSettingsChanged(settings.copyWith(exportFolder: picked.trim()));
+          },
         ),
         const SizedBox(height: 24),
         Text('외부 도구', style: AppTypography.listTitle),

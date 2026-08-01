@@ -13,7 +13,11 @@ class SongListBootstrapService {
 
   Future<SongListBootstrapState> load() async {
     final songs = await _repo.loadSongs();
-    final queue = await _repo.loadQueue();
+    final activeQueueSlot = await _repo.loadActiveQueueSlot();
+    final queueSlots = [
+      for (var i = 0; i < SongRepository.queueSlotCount; i++)
+        await _repo.loadQueueSlot(i),
+    ];
     final settings = await _repo.loadSettings();
     final lastSongId = await _repo.loadLastSongId();
 
@@ -28,7 +32,8 @@ class SongListBootstrapService {
 
     return SongListBootstrapState(
       songs: songs,
-      queue: queue,
+      queueSlots: queueSlots,
+      activeQueueSlot: activeQueueSlot,
       settings: settings,
       initialSong: initialSong,
     );
@@ -37,14 +42,18 @@ class SongListBootstrapService {
 
 class SongListBootstrapState {
   final List<Song> songs;
-  final List<QueueItem> queue;
+  final List<List<QueueItem>> queueSlots;
+  final int activeQueueSlot;
   final PrompterSettings settings;
   final Song? initialSong;
 
   const SongListBootstrapState({
     required this.songs,
-    required this.queue,
+    required this.queueSlots,
+    required this.activeQueueSlot,
     required this.settings,
     required this.initialSong,
   });
+
+  List<QueueItem> get queue => queueSlots[activeQueueSlot];
 }

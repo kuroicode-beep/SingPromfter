@@ -27,6 +27,16 @@ class PrompterSettings {
 
   /// 4주 보컬 코스 시작일(yyyy-MM-dd). null이면 코스 미시작.
   final String? trainingCourseStart;
+
+  /// 곡 목록 폴더의 표시 순서. 여기 있는 이름은 곡이 없어도 폴더로 보인다
+  /// (새 폴더를 만들고 나중에 곡을 담는 흐름). 곡에만 적힌 폴더는 뒤에 붙는다.
+  final List<String> folderOrder;
+
+  /// 펼쳐 둔 폴더 이름들 — 재실행해도 열림 상태가 유지된다.
+  final List<String> expandedFolders;
+
+  /// MR 내보내기 대상 폴더.
+  final String exportFolder;
   final PrompterDisplayMode displayMode;
 
   /// 홈 곡 목록의 정렬. '내 순서(manual)'는 드래그로 바꾼 저장 순서를
@@ -61,6 +71,9 @@ class PrompterSettings {
     this.lastSelectedTrackSlotBySong = const {},
     this.pitchSemitonesBySong = const {},
     this.trainingCourseStart,
+    this.folderOrder = const [],
+    this.expandedFolders = const [],
+    this.exportFolder = 'C:\\Downloads',
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
     this.songSortMode = SongSortMode.title,
@@ -88,6 +101,9 @@ class PrompterSettings {
     Map<String, int>? lastSelectedTrackSlotBySong,
     Map<String, int>? pitchSemitonesBySong,
     String? trainingCourseStart,
+    List<String>? folderOrder,
+    List<String>? expandedFolders,
+    String? exportFolder,
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
     SongSortMode? songSortMode,
@@ -116,6 +132,9 @@ class PrompterSettings {
       pitchSemitonesBySong:
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
       trainingCourseStart: trainingCourseStart ?? this.trainingCourseStart,
+      folderOrder: folderOrder ?? this.folderOrder,
+      expandedFolders: expandedFolders ?? this.expandedFolders,
+      exportFolder: exportFolder ?? this.exportFolder,
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
       songSortMode: songSortMode ?? this.songSortMode,
@@ -183,6 +202,9 @@ class PrompterSettings {
     'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
     'pitchSemitonesBySong': pitchSemitonesBySong,
     'trainingCourseStart': trainingCourseStart,
+    'folderOrder': folderOrder,
+    'expandedFolders': expandedFolders,
+    'exportFolder': exportFolder,
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
     'songSortMode': songSortMode.storageValue,
@@ -230,6 +252,17 @@ class PrompterSettings {
       lastSelectedTrackSlotBySong: bySong,
       pitchSemitonesBySong: pitchBySong,
       trainingCourseStart: json['trainingCourseStart'] as String?,
+      folderOrder: (json['folderOrder'] as List?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const [],
+      expandedFolders: (json['expandedFolders'] as List?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const [],
+      exportFolder: (json['exportFolder'] as String?)?.trim().isNotEmpty == true
+          ? (json['exportFolder'] as String).trim()
+          : 'C:\\Downloads',
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
       queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
       playbackBarOpen: json['playbackBarOpen'] as bool? ?? false,

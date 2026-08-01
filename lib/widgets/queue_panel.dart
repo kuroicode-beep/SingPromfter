@@ -3,10 +3,85 @@
 // 예약 큐 표시, 드래그 재정렬, 항목 삭제를 담당하는 패널 위젯.
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../models/queue_item.dart';
 import '../services/queue_logic.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
+
+/// 예약 큐 3슬롯 탭. [예약]은 항상 여기서 고른 큐로 들어간다.
+/// 선택은 색만이 아니라 체크 표시로도 알린다.
+class QueueSlotTabs extends StatelessWidget {
+  final List<int> queueLengths;
+  final int activeSlot;
+  final ValueChanged<int> onSelectSlot;
+
+  const QueueSlotTabs({
+    super.key,
+    required this.queueLengths,
+    required this.activeSlot,
+    required this.onSelectSlot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < queueLengths.length; i++) ...[
+          if (i > 0) const SizedBox(width: 4),
+          Expanded(
+            child: Semantics(
+              button: true,
+              selected: i == activeSlot,
+              label: '예약 큐 ${i + 1}, ${queueLengths[i]}곡',
+              child: InkWell(
+                borderRadius: AppShapes.controlRadius,
+                onTap: () => onSelectSlot(i),
+                child: Container(
+                  height: AppConstants.minTouchTarget,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: i == activeSlot
+                        ? AppColors.primaryContainer
+                        : AppColors.elevated,
+                    borderRadius: AppShapes.controlRadius,
+                    border: Border.all(
+                      color: i == activeSlot
+                          ? AppColors.primaryContainer
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (i == activeSlot)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 4),
+                          child: Icon(
+                            Icons.check,
+                            size: 16,
+                            color: AppColors.onPrimaryContainer,
+                          ),
+                        ),
+                      Text(
+                        '큐${i + 1} ${queueLengths[i]}곡',
+                        style: AppTypography.body.copyWith(
+                          color: i == activeSlot
+                              ? AppColors.onPrimaryContainer
+                              : AppColors.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
 
 class QueuePanel extends StatelessWidget {
   final List<QueueItem> queue;
