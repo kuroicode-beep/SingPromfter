@@ -28,6 +28,11 @@ class RecordingsPanel extends StatelessWidget {
   final ValueChanged<RecordingTake> onAnalyze;
   final ValueChanged<RecordingTake> onCorrect;
 
+  /// v3.20.0 플레이어 — 재생 중 테이크의 위치/길이와 시크.
+  final Duration playingPosition;
+  final Duration playingDuration;
+  final ValueChanged<Duration>? onSeek;
+
   const RecordingsPanel({
     super.key,
     required this.takes,
@@ -46,6 +51,9 @@ class RecordingsPanel extends StatelessWidget {
     required this.onPlayMix,
     required this.onAnalyze,
     required this.onCorrect,
+    this.playingPosition = Duration.zero,
+    this.playingDuration = Duration.zero,
+    this.onSeek,
   });
 
   @override
@@ -113,9 +121,13 @@ class RecordingsPanel extends StatelessWidget {
                       const Divider(height: 1, thickness: 1),
                   itemBuilder: (_, index) {
                     final take = takes[index];
+                    final isPlaying = playingTakeId == take.id;
                     return _TakeRow(
                       take: take,
-                      playing: playingTakeId == take.id,
+                      playing: isPlaying,
+                      playingPosition: isPlaying ? playingPosition : null,
+                      playingDuration: isPlaying ? playingDuration : null,
+                      onSeek: isPlaying ? onSeek : null,
                       onPlay: () => onPlay(take),
                       onStopPlay: () => onStopPlay(take),
                       onEditComment: () => onEditComment(take),
@@ -131,6 +143,61 @@ class RecordingsPanel extends StatelessWidget {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// 재생 중 테이크의 플레이어 줄 — 시크 슬라이더 + mm:ss / mm:ss.
+class _TakePlayerBar extends StatelessWidget {
+  final Duration position;
+  final Duration duration;
+  final ValueChanged<Duration>? onSeek;
+
+  const _TakePlayerBar({
+    required this.position,
+    required this.duration,
+    required this.onSeek,
+  });
+
+  static String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(600).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final totalMs = duration.inMilliseconds;
+    final value = totalMs <= 0
+        ? 0.0
+        : (position.inMilliseconds / totalMs).clamp(0.0, 1.0);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.elevated,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.primary, width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Text(_fmt(position), style: AppTypography.mono),
+          Expanded(
+            child: Semantics(
+              slider: true,
+              label: '재생 위치',
+              child: Slider(
+                value: value,
+                onChanged: totalMs <= 0 || onSeek == null
+                    ? null
+                    : (v) => onSeek!(
+                        Duration(milliseconds: (v * totalMs).round()),
+                      ),
+              ),
+            ),
+          ),
+          Text(_fmt(duration), style: AppTypography.monoMuted),
+        ],
+      ),
     );
   }
 }
@@ -189,6 +256,11 @@ class _SearchFieldState extends State<_SearchField> {
 class _TakeRow extends StatelessWidget {
   final RecordingTake take;
   final bool playing;
+
+  /// 재생 중일 때만 채워진다 — 플레이어 줄(시크바)용.
+  final Duration? playingPosition;
+  final Duration? playingDuration;
+  final ValueChanged<Duration>? onSeek;
   final VoidCallback onPlay;
   final VoidCallback onStopPlay;
   final VoidCallback onEditComment;
@@ -203,6 +275,9 @@ class _TakeRow extends StatelessWidget {
   const _TakeRow({
     required this.take,
     required this.playing,
+    this.playingPosition,
+    this.playingDuration,
+    this.onSeek,
     required this.onPlay,
     required this.onStopPlay,
     required this.onEditComment,
@@ -274,6 +349,17 @@ class _TakeRow extends StatelessWidget {
             ],
             const SizedBox(height: 8),
             _StarRating(rating: take.rating, onRate: onRate),
+            // 재생 중이면 플레이어 줄 — 시크바 + 위치/길이.
+            if (playing) ...[
+              const SizedBox(height: 6),
+              _TakePlayerBar(
+                position: playingPosition ?? Duration.zero,
+                duration: (playingDuration ?? Duration.zero) > Duration.zero
+                    ? playingDuration!
+                    : take.duration,
+                onSeek: onSeek,
+              ),
+            ],
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,

@@ -19,6 +19,7 @@ import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
+import '../widgets/snack_message.dart';
 
 class SongEditDialog {
   SongEditDialog._();
@@ -741,7 +742,5 @@ class _TrackPitchRow extends StatelessWidget {
 }
 
 void _showDialogSnack(BuildContext context, String message) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+  SnackMessage.show(context, message);
 }

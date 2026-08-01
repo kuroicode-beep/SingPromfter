@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.19.2';
+  static const String current = '3.20.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.20.0',
+      '2026-08-01',
+      '트레이닝 대개편 — 4주 보컬 코스(주차 테마·주간 목표·요일 달성 점), '
+          '달성률 카드(오늘/이번 주/이번 달·연속 일수), 루틴 카드형 정리+딕션 '
+          '단계+10분 데일리 신설(보컬 트레이닝 앱·교수법 웹 리서치 기반). '
+          '녹음 탭에 재생 플레이어(시크바·시간 표시). 알림을 화면 가운데 큰 '
+          '오버레이 토스트로 교체(하단 스낵바가 안 보인다는 실사용 피드백)',
+    ),
     AppVersionEntry(
       '3.19.2',
       '2026-08-01',

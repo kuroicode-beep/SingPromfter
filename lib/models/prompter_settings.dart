@@ -24,6 +24,9 @@ class PrompterSettings {
   /// 곡·슬롯별 키(원곡 대비 반음). 키는 `songId:slot` 형태다.
   /// 재생 취향이라 songs.json이 아니라 설정에 둔다(제목을 바꿔도 유지된다).
   final Map<String, int> pitchSemitonesBySong;
+
+  /// 4주 보컬 코스 시작일(yyyy-MM-dd). null이면 코스 미시작.
+  final String? trainingCourseStart;
   final PrompterDisplayMode displayMode;
 
   /// 홈 곡 목록의 정렬. '내 순서(manual)'는 드래그로 바꾼 저장 순서를
@@ -57,6 +60,7 @@ class PrompterSettings {
     this.customFontSizePt,
     this.lastSelectedTrackSlotBySong = const {},
     this.pitchSemitonesBySong = const {},
+    this.trainingCourseStart,
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
     this.songSortMode = SongSortMode.title,
@@ -83,6 +87,7 @@ class PrompterSettings {
     double? customFontSizePt,
     Map<String, int>? lastSelectedTrackSlotBySong,
     Map<String, int>? pitchSemitonesBySong,
+    String? trainingCourseStart,
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
     SongSortMode? songSortMode,
@@ -110,6 +115,7 @@ class PrompterSettings {
           lastSelectedTrackSlotBySong ?? this.lastSelectedTrackSlotBySong,
       pitchSemitonesBySong:
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
+      trainingCourseStart: trainingCourseStart ?? this.trainingCourseStart,
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
       songSortMode: songSortMode ?? this.songSortMode,
@@ -176,6 +182,7 @@ class PrompterSettings {
     'customFontSizePt': customFontSizePt,
     'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
     'pitchSemitonesBySong': pitchSemitonesBySong,
+    'trainingCourseStart': trainingCourseStart,
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
     'songSortMode': songSortMode.storageValue,
@@ -222,6 +229,7 @@ class PrompterSettings {
       customFontSizePt: (json['customFontSizePt'] as num?)?.toDouble(),
       lastSelectedTrackSlotBySong: bySong,
       pitchSemitonesBySong: pitchBySong,
+      trainingCourseStart: json['trainingCourseStart'] as String?,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
       queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
       playbackBarOpen: json['playbackBarOpen'] as bool? ?? false,

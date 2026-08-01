@@ -20,6 +20,7 @@ import '../dialogs/pitch_report_dialog.dart';
 import '../dialogs/regenerate_lyrics_dialog.dart';
 import '../dialogs/youtube_import_dialog.dart';
 import '../models/app_destination.dart';
+import '../models/vocal_routine.dart' show dateKey;
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
@@ -187,8 +188,15 @@ class _SongListScreenState extends State<SongListScreen> {
           setState(() => _playingTakeId = null);
         }
       },
-      onPositionChanged: (_) {},
-      onDurationChanged: (_) {},
+      // 녹음 플레이어(시크바)용 — 재생 중일 때만 화면을 다시 그린다.
+      onPositionChanged: (position) {
+        if (_playingTakeId != null && mounted) {
+          setState(() => _takePosition = position);
+        }
+      },
+      onDurationChanged: (duration) {
+        if (mounted) setState(() => _takeDuration = duration);
+      },
       onCompleted: () async {},
     );
     _bootstrap();
@@ -560,6 +568,16 @@ class _SongListScreenState extends State<SongListScreen> {
     setState(() {});
   }
 
+  /// 4주 코스 시작 — 오늘을 1주차 첫날로 삼는다.
+  Future<void> _startTrainingCourse() async {
+    await _app.updateSettings(
+      _settings.copyWith(trainingCourseStart: dateKey(DateTime.now())),
+    );
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('4주 보컬 코스 시작 — 1주차: 호흡과 지지');
+  }
+
   Future<void> _toggleRoutineStep(String stepId) async {
     await _dailyGoals.toggleStep(_dailyGoals.today(), stepId);
     if (!mounted) return;
@@ -801,6 +819,10 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   LineEditRequest? _lineEditRequest;
+
+  // 녹음 플레이어 상태 — 재생 중 테이크의 위치/길이.
+  Duration _takePosition = Duration.zero;
+  Duration _takeDuration = Duration.zero;
 
   /// 가사 다시 생성 — 옵션 다이얼로그를 거쳐 정밀 파이프라인을 돌린다.
   /// (보컬 분리 받아쓰기 + 환청 정리 + 선택적 DeepSeek 검증·정답 가사 대조)
@@ -1236,18 +1258,13 @@ class _SongListScreenState extends State<SongListScreen> {
       _libraryService.permanentlyDeleteSong(song);
     });
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message ?? '"${song.title}" 삭제됨'),
-          duration: const Duration(seconds: 10),
-          action: SnackBarAction(
-            label: '실행 취소',
-            onPressed: () => _restoreDeletedSong(song),
-          ),
-        ),
-      );
+    SnackMessage.show(
+      context,
+      message ?? '"${song.title}" 삭제됨',
+      duration: const Duration(seconds: 10),
+      actionLabel: '실행 취소',
+      onAction: () => _restoreDeletedSong(song),
+    );
   }
 
   Future<void> _restoreDeletedSong(Song song) async {
@@ -1376,6 +1393,9 @@ class _SongListScreenState extends State<SongListScreen> {
         onAnalyzeTake: _analyzeTake,
         onCorrectTake: _correctTake,
         onPlayTakeMix: _playTakeMix,
+        takePosition: _takePosition,
+        takeDuration: _takeDuration,
+        onSeekTake: _takePlayer.seek,
         onFetchSyncedLyrics: _fetchSyncedLyrics,
         onAdjustLyricsOffset: _adjustLyricsOffset,
         onAutoAlignLyrics: _autoAlignLyrics,
@@ -1424,6 +1444,9 @@ class _SongListScreenState extends State<SongListScreen> {
         todayGoal: _dailyGoals.today(),
         trainingStreak: _dailyGoals.streak(),
         trainingCompletedThisWeek: _dailyGoals.completedInLast(7),
+        goalLogs: _dailyGoals.logs,
+        trainingCourseStart: _settings.trainingCourseStart,
+        onStartCourse: _startTrainingCourse,
         onRoutineChanged: _changeRoutine,
         onToggleRoutineStep: _toggleRoutineStep,
         lyricsScrollController: _lyricsScrollController,

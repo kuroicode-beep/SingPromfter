@@ -64,6 +64,11 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<RecordingTake> onAnalyzeTake;
   final ValueChanged<RecordingTake> onCorrectTake;
   final ValueChanged<RecordingTake> onPlayTakeMix;
+
+  /// 녹음 플레이어 — 재생 중 테이크의 위치/길이와 시크.
+  final Duration takePosition;
+  final Duration takeDuration;
+  final ValueChanged<Duration>? onSeekTake;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
 
@@ -116,6 +121,9 @@ class SongListScreenContent extends StatelessWidget {
   final DailyGoalLog todayGoal;
   final int trainingStreak;
   final int trainingCompletedThisWeek;
+  final Map<String, DailyGoalLog> goalLogs;
+  final String? trainingCourseStart;
+  final VoidCallback onStartCourse;
   final ValueChanged<String> onRoutineChanged;
   final ValueChanged<String> onToggleRoutineStep;
   final ScrollController lyricsScrollController;
@@ -200,6 +208,9 @@ class SongListScreenContent extends StatelessWidget {
     required this.onAnalyzeTake,
     required this.onCorrectTake,
     required this.onPlayTakeMix,
+    this.takePosition = Duration.zero,
+    this.takeDuration = Duration.zero,
+    this.onSeekTake,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
@@ -235,6 +246,9 @@ class SongListScreenContent extends StatelessWidget {
     required this.onDeleteTake,
     required this.todayGoal,
     required this.trainingStreak,
+    this.goalLogs = const {},
+    this.trainingCourseStart,
+    required this.onStartCourse,
     required this.trainingCompletedThisWeek,
     required this.onRoutineChanged,
     required this.onToggleRoutineStep,
@@ -477,6 +491,9 @@ class SongListScreenContent extends StatelessWidget {
         summaries: practiceSummaries,
         onRoutineChanged: onRoutineChanged,
         onToggleStep: onToggleRoutineStep,
+        goalLogs: goalLogs,
+        courseStart: trainingCourseStart,
+        onStartCourse: onStartCourse,
       ),
       recordingsPanel: RecordingsPanel(
         takes: recordingTakes,
@@ -495,6 +512,9 @@ class SongListScreenContent extends StatelessWidget {
         onAnalyze: onAnalyzeTake,
         onCorrect: onCorrectTake,
         onPlayMix: onPlayTakeMix,
+        playingPosition: takePosition,
+        playingDuration: takeDuration,
+        onSeek: onSeekTake,
       ),
       importProgress: ImportProgressStrip(
         jobs: importJobs,
