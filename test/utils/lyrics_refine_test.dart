@@ -31,9 +31,10 @@ void main() {
         seg(55, 58, '1부에서 계속 됩니다.', logprob: -0.2),
         seg(115, 118, '구독과 좋아요 부탁드려요', logprob: -0.3),
         seg(240, 243, '시청해 주셔서 감사합니다', logprob: -0.2),
+        seg(27, 30, '한글자막 by 박진희', logprob: -0.2),
       ]);
       expect(r.kept.map((s) => s.text), ['진짜 가사']);
-      expect(r.dropped, hasLength(3));
+      expect(r.dropped, hasLength(4));
       expect(r.dropped.first.reason, '방송 상용구 환청');
     });
 

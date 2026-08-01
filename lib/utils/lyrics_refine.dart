@@ -38,6 +38,9 @@ final List<RegExp> refineHallucinationPhrases = [
   RegExp(r'알림\s*설정'),
   RegExp(r'다음\s*(영상|편|시간)에\s*(만나|계속|뵙)'),
   RegExp(r'^자막\s*(제공|제작)'),
+  // 자막 크레딧 — 실측: "한글자막 by 박진희"가 첫 줄로 살아남음.
+  RegExp(r'(한글\s*)?자막\s*(by|:)', caseSensitive: false),
+  RegExp(r'(번역|제작|편집)\s*(by|:)', caseSensitive: false),
   RegExp(r'^\(?\s*(박수|웃음|음악)\s*\)?$'),
 ];
 

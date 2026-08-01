@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.19.1';
+  static const String current = '3.19.2';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.19.2',
+      '2026-08-01',
+      '환청 블랙리스트에 자막·번역 크레딧 추가("한글자막 by ..." 실측)',
+    ),
     AppVersionEntry(
       '3.19.1',
       '2026-08-01',
