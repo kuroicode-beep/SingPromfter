@@ -79,6 +79,9 @@ class PrompterBottomBar extends StatefulWidget {
   final VoidCallback? onAddSong;
   final Future<bool> Function()? onStartSeparator;
 
+  /// 지금 선택된 반주 mp3를 다운로드 폴더로 복사한다(외부 기기 반출용).
+  final VoidCallback? onExportTrack;
+
   const PrompterBottomBar({
     super.key,
     required this.song,
@@ -118,6 +121,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onToggleRecording,
     this.onAddSong,
     this.onStartSeparator,
+    this.onExportTrack,
   });
 
   @override
@@ -267,6 +271,16 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   ),
                   icon: const Icon(Icons.library_add_outlined, size: 20),
                   label: const Text('곡 추가'),
+                ),
+              if (widget.onExportTrack != null)
+                OutlinedButton.icon(
+                  onPressed: widget.onExportTrack,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(120, AppConstants.minTouchTarget),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  icon: const Icon(Icons.download, size: 20),
+                  label: const Text('MR 내보내기'),
                 ),
             ],
           ),

@@ -393,6 +393,46 @@ class _SongListScreenState extends State<SongListScreen> {
     }
   }
 
+  /// 현재 선택된 반주 mp3를 C:\Downloads로 복사한다 — USB·폰으로 옮겨
+  /// 외부 노래방·연습에 쓰기 위한 반출 경로.
+  Future<void> _exportCurrentTrack() async {
+    final song = _selectedSong;
+    final slot = _selectedTrackSlot;
+    final track = (song != null && slot != null)
+        ? song.trackForSlot(slot)
+        : null;
+    if (song == null || track == null) {
+      _showSnack('내보낼 반주가 없습니다. 곡과 반주를 먼저 선택해 주세요.');
+      return;
+    }
+    final sourcePath = await _repo.getBackingTrackPath(track.fileName);
+    if (sourcePath == null) {
+      _showSnack('반주 파일을 찾을 수 없습니다.');
+      return;
+    }
+    try {
+      final dir = Directory(r'C:\Downloads');
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      // 곡 제목·반주 라벨로 알아볼 수 있는 이름을 만든다(금지 문자는 _).
+      final stem = '${song.title}_${track.label}'
+          .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+          .trim();
+      var dest = File('${dir.path}\\$stem.mp3');
+      // 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다.
+      var n = 2;
+      while (dest.existsSync()) {
+        dest = File('${dir.path}\\$stem ($n).mp3');
+        n++;
+      }
+      await File(sourcePath).copy(dest.path);
+      if (!mounted) return;
+      _showSnack('복사 완료: ${dest.path}');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('복사에 실패했습니다: $e');
+    }
+  }
+
   Future<void> _mixTake(RecordingTake take) async {
     final songMatches = _songs.where((s) => s.id == take.songId).toList();
     final song = songMatches.isEmpty ? null : songMatches.first;
@@ -1473,6 +1513,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),
         onAddSong: _addSong,
+        onExportTrack: _exportCurrentTrack,
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),

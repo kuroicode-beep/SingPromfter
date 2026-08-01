@@ -151,6 +151,7 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<YoutubeChartKind> onYoutubeChartChanged;
   final ValueChanged<YoutubeVideo> onYoutubeImport;
   final VoidCallback onAddSong;
+  final VoidCallback? onExportTrack;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -272,6 +273,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onYoutubeChartChanged,
     required this.onYoutubeImport,
     required this.onAddSong,
+    this.onExportTrack,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -352,6 +354,7 @@ class SongListScreenContent extends StatelessWidget {
     return PrompterPanel(
       onAddSong: onAddSong,
       onStartSeparator: onStartSeparator,
+      onExportTrack: onExportTrack,
       song: selectedSong,
       songs: songs,
       queue: queue,

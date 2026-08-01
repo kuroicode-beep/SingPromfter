@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.21.0';
+  static const String current = '3.22.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.22.0',
+      '2026-08-01',
+      '재생바에 [MR 내보내기] — 현재 선택된 반주 mp3를 C:\\Downloads로 복사'
+          '(제목_라벨 이름, 중복 시 번호, 덮어쓰기 없음)',
+    ),
     AppVersionEntry(
       '3.21.0',
       '2026-08-01',
