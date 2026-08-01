@@ -414,14 +414,14 @@ class _SyncedLyricsRow extends StatelessWidget {
             ),
             if (onSttLyrics != null) ...[
               const SizedBox(width: 8),
-              // 가사를 아무 데서도 못 구했을 때 — 노래를 AI가 받아써
-              // 싱크 가사를 만든다. 오탈자는 가사 줄을 길게 눌러 고친다.
+              // 정밀 파이프라인 입구 — 보컬 분리 받아쓰기 + 환청 정리 +
+              // (선택) 정답 가사 대조. 옵션은 다이얼로그에서 고른다.
               OutlinedButton.icon(
                 onPressed: onSttLyrics,
-                icon: const Icon(Icons.hearing, size: 20),
-                label: const Text('받아쓰기 AI'),
+                icon: const Icon(Icons.auto_fix_high, size: 20),
+                label: const Text('가사 다시 생성'),
                 style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(130, AppConstants.minTouchTarget),
+                  minimumSize: const Size(150, AppConstants.minTouchTarget),
                   side: const BorderSide(
                     color: AppColors.borderStrong,
                     width: 2,

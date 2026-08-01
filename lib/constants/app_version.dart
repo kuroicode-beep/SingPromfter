@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.17.0';
+  static const String current = '3.18.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.18.0',
+      '2026-07-31',
+      '가사 다시 생성(정밀 파이프라인) — 보컬 스템으로 받아쓰고(반주 환청 '
+          '원천 차단), 단어 타임스탬프·Whisper 신뢰도·보컬 에너지 구간으로 '
+          '환청 줄 자동 정리. 선택 옵션: DeepSeek 텍스트 검증, 정답 가사 '
+          '붙여넣기 대조(타이밍=받아쓰기, 텍스트=정답). 재생바 싱크 줄의 '
+          '[가사 다시 생성] 버튼',
+    ),
     AppVersionEntry(
       '3.17.0',
       '2026-07-31',

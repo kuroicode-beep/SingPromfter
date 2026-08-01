@@ -12,11 +12,36 @@ class SttSegment {
   final double endSeconds;
   final String text;
 
+  /// Whisper 신뢰도(있으면) — 환청 필터의 근거. 서버가 word_timestamps=1일
+  /// 때만 채워 준다. null이면 필터는 이 근거를 건너뛴다.
+  final double? noSpeechProb;
+  final double? avgLogprob;
+
+  /// 첫 단어의 발성 시각(초). 세그먼트 시작보다 정밀하다 —
+  /// Whisper 세그먼트 경계는 초 단위로 뭉툭한 일이 많다.
+  final double? firstWordStartSeconds;
+
   const SttSegment({
     required this.startSeconds,
     required this.endSeconds,
     required this.text,
+    this.noSpeechProb,
+    this.avgLogprob,
+    this.firstWordStartSeconds,
   });
+
+  /// 줄 시작으로 쓸 시각 — 단어 타임스탬프가 있으면 그쪽.
+  double get lineStartSeconds => firstWordStartSeconds ?? startSeconds;
+
+  SttSegment copyWith({double? startSeconds, String? text}) => SttSegment(
+    startSeconds: startSeconds ?? this.startSeconds,
+    endSeconds: endSeconds,
+    text: text ?? this.text,
+    noSpeechProb: noSpeechProb,
+    avgLogprob: avgLogprob,
+    // 시작을 손봤다면 그 값이 곧 줄 시작이다 — 옛 단어 시각을 남기지 않는다.
+    firstWordStartSeconds: startSeconds ?? firstWordStartSeconds,
+  );
 }
 
 /// STT 세그먼트를 줄 단위 LRC로 만든다.
@@ -41,7 +66,7 @@ String lrcFromSttSegments(
   for (final seg in segments) {
     final text = seg.text.trim();
     if (text.isEmpty) continue;
-    final ms = (seg.startSeconds * 1000).round();
+    final ms = (seg.lineStartSeconds * 1000).round();
     if (ms < 0) continue;
     if (limit != null && ms >= limit) continue;
     buffer.writeln('[${_formatTag(ms)}]$text');

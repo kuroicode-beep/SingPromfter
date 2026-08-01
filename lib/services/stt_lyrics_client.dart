@@ -68,6 +68,9 @@ class SttLyricsClient {
       request.fields['language'] = 'ko';
       request.fields['with_segments'] = '1';
       request.fields['vad'] = '0';
+      // 단어 타임스탬프 + 신뢰도(no_speech_prob 등) — 정밀 보정의 근거.
+      // 옛 서버는 이 필드를 몰라도 무시하므로 하위 호환이다.
+      request.fields['word_timestamps'] = '1';
       request.files.add(
         await http.MultipartFile.fromPath('file', audioPath),
       );
@@ -94,6 +97,9 @@ class SttLyricsClient {
               startSeconds: (row['start'] as num?)?.toDouble() ?? 0,
               endSeconds: (row['end'] as num?)?.toDouble() ?? 0,
               text: (row['text'] as String? ?? '').trim(),
+              noSpeechProb: (row['no_speech_prob'] as num?)?.toDouble(),
+              avgLogprob: (row['avg_logprob'] as num?)?.toDouble(),
+              firstWordStartSeconds: _firstWordStart(row['words']),
             ),
       ];
       return SttTranscribeResult.ok(segments);
@@ -105,4 +111,11 @@ class SttLyricsClient {
   }
 
   void close() => _client.close();
+
+  static double? _firstWordStart(dynamic words) {
+    if (words is! List || words.isEmpty) return null;
+    final first = words.first;
+    if (first is! Map) return null;
+    return (first['start'] as num?)?.toDouble();
+  }
 }

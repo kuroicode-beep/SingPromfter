@@ -42,6 +42,7 @@ import '../services/prompter_audio_service.dart';
 import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
+import '../services/deepseek_lyrics_client.dart';
 import '../services/stt_lyrics_client.dart';
 import '../services/pitch_coach_client.dart';
 import '../models/vocal_segments.dart';
@@ -50,6 +51,7 @@ import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
 import '../utils/lrc_edit.dart';
+import '../utils/lyrics_refine.dart';
 import '../utils/lrc_retime.dart';
 import '../utils/lyrics_line_utils.dart';
 import '../utils/tempo_label.dart';
@@ -122,6 +124,7 @@ class AppController extends ChangeNotifier {
   );
   final VocalSeparationClient separation = VocalSeparationClient();
   final SttLyricsClient sttLyrics = SttLyricsClient();
+  final DeepSeekLyricsClient deepSeekLyrics = DeepSeekLyricsClient();
   final PitchCoachClient pitchCoach = PitchCoachClient();
   late final PrompterAudioService audio = PrompterAudioService(repo);
   final ScrollController lyricsScrollController = ScrollController();
@@ -186,6 +189,7 @@ class AppController extends ChangeNotifier {
     pendingTempo.dispose();
     importJobs.dispose();
     sttLyrics.close();
+    deepSeekLyrics.close();
     pitchCoach.close();
     playback.dispose();
     audio.dispose();
@@ -476,6 +480,146 @@ class AppController extends ChangeNotifier {
       );
     }
     return updated;
+  }
+
+  /// 가사 다시 생성 — 정밀 파이프라인(사용자 지정, 2026-07-31).
+  ///
+  /// 받아쓰기(v2.15)와의 차이: ① 보컬 스템으로 전사(반주 환청 원천 차단)
+  /// ② 단어 타임스탬프·신뢰도·보컬 에너지 근거로 환청 줄 자동 정리
+  /// ③ (선택) DeepSeek 텍스트 교차 검증 ④ (선택) 정답 가사 대조 —
+  /// 타이밍은 STT, 텍스트는 정답. 실패 근거는 전부 스낵으로 알린다.
+  Future<bool> regenerateLyrics({
+    String? songId,
+    bool useVocalStem = true,
+    bool useDeepSeek = true,
+    String? referenceLyrics,
+  }) async {
+    if (_syncLockBlocked()) return false;
+    final song = songId == null ? selectedSong : songById(songId);
+    if (song == null) {
+      _emit('먼저 곡을 선택해 주세요.');
+      return false;
+    }
+
+    // 음원 — 보컬 스템 우선. 분리가 안 되면 원곡 풀믹스로 폴백.
+    String? audioPath;
+    if (useVocalStem) {
+      _emit('보컬 분리 중… (수십 초 걸립니다)');
+      audioPath = await vocalStemForSong(song);
+      if (_disposed) return false;
+      if (audioPath == null) _emit('보컬 분리를 못 해 원곡으로 받아씁니다.');
+    }
+    if (audioPath == null) {
+      final track =
+          song.trackForSlot(TrackVariant.original.preferredSlot) ??
+          song.backingTracks.firstOrNull;
+      if (track == null) {
+        _emit('받아쓸 음원이 없습니다. 먼저 반주를 등록해 주세요.');
+        return false;
+      }
+      audioPath = await repo.getBackingTrackPath(track.fileName);
+      if (audioPath == null) {
+        _emit('음원 파일을 찾을 수 없습니다.');
+        return false;
+      }
+    }
+
+    if (!await sttLyrics.isOnline()) {
+      _emit('STT 서버 켜는 중… (최대 1~2분)');
+      if (!await ensureSttOnline()) {
+        _emit('STT 서버를 켜지 못했습니다(8769). start.bat 경로를 확인해 주세요.');
+        return false;
+      }
+    }
+    _emit('AI 받아쓰기 중… (수십 초 걸립니다)');
+    final result = await sttLyrics.transcribe(audioPath);
+    if (_disposed) return false;
+    if (!result.success) {
+      _emit(result.message ?? '받아쓰기에 실패했습니다.');
+      return false;
+    }
+
+    final isCurrent = selectedSong?.id == song.id;
+    final durationMs =
+        isCurrent && playback.snapshot.duration > Duration.zero
+            ? playback.snapshot.duration.inMilliseconds
+            : null;
+
+    // 근거 ①·② — 신뢰도 + 보컬 에너지 구간(없으면 신뢰도만).
+    final vocal = await loadVocalSegments(song);
+    final refined = refineSttSegments(
+      result.segments,
+      vocalSegments: [
+        for (final v in vocal?.segments ?? const <VocalSegment>[])
+          (startMs: v.startMs, endMs: v.endMs),
+      ],
+      durationMs: durationMs,
+    );
+    var kept = refined.kept;
+    var cutCount = refined.dropped.length;
+
+    // 근거 ③ — DeepSeek 텍스트 검증(키 있을 때만, 실패해도 계속).
+    if (useDeepSeek && deepSeekLyrics.available && kept.isNotEmpty) {
+      _emit('AI 텍스트 검증 중… (DeepSeek)');
+      final flags = await deepSeekLyrics.flagSuspiciousLines(
+        [for (final s in kept) s.text],
+      );
+      if (_disposed) return false;
+      if (flags != null && flags.isNotEmpty) {
+        final survivors = <SttSegment>[];
+        for (var i = 0; i < kept.length; i++) {
+          if (flags.containsKey(i)) {
+            cutCount++;
+            continue;
+          }
+          survivors.add(kept[i]);
+        }
+        kept = survivors;
+      }
+    }
+
+    // ④ — 정답 가사 대조: 타이밍은 STT, 텍스트는 정답.
+    final ref = referenceLyrics?.trim() ?? '';
+    if (ref.isNotEmpty && kept.isNotEmpty) {
+      if (!deepSeekLyrics.available) {
+        _emit('정답 가사 대조에는 DEEPSEEK_API_KEY가 필요해요 — 대조 없이 진행합니다.');
+      } else {
+        _emit('정답 가사 대조 중…');
+        final matches = await deepSeekLyrics.alignWithReference(
+          [for (final s in kept) s.text],
+          ref,
+        );
+        if (_disposed) return false;
+        if (matches == null) {
+          _emit('정답 가사 대조에 실패했어요 — 받아쓴 텍스트 그대로 진행합니다.');
+        } else {
+          final applied = applyReferenceLyrics(kept, matches);
+          kept = applied.kept;
+          cutCount += applied.dropped.length;
+        }
+      }
+    }
+
+    if (kept.isEmpty) {
+      _emit('필터를 통과한 가사 줄이 없습니다 — 기존 가사를 그대로 둡니다.');
+      return false;
+    }
+    final lrc = lrcFromSttSegments(
+      kept,
+      title: song.title,
+      artist: song.artist,
+      duration: durationMs == null ? null : Duration(milliseconds: durationMs),
+    );
+    final attached = await attachLrc(songId: song.id, content: lrc);
+    if (attached == null) {
+      _emit('가사를 붙이지 못했습니다.');
+      return false;
+    }
+    _emit(
+      '가사 ${kept.length}줄 생성 완료 — 정리 $cutCount줄'
+      '${ref.isNotEmpty ? ' · 정답 가사 반영' : ''}',
+    );
+    return true;
   }
 
   /// 로컬 STT(faster-whisper)로 노래를 받아써 싱크 가사를 만든다 —

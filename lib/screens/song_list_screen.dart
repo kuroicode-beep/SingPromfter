@@ -17,6 +17,7 @@ import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../dialogs/pick_song_dialog.dart';
 import '../dialogs/pitch_report_dialog.dart';
+import '../dialogs/regenerate_lyrics_dialog.dart';
 import '../dialogs/youtube_import_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/import_plan.dart';
@@ -801,37 +802,26 @@ class _SongListScreenState extends State<SongListScreen> {
 
   LineEditRequest? _lineEditRequest;
 
-  /// AI 받아쓰기 — 이미 싱크 가사가 있으면 덮어쓰기 확인을 거친다.
-  Future<void> _generateSttLyrics() async {
+  /// 가사 다시 생성 — 옵션 다이얼로그를 거쳐 정밀 파이프라인을 돌린다.
+  /// (보컬 분리 받아쓰기 + 환청 정리 + 선택적 DeepSeek 검증·정답 가사 대조)
+  Future<void> _regenerateLyrics() async {
     final song = _selectedSong;
     if (song == null) {
       _showSnack('먼저 곡을 선택해 주세요.');
       return;
     }
-    if ((song.lrcFileName ?? '').isNotEmpty) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('싱크 가사 덮어쓰기'),
-          content: const Text(
-            '이 곡에는 이미 싱크 가사가 있습니다. AI 받아쓰기로 새로 만들어 '
-            '덮어쓸까요? 기존 가사는 사라집니다.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('덮어쓰기'),
-            ),
-          ],
-        ),
-      );
-      if (proceed != true) return;
-    }
-    await _app.generateSttLyrics(songId: song.id);
+    final options = await RegenerateLyricsDialog.show(
+      context,
+      hasExistingLyrics: (song.lrcFileName ?? '').isNotEmpty,
+      deepSeekAvailable: _app.deepSeekLyrics.available,
+    );
+    if (options == null) return;
+    await _app.regenerateLyrics(
+      songId: song.id,
+      useVocalStem: options.useVocalStem,
+      useDeepSeek: options.useDeepSeek,
+      referenceLyrics: options.referenceLyrics,
+    );
   }
 
   Future<void> _editLyricsLine(int index, String text) async {
@@ -1388,7 +1378,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onAdjustLyricsOffset: _adjustLyricsOffset,
         onAutoAlignLyrics: _autoAlignLyrics,
         onAnchorFirstLine: _anchorFirstLine,
-        onSttLyrics: _generateSttLyrics,
+        onSttLyrics: _regenerateLyrics,
         onEditLyricsLine: _editLyricsLine,
         lineEditRequest: _lineEditRequest,
         pitchSemitones: _selectedSong == null
