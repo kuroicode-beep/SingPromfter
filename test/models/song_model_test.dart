@@ -49,6 +49,30 @@ void main() {
       expect(song.artist, '');
     });
 
+    test('폴더는 저장·복원되고 구버전 곡은 폴더 없음', () {
+      final legacy = Song.fromJson({'id': 'a', 'title': '옛 곡'});
+      expect(legacy.folder, '');
+
+      final tagged = legacy.copyWith(folder: '유선');
+      final restored = Song.fromJson(tagged.toJson());
+      expect(restored.folder, '유선');
+    });
+
+    test('folderNames는 빈 폴더를 빼고 중복 없이 가나다순', () {
+      Song make(String id, String folder) => Song.fromJson({
+        'id': id,
+        'title': id,
+        'folder': folder,
+      });
+      final names = Song.folderNames([
+        make('a', '트로트'),
+        make('b', ''),
+        make('c', '발라드'),
+        make('d', '트로트'),
+      ]);
+      expect(names, ['발라드', '트로트']);
+    });
+
     test('legacy mrFileName migrates to slot 1 backing track', () {
       final song = Song.fromJson({
         'id': 'legacy-1',

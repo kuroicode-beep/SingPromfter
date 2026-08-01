@@ -155,6 +155,7 @@ class ControlRouter {
           title: body['title'] as String?,
           artist: body['artist'] as String?,
           lyrics: body['lyrics'] as String?,
+          folder: body['folder'] as String?,
         );
         if (updated == null) {
           return ControlResponse.error(

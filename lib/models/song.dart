@@ -30,6 +30,10 @@ class Song {
   /// 조회할 때 쓴다. v3.19.0 이전에 등록한 곡은 null이다.
   final String? sourceUrl;
 
+  /// 목록 폴더 이름(1단계 트리). 빈 문자열이면 폴더 없음 — 목록 최상단에
+  /// 평평하게 보인다. 폴더는 별도 엔티티가 아니라 곡에 적힌 이름의 집합이다.
+  final String folder;
+
   const Song({
     required this.id,
     required this.title,
@@ -44,6 +48,7 @@ class Song {
     this.musicalKey,
     this.syncLocked = false,
     this.sourceUrl,
+    this.folder = '',
   });
 
   String get lyrics => lyricsText;
@@ -98,6 +103,7 @@ class Song {
     MusicKey? musicalKey,
     bool? syncLocked,
     String? sourceUrl,
+    String? folder,
     bool clearLrcFileName = false,
     bool clearMusicalKey = false,
   }) {
@@ -119,6 +125,7 @@ class Song {
           : (musicalKey ?? this.musicalKey),
       syncLocked: syncLocked ?? this.syncLocked,
       sourceUrl: sourceUrl ?? this.sourceUrl,
+      folder: folder ?? this.folder,
     );
   }
 
@@ -142,6 +149,7 @@ class Song {
     'musicalKey': musicalKey?.storageValue,
     'syncLocked': syncLocked,
     'sourceUrl': sourceUrl,
+    'folder': folder,
   };
 
   factory Song.fromJson(Map<String, dynamic> json) {
@@ -173,6 +181,7 @@ class Song {
       musicalKey: MusicKey.fromStorage(json['musicalKey'] as String?),
       syncLocked: json['syncLocked'] as bool? ?? false,
       sourceUrl: json['sourceUrl'] as String?,
+      folder: (json['folder'] as String?)?.trim() ?? '',
     );
   }
 
@@ -181,6 +190,17 @@ class Song {
     String lyricsText = '',
   }) {
     return Song.fromJson({...json, 'lyricsText': lyricsText});
+  }
+
+  /// 곡들에 적힌 폴더 이름 목록(중복 제거, 가나다순). (순수 함수)
+  static List<String> folderNames(List<Song> songs) {
+    final names = songs
+        .map((s) => s.folder)
+        .where((f) => f.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return names;
   }
 
   static String encodeList(List<Song> songs) =>

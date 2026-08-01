@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.20.0';
+  static const String current = '3.21.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.21.0',
+      '2026-08-01',
+      '곡 목록 1단계 폴더 — 곡 수정에서 폴더 지정(기존 폴더 칩 선택), '
+          '목록은 폴더 없는 곡 먼저 + 폴더(기본 닫힘, 눌러 토글). 검색 중에는 '
+          '평평하게 펼쳐 결과가 숨지 않게. 제어 API PATCH songs에 folder 추가',
+    ),
     AppVersionEntry(
       '3.20.0',
       '2026-08-01',

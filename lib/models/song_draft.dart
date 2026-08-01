@@ -38,6 +38,11 @@ class SongEditDraft {
   /// 조성 칸이 없는 경로(제어 API 등)가 자동 감지 결과를 지우지 않게 한다.
   final bool applyMusicalKey;
 
+  /// 폴더를 이 편집에서 다룰지. 조성과 같은 이유로 폴더 칸이 없는 경로가
+  /// 기존 폴더를 지우지 않게 한다. true면 [folder]로 바꾼다(''=폴더 해제).
+  final bool applyFolder;
+  final String folder;
+
   /// [applyMusicalKey]가 true일 때 넣을 값. null이면 지운다.
   final MusicKey? musicalKey;
 
@@ -58,6 +63,8 @@ class SongEditDraft {
     this.trackEndMs = const {},
     this.applyMusicalKey = false,
     this.musicalKey,
+    this.applyFolder = false,
+    this.folder = '',
     this.trackBakedSemitones = const {},
   });
 }

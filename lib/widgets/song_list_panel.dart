@@ -11,7 +11,7 @@ import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
 import 'song_tile.dart';
 
-class SongListPanel extends StatelessWidget {
+class SongListPanel extends StatefulWidget {
   final List<Song> songs;
   final Song? selectedSong;
   final int? selectedTrackSlot;
@@ -75,12 +75,25 @@ class SongListPanel extends StatelessWidget {
     this.onReorder,
   });
 
+  @override
+  State<SongListPanel> createState() => _SongListPanelState();
+}
+
+class _SongListPanelState extends State<SongListPanel> {
+  /// 펼쳐진 폴더 이름들. 기본은 전부 닫힘.
+  final Set<String> _expanded = {};
+
   static const _chips = <(String, SongListFilterMode)>[
     ('전체', SongListFilterMode.all),
     ('즐겨찾기', SongListFilterMode.favorites),
     ('반주 있음', SongListFilterMode.withBackingTrack),
     ('최근 등록', SongListFilterMode.recent),
   ];
+
+  List<Song> get songs => widget.songs;
+  String get query => widget.query;
+  SongListFilterMode get filterMode => widget.filterMode;
+  bool get showSearchControls => widget.showSearchControls;
 
   @override
   Widget build(BuildContext context) {
@@ -115,22 +128,22 @@ class SongListPanel extends StatelessWidget {
         query: showSearchControls ? query : '',
         mode: filterMode,
       ),
-      mode: sortMode,
-      practiceCounts: practiceCounts,
+      mode: widget.sortMode,
+      practiceCounts: widget.practiceCounts,
     );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (listTitle != null)
+        if (widget.listTitle != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 4, 2),
             child: Row(
               children: [
-                Text(listTitle!, style: AppTypography.listTitle),
+                Text(widget.listTitle!, style: AppTypography.listTitle),
                 const SizedBox(width: 8),
                 // 정렬은 전용 줄을 쓰지 않고 제목줄에 얹는다 — 목록을 한 줄 더 번다.
-                if (showSearchControls && onSortModeChanged != null)
+                if (showSearchControls && widget.onSortModeChanged != null)
                   Expanded(child: _buildSortDropdown()),
                 const Spacer(),
                 Text(
@@ -141,7 +154,7 @@ class SongListPanel extends StatelessWidget {
             ),
           ),
         if (showSearchControls) _buildSearchField(),
-        if (showSearchControls && showFilterChips) _buildFilterChips(),
+        if (showSearchControls && widget.showFilterChips) _buildFilterChips(),
         Expanded(
           child: filteredSongs.isEmpty
               ? Center(
@@ -157,28 +170,39 @@ class SongListPanel extends StatelessWidget {
     );
   }
 
+  Widget _tileFor(Song song) {
+    final selected = widget.selectedSong?.id == song.id;
+    return SongTile(
+      song: song,
+      selected: selected,
+      selectedTrackSlot: selected ? widget.selectedTrackSlot : null,
+      pitchSemitones: widget.pitchBySongId[song.id] ?? 0,
+      practiceCount: widget.practiceCounts[song.id] ?? 0,
+      onSelectTrack: (slot) => widget.onSelectTrack(song, slot),
+      onAddTrack: widget.onAddTrack == null
+          ? null
+          : () => widget.onAddTrack!(song),
+      onSelect: () => widget.onSelect(song),
+      onStart: () => widget.onStart(song),
+      onReserve: () => widget.onReserve(song),
+      onEdit: () => widget.onEdit(song),
+      onDelete: () => widget.onDelete(song),
+      onToggleFavorite: () => widget.onToggleFavorite(song),
+    );
+  }
+
   /// 예약 큐와 같은 드래그 재정렬 목록. onReorder가 없으면 평범한 목록.
+  /// 폴더가 하나라도 있으면 1단계 트리로 보여 준다(검색 중에는 평평하게 —
+  /// 닫힌 폴더에 결과가 숨지 않도록).
   Widget _buildList(List<Song> filteredSongs) {
-    Widget tileFor(Song song) {
-      final selected = selectedSong?.id == song.id;
-      return SongTile(
-        song: song,
-        selected: selected,
-        selectedTrackSlot: selected ? selectedTrackSlot : null,
-        pitchSemitones: pitchBySongId[song.id] ?? 0,
-        practiceCount: practiceCounts[song.id] ?? 0,
-        onSelectTrack: (slot) => onSelectTrack(song, slot),
-        onAddTrack: onAddTrack == null ? null : () => onAddTrack!(song),
-        onSelect: () => onSelect(song),
-        onStart: () => onStart(song),
-        onReserve: () => onReserve(song),
-        onEdit: () => onEdit(song),
-        onDelete: () => onDelete(song),
-        onToggleFavorite: () => onToggleFavorite(song),
-      );
+    Widget tileFor(Song song) => _tileFor(song);
+
+    final folders = Song.folderNames(filteredSongs);
+    if (folders.isNotEmpty && query.trim().isEmpty) {
+      return _buildFolderTree(filteredSongs, folders);
     }
 
-    final reorder = onReorder;
+    final reorder = widget.onReorder;
     if (reorder == null) {
       return ListView.separated(
         padding: const EdgeInsets.only(bottom: 8),
@@ -234,6 +258,61 @@ class SongListPanel extends StatelessWidget {
     );
   }
 
+  /// 1단계 폴더 트리 — 폴더 없는 곡 먼저, 그 밑에 폴더들(기본 닫힘, 토글).
+  Widget _buildFolderTree(List<Song> filteredSongs, List<String> folders) {
+    final loose = filteredSongs
+        .where((s) => s.folder.isEmpty)
+        .toList(growable: false);
+    final byFolder = <String, List<Song>>{
+      for (final name in folders)
+        name: filteredSongs
+            .where((s) => s.folder == name)
+            .toList(growable: false),
+    };
+
+    final rows = <Widget>[];
+    for (final song in loose) {
+      if (rows.isNotEmpty) {
+        rows.add(const Divider(height: 1, thickness: 1));
+      }
+      rows.add(_tileFor(song));
+    }
+    for (final name in folders) {
+      final members = byFolder[name]!;
+      final open = _expanded.contains(name);
+      if (rows.isNotEmpty) {
+        rows.add(const Divider(height: 1, thickness: 1));
+      }
+      rows.add(
+        _FolderHeader(
+          name: name,
+          count: members.length,
+          open: open,
+          onTap: () => setState(() {
+            open ? _expanded.remove(name) : _expanded.add(name);
+          }),
+        ),
+      );
+      if (open) {
+        for (final song in members) {
+          rows.add(const Divider(height: 1, thickness: 1));
+          // 폴더 소속임이 보이도록 들여쓴다.
+          rows.add(
+            Padding(
+              padding: const EdgeInsets.only(left: 14),
+              child: _tileFor(song),
+            ),
+          );
+        }
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: rows,
+    );
+  }
+
   String _emptyMessage() {
     if (query.trim().isNotEmpty) return '검색 결과가 없습니다';
     if (filterMode == SongListFilterMode.favorites) return '즐겨찾기 곡이 없습니다';
@@ -245,7 +324,7 @@ class SongListPanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
       child: _SongSearchField(
         query: query,
-        onQueryChanged: onQueryChanged,
+        onQueryChanged: widget.onQueryChanged,
       ),
     );
   }
@@ -258,7 +337,7 @@ class SongListPanel extends StatelessWidget {
         isExpanded: true,
         isDense: true,
         underline: const SizedBox.shrink(),
-        value: sortMode,
+        value: widget.sortMode,
         dropdownColor: AppColors.surface,
         style: AppTypography.caption,
         iconSize: 16,
@@ -271,7 +350,7 @@ class SongListPanel extends StatelessWidget {
             )
             .toList(growable: false),
         onChanged: (mode) {
-          if (mode != null) onSortModeChanged?.call(mode);
+          if (mode != null) widget.onSortModeChanged?.call(mode);
         },
       ),
     );
@@ -287,9 +366,70 @@ class SongListPanel extends StatelessWidget {
           return _FilterChipSmall(
             label: entry.$1,
             selected: filterMode == entry.$2,
-            onTap: () => onFilterModeChanged?.call(entry.$2),
+            onTap: () => widget.onFilterModeChanged?.call(entry.$2),
           );
         }).toList(growable: false),
+      ),
+    );
+  }
+}
+
+/// 폴더 줄. 누르면 펼치고 다시 누르면 닫는다.
+/// 상태는 화살표 방향 + "펼침/닫힘" 시맨틱으로 알린다(색에만 의존하지 않음).
+class _FolderHeader extends StatelessWidget {
+  final String name;
+  final int count;
+  final bool open;
+  final VoidCallback onTap;
+
+  const _FolderHeader({
+    required this.name,
+    required this.count,
+    required this.open,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      expanded: open,
+      label: '폴더 $name, $count곡',
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(
+            minHeight: AppConstants.minTouchTarget,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          color: AppColors.surface,
+          child: Row(
+            children: [
+              Icon(
+                open ? Icons.folder_open : Icons.folder,
+                size: 22,
+                color: AppColors.textPrimary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name,
+                  style: AppTypography.body.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text('$count곡', style: AppTypography.monoMuted),
+              const SizedBox(width: 4),
+              Icon(
+                open ? Icons.expand_less : Icons.expand_more,
+                size: 24,
+                color: AppColors.textMuted,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

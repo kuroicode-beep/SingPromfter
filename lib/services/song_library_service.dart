@@ -69,6 +69,9 @@ class SongLibraryService {
             clearMusicalKey: draft.musicalKey == null,
           )
         : updatedSong;
+    if (draft.applyFolder) {
+      withKey = withKey.copyWith(folder: draft.folder.trim());
+    }
     if (draft.trackBakedSemitones.isNotEmpty) {
       withKey = withKey.copyWith(
         backingTracks: [

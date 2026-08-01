@@ -34,9 +34,11 @@ class SongEditDialog {
     Song song, {
     Map<int, int> trackPitches = const {},
     void Function(int slot, int semitones)? onPitchChanged,
+    List<String> existingFolders = const [],
   }) {
     final titleController = TextEditingController(text: song.title);
     final artistController = TextEditingController(text: song.artist);
+    final folderController = TextEditingController(text: song.folder);
     // 자동 감지값을 사람이 읽는 표기로 채워 둔다. 비우면 다시 감지한다.
     final keyController = TextEditingController(
       text: song.musicalKey?.label ?? '',
@@ -233,6 +235,42 @@ class SongEditDialog {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: folderController,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 16,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '폴더 (선택)',
+                          labelStyle: TextStyle(color: AppColors.textMuted),
+                          helperText: '비우면 폴더 없이 목록 맨 위에 보입니다',
+                          helperStyle: TextStyle(color: AppColors.textMuted),
+                          prefixIcon: Icon(
+                            Icons.folder_outlined,
+                            size: 20,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                      ),
+                      if (existingFolders.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        // 있는 폴더는 눌러서 바로 고른다 — 오타로 폴더가
+                        // 갈라지는 사고 방지.
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final name in existingFolders)
+                              ActionChip(
+                                avatar: const Icon(Icons.folder, size: 16),
+                                label: Text(name),
+                                onPressed: () => folderController.text = name,
+                              ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       _LyricsPickerCard(
                         fileName: nextLyricsFileName,
@@ -338,6 +376,8 @@ class SongEditDialog {
                         trackEndMs: normalizedEndMs,
                         applyMusicalKey: true,
                         musicalKey: parsedKey,
+                        applyFolder: true,
+                        folder: folderController.text.trim(),
                         trackBakedSemitones: Map.of(trackBaked),
                       ),
                     );

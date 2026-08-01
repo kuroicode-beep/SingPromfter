@@ -29,6 +29,7 @@ class SongActionCoordinator {
       song,
       trackPitches: trackPitches,
       onPitchChanged: onTrackPitchChanged,
+      existingFolders: Song.folderNames(songs),
     );
     if (draft == null) return null;
     if (_libraryService.hasDuplicateTitle(

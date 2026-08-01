@@ -2382,12 +2382,13 @@ class AppController extends ChangeNotifier {
     return true;
   }
 
-  /// 제목·가수·가사만 고친다. 반주 파일은 건드리지 않는다.
+  /// 제목·가수·가사·폴더만 고친다. 반주 파일은 건드리지 않는다.
   Future<Song?> updateSongFields(
     String songId, {
     String? title,
     String? artist,
     String? lyrics,
+    String? folder,
   }) async {
     final song = songById(songId);
     if (song == null) return null;
@@ -2403,6 +2404,8 @@ class AppController extends ChangeNotifier {
       artist: artist ?? song.artist,
       lyricsText: lyrics ?? song.lyricsText,
       trackPaths: const {},
+      applyFolder: folder != null,
+      folder: folder ?? '',
     );
     final result = await libraryService.editSong(
       songs: songs,
