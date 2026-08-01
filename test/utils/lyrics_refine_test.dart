@@ -23,22 +23,28 @@ SttSegment seg(
 
 void main() {
   group('refineSttSegments', () {
-    test('확신도 매우 낮은 줄은 단독으로 버린다', () {
+    test('방송 상용구 환청은 확신도가 높아도 버린다', () {
+      // 실측: 「너를 사랑하고도」 재생성에서 "1부에서 계속 됩니다"만 살아남음 —
+      // Whisper는 학습 데이터 잔재인 상용구에 오히려 자신만만하다.
       final r = refineSttSegments([
-        seg(10, 14, '진짜 가사', logprob: -0.3),
-        seg(200, 203, '웅얼거림 환청', logprob: -1.8),
+        seg(10, 14, '진짜 가사', logprob: -1.1),
+        seg(55, 58, '1부에서 계속 됩니다.', logprob: -0.2),
+        seg(115, 118, '구독과 좋아요 부탁드려요', logprob: -0.3),
+        seg(240, 243, '시청해 주셔서 감사합니다', logprob: -0.2),
       ]);
       expect(r.kept.map((s) => s.text), ['진짜 가사']);
-      expect(r.dropped.single.reason, contains('확신도'));
+      expect(r.dropped, hasLength(3));
+      expect(r.dropped.first.reason, '방송 상용구 환청');
     });
 
-    test('무음 확률 높음 + 확신도 낮음 조합으로 버린다', () {
+    test('가창의 낮은 확신도(-1.1 등)는 살린다 — 극단값만 자른다', () {
       final r = refineSttSegments([
-        seg(10, 14, '가사', noSpeech: 0.1, logprob: -0.3),
-        seg(240, 243, '페이드아웃 환청', noSpeech: 0.8, logprob: -1.0),
+        seg(10, 14, '노래하는 가사', noSpeech: 0.7, logprob: -1.1),
+        seg(200, 203, '완전 무음 환청', noSpeech: 0.95, logprob: -0.5),
+        seg(240, 243, '조합 환청', noSpeech: 0.8, logprob: -1.3),
       ]);
-      expect(r.kept.map((s) => s.text), ['가사']);
-      expect(r.dropped.single.reason, contains('무음'));
+      expect(r.kept.map((s) => s.text), ['노래하는 가사']);
+      expect(r.dropped, hasLength(2));
     });
 
     test('보컬 없는 구간의 줄은 버리고, 전주 환청 시작은 온셋으로 스냅', () {

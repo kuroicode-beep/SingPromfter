@@ -16,14 +16,30 @@ class RefineResult {
   const RefineResult({required this.kept, required this.dropped});
 }
 
-/// Whisper가 "말이 아니다"라고 자백하는 문턱.
-/// no_speech_prob 단독으로는 노래에서 오탐이 많아(가창은 말과 다르다)
-/// 확신도(avg_logprob)와 함께 본다.
-const double refineNoSpeechProb = 0.5;
-const double refineLowLogprob = -0.8;
+/// Whisper 신뢰도 문턱 — **가창 기준으로 느슨하게**.
+///
+/// v3.19.0의 빡빡한 문턱은 노래에서 거꾸로 작동했다(실측:
+/// 「너를 사랑하고도」 가사 전멸): Whisper는 실제 가창에 자신 없어하고
+/// (낮은 logprob), "1부에서 계속 됩니다" 같은 방송 상용구 환청에는
+/// 오히려 자신만만하다. 신뢰도는 극단값만 자르고, 상용구는 블랙리스트로
+/// 직접 잡는다.
+const double refineNoSpeechHard = 0.9;
+const double refineNoSpeechProb = 0.6;
+const double refineLowLogprob = -1.2;
 
-/// 여기보다 낮은 확신도는 단독으로도 버린다 — 완전한 웅얼거림.
-const double refineHardLogprob = -1.4;
+/// Whisper가 한국어 음악·무성 구간에서 지어내는 방송 상용구들 —
+/// 학습 데이터(방송 자막) 잔재라 모델 확신도가 높아 신뢰도 필터를
+/// 통과한다. 정규식으로 직접 잡는 수밖에 없다.
+final List<RegExp> refineHallucinationPhrases = [
+  RegExp(r'^\d+부에서\s*계속'),
+  RegExp(r'구독\s*(과)?\s*좋아요|좋아요\s*(와)?\s*구독'),
+  RegExp(r'구독\s*(눌러|부탁|해)'),
+  RegExp(r'시청해\s*주셔서|시청\s*감사'),
+  RegExp(r'알림\s*설정'),
+  RegExp(r'다음\s*(영상|편|시간)에\s*(만나|계속|뵙)'),
+  RegExp(r'^자막\s*(제공|제작)'),
+  RegExp(r'^\(?\s*(박수|웃음|음악)\s*\)?$'),
+];
 
 /// 보컬 구간과 겹침을 판정할 때 구간을 양쪽으로 늘려 주는 여유(ms).
 /// 구간 탐지가 프레임 단위라 경계가 수백 ms 어긋날 수 있다.
@@ -55,11 +71,18 @@ RefineResult refineSttSegments(
       continue;
     }
 
-    // ① 모델 신뢰도 — 무음일 확률이 높으면서 확신도도 낮으면 환청.
+    // ① 방송 상용구 — Whisper 한국어 환청의 단골. 확신도가 높아
+    // 신뢰도로는 못 잡는다.
+    if (refineHallucinationPhrases.any((p) => p.hasMatch(text))) {
+      drop(seg, '방송 상용구 환청');
+      continue;
+    }
+
+    // ② 모델 신뢰도 — 가창은 원래 확신도가 낮으니 극단값만 자른다.
     final noSpeech = seg.noSpeechProb;
     final logprob = seg.avgLogprob;
-    if (logprob != null && logprob < refineHardLogprob) {
-      drop(seg, '확신도 매우 낮음 (${logprob.toStringAsFixed(2)})');
+    if (noSpeech != null && noSpeech > refineNoSpeechHard) {
+      drop(seg, '무음 확률 매우 높음 (${noSpeech.toStringAsFixed(2)})');
       continue;
     }
     if (noSpeech != null &&
@@ -70,7 +93,7 @@ RefineResult refineSttSegments(
       continue;
     }
 
-    // ② 보컬 에너지 — 노래가 없는 구간에 붙은 줄은 반주 환청이다.
+    // ③ 보컬 에너지 — 노래가 없는 구간에 붙은 줄은 반주 환청이다.
     if (vocalSegments.isNotEmpty) {
       final overlapping = vocalSegments.where(
         (v) => startMs < v.endMs + refineVocalPadMs && endMs > v.startMs - refineVocalPadMs,

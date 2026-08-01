@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.19.0';
+  static const String current = '3.19.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.19.1',
+      '2026-08-01',
+      '받아쓰기 신뢰도 필터가 노래에서 거꾸로 작동하던 문제 수정 — '
+          'Whisper는 가창에 확신도가 낮고 방송 상용구 환청("1부에서 계속" '
+          '등)에 높아 진짜 가사가 잘렸다(실측). 신뢰도는 극단값만 자르고 '
+          '상용구는 블랙리스트로 직접 차단',
+    ),
     AppVersionEntry(
       '3.19.0',
       '2026-07-31',
