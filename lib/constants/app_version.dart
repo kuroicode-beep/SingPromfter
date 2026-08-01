@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.23.0';
+  static const String current = '3.24.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.24.0',
+      '2026-08-02',
+      '곡 드래그 → 폴더 놓기로 이동 — 타일 왼쪽 ⠿ 손잡이를 끌어 폴더 '
+          '헤더에 놓으면 그 폴더로, 드래그 중 맨 위 "폴더에서 꺼냅니다" '
+          '자리에 놓으면 폴더 해제. 놓을 자리는 테두리·색으로 표시',
+    ),
     AppVersionEntry(
       '3.23.0',
       '2026-08-02',

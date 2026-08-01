@@ -671,6 +671,18 @@ class _SongListScreenState extends State<SongListScreen> {
     setState(() {});
   }
 
+  /// 곡을 드래그해 폴더에 떨어뜨렸을 때. folder가 ''이면 폴더에서 꺼낸다.
+  Future<void> _moveSongToFolder(String songId, String folder) async {
+    final updated = await _app.updateSongFields(songId, folder: folder);
+    if (!mounted || updated == null) return;
+    setState(() {});
+    _showSnack(
+      folder.isEmpty
+          ? '"${updated.title}" 폴더에서 꺼냈습니다'
+          : '"${updated.title}" → "$folder" 폴더로 이동',
+    );
+  }
+
   /// 폴더 펼침 토글 — 설정에 저장해 재실행해도 유지된다.
   Future<void> _toggleFolder(String name) async {
     final expanded = List<String>.from(_settings.expandedFolders);
@@ -1594,6 +1606,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onToggleFolder: _toggleFolder,
         onCreateFolder: _createFolder,
         onMoveFolder: _moveFolder,
+        onMoveSongToFolder: _moveSongToFolder,
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),
