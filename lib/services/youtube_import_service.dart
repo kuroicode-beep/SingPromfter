@@ -8,7 +8,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/mr_source_mode.dart';
+import '../utils/lrc_edit.dart';
+import '../utils/youtube_subtitle.dart';
 import 'process/external_tool_locator.dart';
 import 'process/process_runner.dart';
 import 'process/tool_progress_parsers.dart';
@@ -155,6 +159,50 @@ class YoutubeImportService {
       return YoutubeMetadata.fromJson(decoded);
     } catch (_) {
       return null;
+    }
+  }
+
+  /// 업로더가 단 **한국어 수동 자막**을 세그먼트로 가져온다. 없으면 null.
+  ///
+  /// 수동 자막은 타이밍까지 있는 사실상 완성 LRC라 받아쓰기보다 훨씬
+  /// 정확하다. 자동 생성 자막(ASR)은 환청 문제가 같아서 받지 않는다
+  /// (--write-subs만 쓰고 --write-auto-subs는 안 쓴다).
+  Future<List<SttSegment>?> fetchManualSubtitles(String url) async {
+    final tool = await _locator.locate(ExternalTool.ytDlp);
+    if (!tool.found) return null;
+
+    final workDir = Directory(
+      '${(await _tmpDirProvider()).path}${Platform.pathSeparator}'
+      'subs_${DateTime.now().millisecondsSinceEpoch}',
+    );
+    await workDir.create(recursive: true);
+    try {
+      final result = await _runner.run(tool.path!, [
+        '--skip-download',
+        '--write-subs',
+        '--sub-langs', 'ko.*',
+        '--sub-format', 'json3',
+        '--no-playlist',
+        ...await _jsRuntimeArgs(),
+        '-o', '${workDir.path}${Platform.pathSeparator}subs.%(ext)s',
+        url,
+      ]);
+      if (!result.ok) return null;
+      final files = workDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.json3'))
+          .toList();
+      if (files.isEmpty) return null; // 수동 자막 없음 — 정상 폴백 경로
+      final segments = segmentsFromJson3(await files.first.readAsString());
+      return segments.isEmpty ? null : segments;
+    } catch (e, stack) {
+      debugPrint('유튜브 자막 조회 실패: $e\n$stack');
+      return null;
+    } finally {
+      try {
+        await workDir.delete(recursive: true);
+      } catch (_) {}
     }
   }
 

@@ -26,6 +26,10 @@ class Song {
   /// 다 맞춘 싱크를 노래 중 오타로 망가뜨리지 않기 위한 자물쇠.
   final bool syncLocked;
 
+  /// 가져온 유튜브 링크(있으면). '가사 다시 생성'이 수동 자막을 다시
+  /// 조회할 때 쓴다. v3.19.0 이전에 등록한 곡은 null이다.
+  final String? sourceUrl;
+
   const Song({
     required this.id,
     required this.title,
@@ -39,6 +43,7 @@ class Song {
     this.lrcFileName,
     this.musicalKey,
     this.syncLocked = false,
+    this.sourceUrl,
   });
 
   String get lyrics => lyricsText;
@@ -92,6 +97,7 @@ class Song {
     String? lrcFileName,
     MusicKey? musicalKey,
     bool? syncLocked,
+    String? sourceUrl,
     bool clearLrcFileName = false,
     bool clearMusicalKey = false,
   }) {
@@ -112,6 +118,7 @@ class Song {
           ? null
           : (musicalKey ?? this.musicalKey),
       syncLocked: syncLocked ?? this.syncLocked,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
     );
   }
 
@@ -134,6 +141,7 @@ class Song {
     'lrcFileName': lrcFileName,
     'musicalKey': musicalKey?.storageValue,
     'syncLocked': syncLocked,
+    'sourceUrl': sourceUrl,
   };
 
   factory Song.fromJson(Map<String, dynamic> json) {
@@ -164,6 +172,7 @@ class Song {
       lrcFileName: json['lrcFileName'] as String?,
       musicalKey: MusicKey.fromStorage(json['musicalKey'] as String?),
       syncLocked: json['syncLocked'] as bool? ?? false,
+      sourceUrl: json['sourceUrl'] as String?,
     );
   }
 

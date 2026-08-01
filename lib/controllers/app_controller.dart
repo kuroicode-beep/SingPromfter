@@ -492,6 +492,7 @@ class AppController extends ChangeNotifier {
     String? songId,
     bool useVocalStem = true,
     bool useDeepSeek = true,
+    bool useYoutubeSubs = true,
     String? referenceLyrics,
   }) async {
     if (_syncLockBlocked()) return false;
@@ -499,6 +500,35 @@ class AppController extends ChangeNotifier {
     if (song == null) {
       _emit('먼저 곡을 선택해 주세요.');
       return false;
+    }
+
+    // 유튜브 수동 자막 — 타이밍까지 있는 정답이라 받아쓰기보다 우선.
+    // (정답 가사를 직접 붙여넣었으면 그 의도를 존중해 받아쓰기 경로로 간다)
+    final url = song.sourceUrl?.trim() ?? '';
+    if (useYoutubeSubs &&
+        url.isNotEmpty &&
+        (referenceLyrics?.trim() ?? '').isEmpty) {
+      _emit('유튜브 자막 확인 중…');
+      final subs = await youtubeImport.fetchManualSubtitles(url);
+      if (_disposed) return false;
+      if (subs != null && subs.isNotEmpty) {
+        final isCurrentSong = selectedSong?.id == song.id;
+        final lrc = lrcFromSttSegments(
+          subs,
+          title: song.title,
+          artist: song.artist,
+          duration:
+              isCurrentSong && playback.snapshot.duration > Duration.zero
+                  ? playback.snapshot.duration
+                  : null,
+        );
+        final attached = await attachLrc(songId: song.id, content: lrc);
+        if (attached != null) {
+          _emit('유튜브 자막으로 가사 ${subs.length}줄 생성 완료');
+          return true;
+        }
+      }
+      _emit('수동 자막이 없어 받아쓰기로 진행합니다.');
     }
 
     // 음원 — 보컬 스템 우선. 분리가 안 되면 원곡 풀믹스로 폴백.
@@ -1921,8 +1951,12 @@ class AppController extends ChangeNotifier {
     // 조성도 같은 자리에서 — 길이를 아는 지금이 표본 구간을 잡기 좋다.
     unawaited(ensureSongKey(song, duration: metadata.duration));
 
+    // 링크를 곡에 남긴다 — '가사 다시 생성'이 자막을 다시 조회할 수 있게.
+    song = song.copyWith(sourceUrl: job.url);
+    await replaceSongInList(song);
+
     // 가사까지 한 흐름에서 붙인다. 실패해도 곡 자체는 남긴다.
-    // 규약(사용자 지정): 가져오기 시도 → 못 찾으면 AI 받아쓰기로 채움.
+    // 규약(사용자 지정): LRCLIB → 유튜브 수동 자막 → AI 받아쓰기 순 폴백.
     var lyricsNote = '';
     if (job.fetchLyrics) {
       onProgress(const JobProgress(label: '가사 찾는 중 (LRCLIB)'));
@@ -1937,18 +1971,38 @@ class AppController extends ChangeNotifier {
         onProgress(const JobProgress(label: '가사 싱크 맞추는 중'));
         lyricsNote += await _autoAlignNoteFor(song);
       } else {
-        onProgress(
-          const JobProgress(label: '가사가 없어 AI 받아쓰기 중 (수십 초)'),
-        );
-        final stt = await generateSttLyrics(
-          songId: song.id,
-          duration: metadata.duration,
-        );
-        if (stt) {
-          song = songById(song.id) ?? song;
-          lyricsNote = ' · 받아쓴 가사 포함';
-        } else {
-          lyricsNote = ' · 가사는 찾지 못함(받아쓰기도 실패)';
+        // 업로더 수동 자막 — 타이밍까지 있는 정답이라 받아쓰기보다 우선.
+        onProgress(const JobProgress(label: '유튜브 자막 확인 중'));
+        final subs = await youtubeImport.fetchManualSubtitles(job.url);
+        var attached = false;
+        if (subs != null && subs.isNotEmpty) {
+          final lrc = lrcFromSttSegments(
+            subs,
+            title: song.title,
+            artist: song.artist,
+            duration: metadata.duration,
+          );
+          final withSubs = await attachLrc(songId: song.id, content: lrc);
+          if (withSubs != null) {
+            song = withSubs;
+            lyricsNote = ' · 유튜브 자막 가사(${subs.length}줄)';
+            attached = true;
+          }
+        }
+        if (!attached) {
+          onProgress(
+            const JobProgress(label: '가사가 없어 AI 받아쓰기 중 (수십 초)'),
+          );
+          final stt = await generateSttLyrics(
+            songId: song.id,
+            duration: metadata.duration,
+          );
+          if (stt) {
+            song = songById(song.id) ?? song;
+            lyricsNote = ' · 받아쓴 가사 포함';
+          } else {
+            lyricsNote = ' · 가사는 찾지 못함(받아쓰기도 실패)';
+          }
         }
       }
     }

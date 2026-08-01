@@ -9,11 +9,13 @@ import '../theme/app_theme.dart';
 class RegenerateLyricsOptions {
   final bool useVocalStem;
   final bool useDeepSeek;
+  final bool useYoutubeSubs;
   final String? referenceLyrics;
 
   const RegenerateLyricsOptions({
     required this.useVocalStem,
     required this.useDeepSeek,
+    this.useYoutubeSubs = true,
     this.referenceLyrics,
   });
 }
@@ -25,10 +27,12 @@ class RegenerateLyricsDialog {
     BuildContext context, {
     required bool hasExistingLyrics,
     required bool deepSeekAvailable,
+    bool hasSourceUrl = false,
   }) {
     final refController = TextEditingController();
     var useVocalStem = true;
     var useDeepSeek = deepSeekAvailable;
+    var useYoutubeSubs = hasSourceUrl;
 
     return showDialog<RegenerateLyricsOptions>(
       context: context,
@@ -101,6 +105,14 @@ class RegenerateLyricsDialog {
                     ),
                   ),
                   const SizedBox(height: 14),
+                  if (hasSourceUrl)
+                    _OptionRow(
+                      value: useYoutubeSubs,
+                      onChanged: (v) => setLocal(() => useYoutubeSubs = v),
+                      title: '유튜브 자막 우선 (있으면)',
+                      subtitle: '업로더가 단 수동 자막은 타이밍까지 있는 정답이라 '
+                          '받아쓰기를 건너뛰어요',
+                    ),
                   _OptionRow(
                     value: useVocalStem,
                     onChanged: (v) => setLocal(() => useVocalStem = v),
@@ -132,6 +144,7 @@ class RegenerateLyricsDialog {
                 RegenerateLyricsOptions(
                   useVocalStem: useVocalStem,
                   useDeepSeek: useDeepSeek,
+                  useYoutubeSubs: useYoutubeSubs,
                   referenceLyrics: refController.text.trim().isEmpty
                       ? null
                       : refController.text,

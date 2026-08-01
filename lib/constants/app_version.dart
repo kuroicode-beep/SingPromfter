@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.18.0';
+  static const String current = '3.19.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.19.0',
+      '2026-07-31',
+      '유튜브 수동 자막 가사 — 가져오기 폴백 체인이 LRCLIB→유튜브 자막→'
+          '받아쓰기로 확장(수동 자막은 타이밍 있는 정답, 자동 생성 자막은 '
+          '환청 문제로 제외). 곡에 유튜브 링크 저장(sourceUrl), 가사 다시 '
+          '생성에 자막 우선 옵션, 제어 API lyrics/regenerate 신설',
+    ),
     AppVersionEntry(
       '3.18.0',
       '2026-07-31',

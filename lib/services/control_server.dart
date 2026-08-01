@@ -197,6 +197,29 @@ class ControlRouter {
         }
         return ControlResponse.ok({'song': _songJson(attached)});
 
+      // 가사 다시 생성 — 정밀 파이프라인(자막→보컬 스템 받아쓰기→환청 정리).
+      // 분리·전사가 겹치면 수 분 걸린다. MCP·배치 정리의 입구.
+      case ('POST', ['songs', final String id, 'lyrics', 'regenerate']):
+        if (app.songById(id) == null) return _songNotFound();
+        final ok = await app.regenerateLyrics(
+          songId: id,
+          useVocalStem: body['useVocalStem'] as bool? ?? true,
+          useDeepSeek: body['useDeepSeek'] as bool? ?? true,
+          useYoutubeSubs: body['useYoutubeSubs'] as bool? ?? true,
+          referenceLyrics: body['referenceLyrics'] as String?,
+        );
+        if (!ok) {
+          return ControlResponse.error(
+            422,
+            'regenerate_failed',
+            '가사를 다시 만들지 못했습니다. 앱 하단 메시지를 확인해 주세요.',
+          );
+        }
+        final regenerated = app.songById(id);
+        return ControlResponse.ok({
+          'song': regenerated == null ? null : _songJson(regenerated),
+        });
+
       // 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸린다.
       case ('POST', ['songs', final String id, 'lyrics', 'align']):
         if (app.songById(id) == null) {

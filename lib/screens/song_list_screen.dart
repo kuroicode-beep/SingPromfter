@@ -814,12 +814,14 @@ class _SongListScreenState extends State<SongListScreen> {
       context,
       hasExistingLyrics: (song.lrcFileName ?? '').isNotEmpty,
       deepSeekAvailable: _app.deepSeekLyrics.available,
+      hasSourceUrl: (song.sourceUrl ?? '').trim().isNotEmpty,
     );
     if (options == null) return;
     await _app.regenerateLyrics(
       songId: song.id,
       useVocalStem: options.useVocalStem,
       useDeepSeek: options.useDeepSeek,
+      useYoutubeSubs: options.useYoutubeSubs,
       referenceLyrics: options.referenceLyrics,
     );
   }
