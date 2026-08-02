@@ -15,6 +15,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../constants/app_constants.dart';
 import '../constants/app_version.dart';
 import '../models/practice_session.dart';
 import '../models/prompter_display_mode.dart';
@@ -37,6 +38,12 @@ class SettingsPanel extends StatelessWidget {
   final Map<String, String?> fontOptions;
 
   final String separatorStatusLabel;
+
+  /// 녹음 입력 장치 선택.
+  final List<String> recordingDevices;
+  final String? recordingDevice;
+  final ValueChanged<String>? onRecordingDeviceChanged;
+  final VoidCallback? onRefreshRecordingDevices;
   final VoidCallback onUpdateYtDlp;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
@@ -52,6 +59,10 @@ class SettingsPanel extends StatelessWidget {
     required this.onSettingsChanged,
     this.fontOptions = const {},
     this.separatorStatusLabel = '',
+    this.recordingDevices = const [],
+    this.recordingDevice,
+    this.onRecordingDeviceChanged,
+    this.onRefreshRecordingDevices,
     required this.onUpdateYtDlp,
     required this.onExportBackup,
     required this.onImportBackup,
@@ -97,6 +108,62 @@ class SettingsPanel extends StatelessWidget {
             if (picked == null || picked.trim().isEmpty) return;
             onSettingsChanged(settings.copyWith(exportFolder: picked.trim()));
           },
+        ),
+        const SizedBox(height: 24),
+        Text('녹음', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Text('입력 장치 ', style: AppTypography.bodyMuted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: recordingDevices.isEmpty
+                  ? Text(
+                      '장치를 찾지 못했습니다 — 새로고침을 눌러 주세요',
+                      style: AppTypography.bodyMuted,
+                    )
+                  : Semantics(
+                      label: '녹음 입력 장치',
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: recordingDevices.contains(recordingDevice)
+                            ? recordingDevice
+                            : recordingDevices.first,
+                        dropdownColor: AppColors.surface,
+                        style: AppTypography.body,
+                        items: recordingDevices
+                            .map(
+                              (d) => DropdownMenuItem(
+                                value: d,
+                                child: Text(
+                                  d,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (d) {
+                          if (d != null) onRecordingDeviceChanged?.call(d);
+                        },
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: onRefreshRecordingDevices,
+              icon: const Icon(Icons.refresh),
+              tooltip: '입력 장치 다시 찾기',
+              constraints: const BoxConstraints(
+                minWidth: AppConstants.minTouchTarget,
+                minHeight: AppConstants.minTouchTarget,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '녹음 버튼(R)이 이 마이크로 녹음합니다. USB 마이크를 꽂았으면 새로고침 후 선택해 주세요.',
+          style: AppTypography.bodyMuted,
         ),
         const SizedBox(height: 24),
         Text('외부 도구', style: AppTypography.listTitle),

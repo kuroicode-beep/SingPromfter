@@ -33,6 +33,9 @@ class RecordingsPanel extends StatelessWidget {
   final Duration playingDuration;
   final ValueChanged<Duration>? onSeek;
 
+  /// v3.25.0 듀엣 합성 — 남·여 파트 테이크 두 개를 반주와 합친다.
+  final VoidCallback? onDuetMix;
+
   const RecordingsPanel({
     super.key,
     required this.takes,
@@ -54,6 +57,7 @@ class RecordingsPanel extends StatelessWidget {
     this.playingPosition = Duration.zero,
     this.playingDuration = Duration.zero,
     this.onSeek,
+    this.onDuetMix,
   });
 
   @override
@@ -67,6 +71,21 @@ class RecordingsPanel extends StatelessWidget {
             children: [
               Text('녹음 보관함', style: AppTypography.screenTitle),
               const Spacer(),
+              if (onDuetMix != null) ...[
+                OutlinedButton.icon(
+                  onPressed: onDuetMix,
+                  icon: const Icon(Icons.group, size: 20),
+                  label: const Text('듀엣 합성'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(130, AppConstants.minTouchTarget),
+                    side: const BorderSide(
+                      color: AppColors.borderStrong,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+              ],
               Text('${takes.length}개', style: AppTypography.monoMuted),
             ],
           ),

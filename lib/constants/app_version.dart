@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.24.1';
+  static const String current = '3.25.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.25.0',
+      '2026-08-02',
+      '녹음 입력 장치 설정(설정 > 녹음, 재실행에도 유지) + 듀엣 합성 — '
+          '녹음 보관함 [듀엣 합성]에서 남·여 파트 테이크를 골라 반주와 '
+          '한 곡으로 합쳐 새 테이크로 등록',
+    ),
     AppVersionEntry(
       '3.24.1',
       '2026-08-02',

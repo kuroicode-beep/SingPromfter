@@ -15,6 +15,7 @@ import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/add_song_dialog.dart';
 import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
+import '../dialogs/duet_mix_dialog.dart';
 import '../dialogs/pick_song_dialog.dart';
 import '../dialogs/pitch_report_dialog.dart';
 import '../dialogs/regenerate_lyrics_dialog.dart';
@@ -238,8 +239,24 @@ class _SongListScreenState extends State<SongListScreen> {
     await _recordingLibrary.load();
     await _dailyGoals.load();
     await _app.bootstrap();
+    // 저장해 둔 녹음 입력 장치를 먼저 지정한 뒤 목록을 읽는다 —
+    // refreshDevices는 미지정일 때만 첫 장치를 채우므로 순서가 중요하다.
+    final savedDevice = _settings.recordingDevice;
+    if (savedDevice != null && savedDevice.isNotEmpty) {
+      _recording.deviceName = savedDevice;
+    }
+    unawaited(_recording.refreshDevices());
     // MCP 제어 API — 루프백 전용, 실패해도 앱 동작에 영향 없음.
     await _controlServer.start();
+  }
+
+  /// 녹음 입력 장치 선택 — 즉시 적용하고 설정에 저장한다.
+  Future<void> _selectRecordingDevice(String device) async {
+    _recording.deviceName = device;
+    await _updateSettings(_settings.copyWith(recordingDevice: device));
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('녹음 입력 장치: $device');
   }
 
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
@@ -431,6 +448,74 @@ class _SongListScreenState extends State<SongListScreen> {
       if (!mounted) return;
       _showSnack('복사에 실패했습니다: $e');
     }
+  }
+
+  /// 듀엣 합성 — 남·여 파트 테이크 두 개를 (있으면) 반주와 한 곡으로 합쳐
+  /// 새 테이크로 등록한다.
+  Future<void> _duetMix() async {
+    final takes = _recordingLibrary.takes;
+    if (takes.length < 2) {
+      _showSnack('듀엣 합성에는 테이크가 2개 이상 필요합니다.');
+      return;
+    }
+    final picked = await DuetMixDialog.show(context, takes);
+    if (picked == null || !mounted) return;
+    final a = picked.partA;
+    final b = picked.partB;
+
+    // 반주는 남자 파트 테이크의 곡·슬롯을 따른다(없으면 여자 파트, 그래도
+    // 없으면 보컬 둘만 겹친다).
+    String? backingPath;
+    for (final part in [a, b]) {
+      final songMatches = _songs.where((s) => s.id == part.songId).toList();
+      final song = songMatches.isEmpty ? null : songMatches.first;
+      final slot = part.backingTrackSlot;
+      final track = (song != null && slot != null)
+          ? song.trackForSlot(slot)
+          : null;
+      if (track != null) {
+        backingPath = await _repo.getBackingTrackPath(track.fileName);
+        if (backingPath != null) break;
+      }
+    }
+
+    _showSnack('듀엣 합성 중...');
+    final vocalA = await _recordingLibrary.pathFor(a);
+    final vocalB = await _recordingLibrary.pathFor(b);
+    final duetName = '${const Uuid().v4()}_duet.m4a';
+    final outputPath =
+        '${(await _recordingLibrary.directory()).path}/$duetName';
+    final result = await TakeMixService().duet(
+      backingPath: backingPath,
+      vocalAPath: vocalA,
+      vocalBPath: vocalB,
+      outputPath: outputPath,
+      alignAMs: a.alignOffsetMs,
+      alignBMs: b.alignOffsetMs,
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      _showSnack(result.message ?? '듀엣 합성에 실패했습니다.');
+      return;
+    }
+
+    final duetTake = RecordingTake(
+      id: const Uuid().v4(),
+      songId: a.songId,
+      songTitle: a.songTitle,
+      fileName: duetName,
+      recordedAt: DateTime.now(),
+      durationMs: a.durationMs > b.durationMs ? a.durationMs : b.durationMs,
+      backingTrackSlot: a.backingTrackSlot,
+      pitchSemitones: a.pitchSemitones,
+      comment:
+          '듀엣 합성 — 남: ${DuetMixDialog.takeLabel(a)} / '
+          '여: ${DuetMixDialog.takeLabel(b)}',
+    );
+    await _recordingLibrary.add(duetTake);
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('듀엣 합성 완료 — 녹음 보관함 맨 위에 있습니다.');
   }
 
   Future<void> _mixTake(RecordingTake take) async {
@@ -1628,6 +1713,11 @@ class _SongListScreenState extends State<SongListScreen> {
         onMoveFolder: _moveFolder,
         onMoveSongToFolder: _moveSongToFolder,
         onDropSongOnSong: _dropSongOnSong,
+        onDuetMix: _duetMix,
+        recordingDevices: _recording.devices,
+        recordingDevice: _recording.deviceName,
+        onRecordingDeviceChanged: (d) => _selectRecordingDevice(d),
+        onRefreshRecordingDevices: () => _recording.refreshDevices(),
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),

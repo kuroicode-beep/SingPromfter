@@ -32,6 +32,51 @@ List<String> buildMixArgs({
   ];
 }
 
+/// 듀엣 합성 ffmpeg 인자. (순수 함수 — 테스트 대상)
+///
+/// 두 보컬(남·여 파트)을 각자의 정렬값으로 늦춰 같은 반주 타임라인에
+/// 얹는다. [backingPath]가 null이면 보컬 둘만 겹친다(길이는 긴 쪽).
+List<String> buildDuetMixArgs({
+  required String? backingPath,
+  required String vocalAPath,
+  required String vocalBPath,
+  required String outputPath,
+  required int alignAMs,
+  required int alignBMs,
+}) {
+  final delayA = alignAMs < 0 ? 0 : alignAMs;
+  final delayB = alignBMs < 0 ? 0 : alignBMs;
+  if (backingPath != null) {
+    return [
+      '-y',
+      '-i', backingPath,
+      '-i', vocalAPath,
+      '-i', vocalBPath,
+      '-filter_complex',
+      '[1:a]adelay=$delayA|$delayA[va];'
+          '[2:a]adelay=$delayB|$delayB[vb];'
+          '[0:a][va][vb]amix=inputs=3:duration=first:normalize=0[a]',
+      '-map', '[a]',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      outputPath,
+    ];
+  }
+  return [
+    '-y',
+    '-i', vocalAPath,
+    '-i', vocalBPath,
+    '-filter_complex',
+    '[0:a]adelay=$delayA|$delayA[va];'
+        '[1:a]adelay=$delayB|$delayB[vb];'
+        '[va][vb]amix=inputs=2:duration=longest:normalize=0[a]',
+    '-map', '[a]',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    outputPath,
+  ];
+}
+
 class TakeMixResult {
   final bool success;
   final String? outputPath;
@@ -90,6 +135,50 @@ class TakeMixService {
         if (await partial.exists()) await partial.delete();
       } catch (_) {}
       return const TakeMixResult.failure('합치기에 실패했습니다.');
+    }
+    return TakeMixResult.success(outputPath);
+  }
+
+  /// 남·여 파트 두 테이크를 (있으면) 반주와 함께 한 곡으로 합친다.
+  Future<TakeMixResult> duet({
+    required String? backingPath,
+    required String vocalAPath,
+    required String vocalBPath,
+    required String outputPath,
+    required int alignAMs,
+    required int alignBMs,
+  }) async {
+    final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
+    if (!ffmpeg.found) {
+      return const TakeMixResult.failure('합치려면 ffmpeg가 필요합니다.');
+    }
+    if (backingPath != null && !await File(backingPath).exists()) {
+      return const TakeMixResult.failure('반주 파일을 찾을 수 없습니다.');
+    }
+    for (final vocal in [vocalAPath, vocalBPath]) {
+      if (!await File(vocal).exists()) {
+        return const TakeMixResult.failure('녹음 파일을 찾을 수 없습니다.');
+      }
+    }
+
+    final result = await _runner.run(
+      ffmpeg.path!,
+      buildDuetMixArgs(
+        backingPath: backingPath,
+        vocalAPath: vocalAPath,
+        vocalBPath: vocalBPath,
+        outputPath: outputPath,
+        alignAMs: alignAMs,
+        alignBMs: alignBMs,
+      ),
+    );
+
+    if (!result.ok || !await File(outputPath).exists()) {
+      try {
+        final partial = File(outputPath);
+        if (await partial.exists()) await partial.delete();
+      } catch (_) {}
+      return const TakeMixResult.failure('듀엣 합성에 실패했습니다.');
     }
     return TakeMixResult.success(outputPath);
   }

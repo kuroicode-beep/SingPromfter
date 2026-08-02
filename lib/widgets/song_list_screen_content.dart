@@ -169,6 +169,11 @@ class SongListScreenContent extends StatelessWidget {
     int oldIndex,
     int newIndex,
   )? onDropSongOnSong;
+  final VoidCallback? onDuetMix;
+  final List<String> recordingDevices;
+  final String? recordingDevice;
+  final ValueChanged<String>? onRecordingDeviceChanged;
+  final VoidCallback? onRefreshRecordingDevices;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -301,6 +306,11 @@ class SongListScreenContent extends StatelessWidget {
     this.onMoveFolder,
     this.onMoveSongToFolder,
     this.onDropSongOnSong,
+    this.onDuetMix,
+    this.recordingDevices = const [],
+    this.recordingDevice,
+    this.onRecordingDeviceChanged,
+    this.onRefreshRecordingDevices,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -566,6 +576,7 @@ class SongListScreenContent extends StatelessWidget {
         playingPosition: takePosition,
         playingDuration: takeDuration,
         onSeek: onSeekTake,
+        onDuetMix: onDuetMix,
       ),
       importProgress: ImportProgressStrip(
         jobs: importJobs,
@@ -593,6 +604,10 @@ class SongListScreenContent extends StatelessWidget {
         onSettingsChanged: onSettingsChanged,
         fontOptions: PrompterSettingsService.fontOptions,
         separatorStatusLabel: separatorStatusLabel,
+        recordingDevices: recordingDevices,
+        recordingDevice: recordingDevice,
+        onRecordingDeviceChanged: onRecordingDeviceChanged,
+        onRefreshRecordingDevices: onRefreshRecordingDevices,
         onUpdateYtDlp: onUpdateYtDlp,
         onExportBackup: onExportBackup,
         onImportBackup: onImportBackup,

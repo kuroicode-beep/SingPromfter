@@ -37,6 +37,9 @@ class PrompterSettings {
 
   /// MR 내보내기 대상 폴더.
   final String exportFolder;
+
+  /// 녹음 입력 장치(DirectShow 이름). null이면 첫 장치를 쓴다.
+  final String? recordingDevice;
   final PrompterDisplayMode displayMode;
 
   /// 홈 곡 목록의 정렬. '내 순서(manual)'는 드래그로 바꾼 저장 순서를
@@ -74,6 +77,7 @@ class PrompterSettings {
     this.folderOrder = const [],
     this.expandedFolders = const [],
     this.exportFolder = 'C:\\Downloads',
+    this.recordingDevice,
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
     this.songSortMode = SongSortMode.title,
@@ -104,6 +108,7 @@ class PrompterSettings {
     List<String>? folderOrder,
     List<String>? expandedFolders,
     String? exportFolder,
+    String? recordingDevice,
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
     SongSortMode? songSortMode,
@@ -135,6 +140,7 @@ class PrompterSettings {
       folderOrder: folderOrder ?? this.folderOrder,
       expandedFolders: expandedFolders ?? this.expandedFolders,
       exportFolder: exportFolder ?? this.exportFolder,
+      recordingDevice: recordingDevice ?? this.recordingDevice,
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
       songSortMode: songSortMode ?? this.songSortMode,
@@ -205,6 +211,7 @@ class PrompterSettings {
     'folderOrder': folderOrder,
     'expandedFolders': expandedFolders,
     'exportFolder': exportFolder,
+    'recordingDevice': recordingDevice,
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
     'songSortMode': songSortMode.storageValue,
@@ -263,6 +270,7 @@ class PrompterSettings {
       exportFolder: (json['exportFolder'] as String?)?.trim().isNotEmpty == true
           ? (json['exportFolder'] as String).trim()
           : 'C:\\Downloads',
+      recordingDevice: json['recordingDevice'] as String?,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
       queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
       playbackBarOpen: json['playbackBarOpen'] as bool? ?? false,
