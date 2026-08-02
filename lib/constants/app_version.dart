@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.25.0';
+  static const String current = '3.26.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.26.0',
+      '2026-08-02',
+      '보더리스 풀스크린 실행 — 시작하면 화면 전체를 쓰고, F11로 '
+          '풀스크린 ↔ 창 모드 전환',
+    ),
     AppVersionEntry(
       '3.25.0',
       '2026-08-02',

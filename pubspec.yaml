@@ -1,4 +1,4 @@
-﻿name: singpromfter_app
+name: singpromfter_app
 description: "SingPromfter - 저시력 친화 가사 프롬프터"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -39,6 +39,7 @@ dependencies:
   uuid: ^4.5.1
   archive: ^4.0.9
   http: ^1.6.0
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
