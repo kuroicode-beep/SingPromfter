@@ -6,6 +6,7 @@ import 'package:singpromfter_app/screens/song_list_screen.dart';
 import 'package:window_manager/window_manager.dart';
 import 'services/app_display_controller.dart';
 import 'theme/app_theme.dart';
+import 'widgets/newline_shortcut_scope.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -96,7 +97,8 @@ class _SingPromfterAppState extends State<SingPromfterApp> {
             data: MediaQuery.of(
               context,
             ).copyWith(textScaler: TextScaler.linear(display.textScale)),
-            child: child!,
+            // Shift+Enter 줄바꿈 — 여러 줄 입력(코멘트 등)에서만 동작한다.
+            child: NewlineShortcutScope(child: child!),
           ),
           home: const SongListScreen(),
         );

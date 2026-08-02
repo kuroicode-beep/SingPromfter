@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.26.0';
+  static const String current = '3.26.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.26.1',
+      '2026-08-02',
+      '여러 줄 입력(코멘트 등)에서 Shift+Enter 줄바꿈이 안 되던 문제 수정 — '
+          '데스크톱 기본 매핑에 없어 전역 단축키로 보강(한 줄 입력에는 미적용)',
+    ),
     AppVersionEntry(
       '3.26.0',
       '2026-08-02',
