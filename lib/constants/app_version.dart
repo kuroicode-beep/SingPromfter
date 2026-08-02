@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.24.0';
+  static const String current = '3.24.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.24.1',
+      '2026-08-02',
+      '폴더 트리에서 곡끼리 순서가 안 바뀌던 문제 수정 — 곡을 다른 곡 위에 '
+          '놓으면 그 자리로 이동(폴더가 다르면 그 폴더로 함께 들어감)',
+    ),
     AppVersionEntry(
       '3.24.0',
       '2026-08-02',

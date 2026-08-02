@@ -162,6 +162,13 @@ class SongListScreenContent extends StatelessWidget {
   final void Function(List<String> displayOrder, String name, int delta)?
   onMoveFolder;
   final void Function(String songId, String folder)? onMoveSongToFolder;
+  final void Function(
+    String draggedId,
+    String targetId,
+    List<String> visibleIds,
+    int oldIndex,
+    int newIndex,
+  )? onDropSongOnSong;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -293,6 +300,7 @@ class SongListScreenContent extends StatelessWidget {
     this.onCreateFolder,
     this.onMoveFolder,
     this.onMoveSongToFolder,
+    this.onDropSongOnSong,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -372,6 +380,7 @@ class SongListScreenContent extends StatelessWidget {
       onCreateFolder: onCreateFolder,
       onMoveFolder: onMoveFolder,
       onMoveSongToFolder: onMoveSongToFolder,
+      onDropSongOnSong: onDropSongOnSong,
     );
   }
 

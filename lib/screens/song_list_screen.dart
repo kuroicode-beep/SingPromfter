@@ -683,6 +683,26 @@ class _SongListScreenState extends State<SongListScreen> {
     );
   }
 
+  /// 곡을 다른 곡 위에 떨어뜨림 — 순서를 그 자리로 바꾸고, 폴더가 다르면
+  /// 대상 곡의 폴더로 함께 들어간다. 두 저장이 겹치지 않게 순차로 처리한다.
+  Future<void> _dropSongOnSong(
+    String draggedId,
+    String targetId,
+    List<String> visibleIds,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    final dragged = _app.songById(draggedId);
+    final target = _app.songById(targetId);
+    if (dragged == null || target == null) return;
+    if (dragged.folder != target.folder) {
+      await _app.updateSongFields(draggedId, folder: target.folder);
+    }
+    await _reorderSongList(visibleIds, oldIndex, newIndex);
+    if (!mounted) return;
+    setState(() {});
+  }
+
   /// 폴더 펼침 토글 — 설정에 저장해 재실행해도 유지된다.
   Future<void> _toggleFolder(String name) async {
     final expanded = List<String>.from(_settings.expandedFolders);
@@ -1607,6 +1627,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onCreateFolder: _createFolder,
         onMoveFolder: _moveFolder,
         onMoveSongToFolder: _moveSongToFolder,
+        onDropSongOnSong: _dropSongOnSong,
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),

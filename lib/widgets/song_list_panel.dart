@@ -68,6 +68,17 @@ class SongListPanel extends StatefulWidget {
   /// null이면 드래그 손잡이를 그리지 않는다.
   final void Function(String songId, String folder)? onMoveSongToFolder;
 
+  /// 곡을 다른 곡 위에 떨어뜨렸을 때(트리 모드의 순서 바꾸기).
+  /// visibleIds는 화면에 보이는 순서, 인덱스 규약은 [onReorder]와 같다
+  /// (newIndex는 끌린 곡을 뺀 목록 기준의 보정값).
+  final void Function(
+    String draggedId,
+    String targetId,
+    List<String> visibleIds,
+    int oldIndex,
+    int newIndex,
+  )? onDropSongOnSong;
+
   const SongListPanel({
     super.key,
     required this.songs,
@@ -99,6 +110,7 @@ class SongListPanel extends StatefulWidget {
     this.onCreateFolder,
     this.onMoveFolder,
     this.onMoveSongToFolder,
+    this.onDropSongOnSong,
   });
 
   @override
@@ -332,6 +344,14 @@ class _SongListPanelState extends State<SongListPanel> {
             .toList(growable: false),
     };
 
+    // 화면에 실제로 보이는 순서 — 곡 위 드랍(순서 바꾸기)의 좌표계다.
+    final displayIds = <String>[
+      for (final s in loose) s.id,
+      for (final name in folders)
+        if (_expanded.contains(name))
+          for (final s in (byFolder[name] ?? const <Song>[])) s.id,
+    ];
+
     final rows = <Widget>[];
     // 폴더 소속 곡을 끌고 있으면 맨 위에 '꺼내기' 놓기 자리가 생긴다.
     if (_draggingSong != null && _draggingSong!.folder.isNotEmpty) {
@@ -341,7 +361,7 @@ class _SongListPanelState extends State<SongListPanel> {
       if (rows.isNotEmpty) {
         rows.add(const Divider(height: 1, thickness: 1));
       }
-      rows.add(_draggableTile(song));
+      rows.add(_songDropTarget(song, displayIds));
     }
     final moveFolder = widget.onMoveFolder;
     for (var f = 0; f < folders.length; f++) {
@@ -387,7 +407,7 @@ class _SongListPanelState extends State<SongListPanel> {
           rows.add(
             Padding(
               padding: const EdgeInsets.only(left: 14),
-              child: _draggableTile(song),
+              child: _songDropTarget(song, displayIds),
             ),
           );
         }
@@ -444,6 +464,37 @@ class _SongListPanelState extends State<SongListPanel> {
         ),
         Expanded(child: _tileFor(song)),
       ],
+    );
+  }
+
+  /// 곡 타일도 놓기 자리다 — 다른 곡을 떨어뜨리면 그 자리로 순서가 바뀌고,
+  /// 폴더가 다르면 그 곡의 폴더로 함께 들어간다(호출부 소관).
+  Widget _songDropTarget(Song song, List<String> displayIds) {
+    final drop = widget.onDropSongOnSong;
+    final tile = _draggableTile(song);
+    if (drop == null) return tile;
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => details.data != song.id,
+      onAcceptWithDetails: (details) {
+        final oldIndex = displayIds.indexOf(details.data);
+        final targetIndex = displayIds.indexOf(song.id);
+        setState(() => _draggingSong = null);
+        if (oldIndex < 0 || targetIndex < 0) return;
+        // 보정 규약(끌린 곡을 뺀 목록 기준)에서는 위/아래 어느 쪽이든
+        // targetIndex가 곧 도착 인덱스다.
+        drop(details.data, song.id, displayIds, oldIndex, targetIndex);
+      },
+      builder: (context, candidates, rejected) => Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: candidates.isNotEmpty
+                ? AppColors.primary
+                : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: tile,
+      ),
     );
   }
 
