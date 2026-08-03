@@ -59,6 +59,14 @@
   .langs button:hover { color: var(--accent-strong); border-color: var(--border-strong); }
   .langs button[aria-current="true"] { color: var(--accent-strong); border-bottom-color: var(--accent); background: var(--surface-2); }
 
+  /* 히어로 배경 — Stitch 일러스트 위에 짙은 오버레이(대비 확보, 저시력 원칙 유지) */
+  .hero-bg {
+    background-image:
+      linear-gradient(rgba(13, 13, 18, 0.82), rgba(13, 13, 18, 0.97)),
+      url("assets/hero.jpg");
+    background-size: cover;
+    background-position: center 30%;
+  }
   .hero { padding: 64px 0 48px; text-align: center; }
   .hero h1 { font-size: 2.2rem; margin: 0 0 12px; font-weight: normal; }
   .hero .mission {
@@ -176,6 +184,7 @@
 </header>
 
 <main>
+  <div class="hero-bg">
   <div class="wrap hero">
     <p class="mission" data-i18n="hero_mission"></p>
     <h1 data-i18n="hero_title"></h1>
@@ -189,6 +198,7 @@
       <img src="assets/stage.png" alt="SingPromfter full-screen prompter — large high-contrast lyrics with the current line highlighted" loading="lazy">
       <figcaption data-i18n="hero_shot_cap"></figcaption>
     </figure>
+  </div>
   </div>
 
   <section id="why">
