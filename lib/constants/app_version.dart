@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.26.1';
+  static const String current = '3.27.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '3.27.0',
+      '2026-08-03',
+      '제어 API 화면 전환·캡처 — POST /api/view {name}으로 탭 이동과 '
+          '전체화면 프롬프터 열기(stage)/닫기(back), POST /api/screenshot '
+          '{path}로 앱 화면 PNG 저장(자동화·문서용)',
+    ),
     AppVersionEntry(
       '3.26.1',
       '2026-08-02',

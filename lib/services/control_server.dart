@@ -21,6 +21,7 @@ import '../controllers/import_job_controller.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/song.dart';
+import 'app_capture.dart';
 
 /// 라우팅 결과 — 상태코드와 JSON 본문.
 class ControlResponse {
@@ -345,6 +346,34 @@ class ControlRouter {
         return ControlResponse.ok();
 
       // ── 재생 ──
+      case ('POST', ['screenshot']):
+        final path = (body['path'] as String?)?.trim() ?? '';
+        if (path.isEmpty) {
+          return ControlResponse.error(422, 'bad_path', 'path가 필요합니다.');
+        }
+        final saved = await captureAppScreenshot(path);
+        if (saved == null) {
+          return ControlResponse.error(
+            500,
+            'capture_failed',
+            '앱 화면 캡처에 실패했습니다.',
+          );
+        }
+        return ControlResponse.ok({'path': saved});
+
+      case ('POST', ['view']):
+        final name = (body['name'] as String?)?.trim() ?? '';
+        final handled = app.onNavigate?.call(name) ?? false;
+        if (!handled) {
+          return ControlResponse.error(
+            422,
+            'bad_view',
+            'name은 home/search/favorites/training/recordings/jobs/'
+                'settings/stage/back 중 하나여야 합니다.',
+          );
+        }
+        return ControlResponse.ok({'view': name});
+
       case ('POST', ['playback', 'select']):
         final song = app.songById((body['songId'] as String?) ?? '');
         if (song == null) return _songNotFound();

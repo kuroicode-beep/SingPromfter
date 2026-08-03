@@ -159,6 +159,7 @@ class _SongListScreenState extends State<SongListScreen> {
   void initState() {
     super.initState();
     _app.onMessage = _showSnack;
+    _app.onNavigate = _handleRemoteNavigate;
     _app.onPracticeSessionEnded = (snapshot, played) {
       unawaited(_recordPractice(snapshot, played));
     };
@@ -1549,6 +1550,29 @@ class _SongListScreenState extends State<SongListScreen> {
     );
     if (confirmed != true) return;
     await _app.reserveAll(songs);
+  }
+
+  /// 제어 API(POST /api/view)의 화면 전환. 처리했으면 true.
+  bool _handleRemoteNavigate(String view) {
+    if (!mounted) return false;
+    if (view == 'stage') {
+      final song = _selectedSong;
+      if (song == null) return false;
+      _openPrompter(song);
+      return true;
+    }
+    if (view == 'back') {
+      final navigator = Navigator.of(context);
+      if (navigator.canPop()) navigator.pop();
+      return true;
+    }
+    for (final dest in AppDestination.values) {
+      if (dest.name == view) {
+        setState(() => _destination = dest);
+        return true;
+      }
+    }
+    return false;
   }
 
   void _openPrompter(Song song) {

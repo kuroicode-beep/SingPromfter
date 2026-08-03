@@ -133,6 +133,11 @@ class AppController extends ChangeNotifier {
 
   // ── UI 연결점 (화면이 설정; 없어도 동작한다) ─────────────
   void Function(String message)? onMessage;
+
+  /// 제어 API의 화면 전환 요청(home/search/favorites/training/recordings/
+  /// jobs/settings/stage/back). 화면(State)이 부팅 때 연결한다.
+  /// 처리했으면 true — 모르는 이름이면 false를 돌려 API가 422로 알린다.
+  bool Function(String view)? onNavigate;
   void Function(PlaybackSnapshot snapshot, Duration played)?
   onPracticeSessionEnded;
 
