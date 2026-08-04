@@ -11,6 +11,7 @@ import '../models/vocal_course.dart';
 import '../models/vocal_routine.dart';
 import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
+import 'training_session_card.dart';
 
 class TrainingPanel extends StatelessWidget {
   final DailyGoalLog todayLog;
@@ -27,6 +28,14 @@ class TrainingPanel extends StatelessWidget {
   final String? courseStart;
   final VoidCallback onStartCourse;
 
+  /// 따라하기 세션 상태와 제어(음성 안내 자동 진행).
+  final TrainingSessionView session;
+  final VoidCallback onStartSession;
+  final VoidCallback onTogglePauseSession;
+  final VoidCallback onRestartSessionStep;
+  final VoidCallback onSkipSessionStep;
+  final VoidCallback onStopSession;
+
   const TrainingPanel({
     super.key,
     required this.todayLog,
@@ -38,6 +47,12 @@ class TrainingPanel extends StatelessWidget {
     this.goalLogs = const {},
     this.courseStart,
     required this.onStartCourse,
+    this.session = TrainingSessionView.idle,
+    required this.onStartSession,
+    required this.onTogglePauseSession,
+    required this.onRestartSessionStep,
+    required this.onSkipSessionStep,
+    required this.onStopSession,
   });
 
   static String _formatDuration(Duration d) {
@@ -65,6 +80,16 @@ class TrainingPanel extends StatelessWidget {
       children: [
         Text('트레이닝', style: AppTypography.screenTitle),
         const SizedBox(height: 12),
+        if (session.active) ...[
+          TrainingSessionCard(
+            session: session,
+            onTogglePause: onTogglePauseSession,
+            onRestartStep: onRestartSessionStep,
+            onSkipStep: onSkipSessionStep,
+            onStop: onStopSession,
+          ),
+          const SizedBox(height: 12),
+        ],
         if (week == null)
           _CourseStartCard(onStart: onStartCourse)
         else
@@ -92,6 +117,16 @@ class TrainingPanel extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
+        if (!session.active)
+          FilledButton.icon(
+            onPressed: onStartSession,
+            icon: const Icon(Icons.record_voice_over),
+            label: Text('따라하기 시작 (${routine.totalMinutes}분, 음성 안내)'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(240, AppConstants.minTouchTarget),
+            ),
+          ),
+        const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -105,7 +140,9 @@ class TrainingPanel extends StatelessWidget {
                 label: Text(r.name, style: AppTypography.body),
                 selected: selected,
                 showCheckmark: true,
-                onSelected: (_) => onRoutineChanged(r.id),
+                // 세션 중 루틴 교체는 진행과 어긋난다 — 종료 후에.
+                onSelected:
+                    session.active ? null : (_) => onRoutineChanged(r.id),
                 materialTapTargetSize: MaterialTapTargetSize.padded,
                 visualDensity: VisualDensity.standard,
               ),

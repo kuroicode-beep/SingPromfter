@@ -134,6 +134,76 @@ class YoutubeDataClient {
     }
   }
 
+  /// 제목·채널명에 한글이 있으면 한국 곡으로 본다 — 국내 차트의
+  /// "한국 곡만" 휴리스틱(공식 차트 API가 없어 근사). (순수 함수 — 테스트 대상)
+  static bool looksKoreanSong(YoutubeVideo video) =>
+      RegExp(r'[가-힣]').hasMatch('${video.title} ${video.channelTitle}');
+
+  /// 실시간 인기 음악 TOP100 — videos.list mostPopular를 페이지네이션(50×N,
+  /// 페이지당 1유닛)으로 모은다. [koreanOnly]면 한글 휴리스틱으로 거른다.
+  /// 유튜브 공식 차트 API가 없어 mostPopular 기반 근사다(UI에 명시).
+  Future<YoutubeFetchResult> mostPopularTop100({
+    String regionCode = 'KR',
+    bool koreanOnly = false,
+    int total = 100,
+  }) async {
+    final key = _apiKey;
+    if (key == null || key.trim().isEmpty) {
+      return const YoutubeFetchResult.missingKey();
+    }
+    final videos = <YoutubeVideo>[];
+    String? pageToken;
+    try {
+      // 필터로 걸러지는 몫을 감안해 최대 4페이지까지만 돈다(4유닛 상한).
+      for (var page = 0; page < 4 && videos.length < total; page++) {
+        final uri = Uri.https(_host, '/youtube/v3/videos', {
+          'part': 'snippet,contentDetails',
+          'chart': 'mostPopular',
+          'regionCode': regionCode,
+          'videoCategoryId': '10',
+          'maxResults': '50',
+          'pageToken': ?pageToken,
+          'key': key,
+        });
+        final response =
+            await _client.get(uri, headers: _headers).timeout(_timeout);
+        if (response.statusCode != 200) {
+          if (videos.isEmpty) return _httpFailure(response.statusCode);
+          break; // 일부라도 모았으면 그걸로 답한다.
+        }
+        final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+        for (final item in _itemsOf(response)) {
+          final video = _videoFromVideosItem(item);
+          if (video == null) continue;
+          if (koreanOnly && !looksKoreanSong(video)) continue;
+          videos.add(video);
+          if (videos.length >= total) break;
+        }
+        pageToken = decoded is Map<String, dynamic>
+            ? decoded['nextPageToken'] as String?
+            : null;
+        if (pageToken == null) break;
+      }
+      return YoutubeFetchResult.ok(videos);
+    } catch (_) {
+      return const YoutubeFetchResult.failed('네트워크 오류로 목록을 가져오지 못했습니다.');
+    }
+  }
+
+  /// 연도별(+장르) 인기곡 — search.list 쿼리 프리셋(100유닛/회).
+  /// 반드시 명시적 [불러오기] 버튼에서만 부르고 호출부가 캐시할 것.
+  Future<YoutubeFetchResult> decadeChart({
+    required int decade,
+    String genre = '',
+  }) {
+    final g = genre.trim();
+    final genrePart = (g.isEmpty || g == '전체') ? '' : ' $g';
+    return _searchList({
+      'q': '$decade년대$genrePart 히트곡',
+      'maxResults': '25',
+    });
+  }
+
   /// TJ노래방 공식 채널의 최근 8주 인기 영상 — "노래방 인기 리스트".
   ///
   /// 채널이 하루 40~50곡을 올려서(총 7.4만 편) 업로드 목록 순회로는 하루치밖에

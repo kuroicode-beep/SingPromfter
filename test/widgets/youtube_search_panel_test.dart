@@ -54,7 +54,7 @@ void main() {
     expect(imported?.videoId, 'v1');
   });
 
-  testWidgets('검색어가 비어 있으면 차트 칩 2개가 보이고 전환을 알린다', (tester) async {
+  testWidgets('검색어가 비어 있으면 차트 칩 4개가 보이고 전환을 알린다', (tester) async {
     YoutubeChartKind? changed;
     await pump(
       tester,
@@ -62,11 +62,47 @@ void main() {
       onChartChanged: (k) => changed = k,
     );
 
-    expect(find.text('인기곡'), findsOneWidget);
+    expect(find.text('국내 TOP100'), findsOneWidget);
+    expect(find.text('글로벌 TOP100'), findsOneWidget);
     expect(find.text('노래방 인기'), findsOneWidget);
+    expect(find.text('연도별·장르'), findsOneWidget);
 
     await tester.tap(find.text('노래방 인기'));
     expect(changed, YoutubeChartKind.karaoke);
+  });
+
+  testWidgets('연도별 차트에서는 연대·장르 칩과 [불러오기]가 보인다', (tester) async {
+    int? decade;
+    String? genre;
+    var loaded = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: Scaffold(
+          body: YoutubeSearchPanel(
+            state: const YoutubeSearchViewState(
+              chart: YoutubeChartKind.decade,
+            ),
+            onSearch: (_) {},
+            onChartChanged: (_) {},
+            onImport: (_) {},
+            onDecadeChanged: (d) => decade = d,
+            onGenreChanged: (g) => genre = g,
+            onLoadDecadeChart: () => loaded = true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 자동 호출 금지 — 안내 문구가 보인다.
+    expect(find.textContaining('불러오기'), findsWidgets);
+    await tester.tap(find.text('1990년대'));
+    expect(decade, 1990);
+    await tester.tap(find.text('발라드'));
+    expect(genre, '발라드');
+    await tester.tap(find.widgetWithText(FilledButton, '불러오기'));
+    expect(loaded, isTrue);
   });
 
   testWidgets('검색어가 있으면 차트 칩 대신 [차트로] 버튼이 나온다', (tester) async {
@@ -77,7 +113,7 @@ void main() {
       onSearch: (q) => searched = q,
     );
 
-    expect(find.text('인기곡'), findsNothing);
+    expect(find.text('국내 TOP100'), findsNothing);
     await tester.tap(find.text('차트로'));
     expect(searched, '');
   });

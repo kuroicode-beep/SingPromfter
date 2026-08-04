@@ -3,14 +3,17 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show KeyDownEvent, KeyEvent, LogicalKeyboardKey;
 
 import '../controllers/app_controller.dart';
 import '../controllers/import_job_controller.dart';
 import '../controllers/playback_controller.dart';
 import '../controllers/recording_controller.dart';
+import '../controllers/training_session_controller.dart';
 import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/add_song_dialog.dart';
 import '../dialogs/add_track_dialog.dart';
@@ -21,7 +24,9 @@ import '../dialogs/pitch_report_dialog.dart';
 import '../dialogs/regenerate_lyrics_dialog.dart';
 import '../dialogs/youtube_import_dialog.dart';
 import '../models/app_destination.dart';
-import '../models/vocal_routine.dart' show dateKey;
+import '../models/routine_step_spec.dart';
+import '../models/vocal_course.dart' show VocalCourse;
+import '../models/vocal_routine.dart' show VocalRoutines, dateKey;
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
@@ -39,6 +44,7 @@ import '../services/daily_goal_service.dart';
 import '../services/recording_library_service.dart';
 import '../services/youtube_import_service.dart';
 import '../services/youtube_data_client.dart';
+import '../services/guide_audio_service.dart';
 import '../services/prompter_audio_service.dart';
 import '../services/prompter_settings_service.dart';
 import '../services/song_library_service.dart';
@@ -48,7 +54,7 @@ import '../services/song_sort_service.dart';
 import '../services/take_mix_service.dart';
 import '../services/control_server.dart';
 import '../widgets/song_list_screen_content.dart';
-import '../widgets/search_hub_panel.dart';
+import '../widgets/training_session_card.dart';
 import '../widgets/youtube_search_panel.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
@@ -78,6 +84,18 @@ class _SongListScreenState extends State<SongListScreen> {
   ImportJobController get _importJobs => _app.importJobs;
   final _recordingLibrary = RecordingLibraryService();
   final _dailyGoals = DailyGoalService();
+  // 따라하기 세션 — 음성 안내(내장 TTS 클립)·피아노 런은 전용 플레이어로.
+  final _guideAudio = GuideAudioService();
+  late final _trainingSession = TrainingSessionController(
+    audio: _guideAudio,
+    voiceRange: () => TrainingVoiceRange.fromStorage(
+      _settings.trainingVoiceRange,
+    ),
+    onStepCompleted: (stepId) async {
+      await _dailyGoals.markStepDone(stepId);
+      if (mounted) setState(() {});
+    },
+  );
   late final RecordingController _recording;
   late final _takePlayer = PrompterAudioService(_repo);
   AudioBindings? _takeBindings;
@@ -111,19 +129,33 @@ class _SongListScreenState extends State<SongListScreen> {
   String _searchQuery = '';
   SongListFilterMode _searchFilterMode = SongListFilterMode.all;
 
-  // 곡 검색 탭의 [내 곡 | 유튜브] 전환과 유튜브 검색 상태.
+  // 유튜브 탭의 검색·차트 상태.
   // 패널은 재생성되므로 여기(State)가 소유해야 결과·차트 캐시가 유지된다.
-  SearchSource _searchSource = SearchSource.mySongs;
   final _ytClient = YoutubeDataClient();
   String _ytQuery = '';
   List<YoutubeVideo> _ytResults = const [];
   YoutubeFetchStatus _ytStatus = YoutubeFetchStatus.ok;
   String? _ytMessage;
   bool _ytLoading = false;
-  YoutubeChartKind _ytChart = YoutubeChartKind.popular;
+  YoutubeChartKind _ytChart = YoutubeChartKind.domestic;
+
+  /// 연도별 차트의 연대·장르 선택.
+  int _ytDecade = 2020;
+  String _ytGenre = '전체';
 
   /// 차트는 세션 안에서 캐시한다 — 칩을 오갈 때마다 재호출하지 않게.
-  final Map<YoutubeChartKind, List<YoutubeVideo>> _ytChartCache = {};
+  /// 키는 종류(+연도별은 연대·장르 조합)로 만든다.
+  final Map<String, List<YoutubeVideo>> _ytChartCache = {};
+
+  String _chartCacheKey(YoutubeChartKind kind) => switch (kind) {
+    YoutubeChartKind.decade => 'decade:$_ytDecade:$_ytGenre',
+    _ => kind.name,
+  };
+
+  // 노래방 자동 검색의 대기 타깃 — 있으면 [가져오기]가 이 곡 4번 슬롯으로 간다.
+  // 탭을 오가도 유지되고, 성공/취소/새 자동 검색 시작 때 해제된다.
+  String? _karaokeTargetSongId;
+  String? _karaokeTargetTitle;
 
   // 좌측 목록 자체의 검색·필터 (검색 화면과 독립)
   String _listQuery = '';
@@ -183,6 +215,8 @@ class _SongListScreenState extends State<SongListScreen> {
         return AppExitResponse.exit;
       },
     );
+    // 따라하기 세션 상태 변화 → 러너 카드 갱신.
+    _trainingSession.addListener(_onPlaybackStateChanged);
     // 테이크 재생이 끝나면 '정지' 버튼이 '듣기'로 돌아오게 한다.
     _takeBindings = _takePlayer.bind(
       onPlayingChanged: (playing) {
@@ -227,6 +261,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _recording.dispose();
     _takeBindings?.cancel();
     _takePlayer.dispose();
+    _trainingSession.removeListener(_onPlaybackStateChanged);
+    _trainingSession.dispose();
+    unawaited(_guideAudio.dispose());
     unawaited(_controlServer.stop());
     _ytClient.close();
     _app.removeListener(_onPlaybackStateChanged);
@@ -814,6 +851,48 @@ class _SongListScreenState extends State<SongListScreen> {
     setState(() {});
   }
 
+  // ── 따라하기 세션 ──────────────────────────────────────
+
+  /// 러너 카드가 소비하는 불변 뷰 — 컨트롤러 상태의 스냅샷.
+  TrainingSessionView get _trainingSessionView => TrainingSessionView(
+    active: _trainingSession.active,
+    finished: _trainingSession.phase == TrainingSessionPhase.finished,
+    paused: _trainingSession.paused,
+    stepTitle: _trainingSession.currentStep?.title ?? '',
+    bigText: _trainingSession.bigText,
+    remaining: _trainingSession.remaining,
+    stepIndex: _trainingSession.stepIndex,
+    stepCount: _trainingSession.routine?.steps.length ?? 0,
+  );
+
+  /// 오늘 루틴으로 따라하기 시작 — 코스 진행 중이면 주차 브리핑을 선행한다.
+  Future<void> _startTrainingSession() async {
+    final routine = VocalRoutines.byId(_dailyGoals.today().routineId);
+    final start = DateTime.tryParse(_settings.trainingCourseStart ?? '');
+    final week =
+        start == null ? null : VocalCourse.weekFor(start, DateTime.now());
+    await _trainingSession.start(routine, courseWeekNumber: week?.number);
+  }
+
+  /// 트레이닝 탭 전용 단축키 — 세션 중 Space=일시정지/재개, Home=섹션 재시작.
+  /// 그 밖의 키는 skipRemainingHandlers로 기본 매핑(R·T 등)을 차단한다 —
+  /// 트레이닝 탭에서 녹음·싱크 키가 먹으면 사고다.
+  KeyEventResult _handleTrainingKey(KeyEvent event) {
+    if (_destination != AppDestination.training) return KeyEventResult.ignored;
+    if (!_trainingSession.active) return KeyEventResult.ignored;
+    if (event is KeyDownEvent) {
+      if (event.logicalKey == LogicalKeyboardKey.space) {
+        unawaited(_trainingSession.togglePause());
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.home) {
+        unawaited(_trainingSession.restartStep());
+        return KeyEventResult.handled;
+      }
+    }
+    return KeyEventResult.skipRemainingHandlers;
+  }
+
   // ── 녹음 ────────────────────────────────────────────────
 
   Future<String> _buildRecordingPath(String fileName) async {
@@ -1169,12 +1248,15 @@ class _SongListScreenState extends State<SongListScreen> {
     chart: _ytChart,
     apiKeyAvailable: _ytClient.hasApiKey,
     message: _ytMessage,
+    karaokeTargetTitle: _karaokeTargetTitle,
+    decade: _ytDecade,
+    genre: _ytGenre,
   );
 
-  void _onSearchSourceChanged(SearchSource source) {
-    setState(() => _searchSource = source);
-    // 유튜브 쪽 첫 진입 — 기본 화면이 차트이므로 lazy로 한 번 채운다.
-    if (source == SearchSource.youtube &&
+  /// 탭 전환의 단일 통로 — 유튜브 탭 첫 진입 시 차트를 lazy로 한 번 채운다.
+  void _changeDestination(AppDestination next) {
+    setState(() => _destination = next);
+    if (next == AppDestination.youtube &&
         _ytQuery.isEmpty &&
         _ytResults.isEmpty &&
         !_ytLoading) {
@@ -1206,7 +1288,11 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   Future<void> _loadYoutubeChart(YoutubeChartKind kind) async {
-    final cached = _ytChartCache[kind];
+    final cacheKey = _chartCacheKey(kind);
+    final cached = _ytChartCache[cacheKey];
+    // 연도별은 검색 100유닛이라 자동으로 부르지 않는다 — 칩만 바꾸고
+    // [불러오기]를 기다린다(캐시가 있으면 그걸 보여 준다).
+    final autoFetch = kind != YoutubeChartKind.decade;
     setState(() {
       _ytChart = kind;
       if (cached != null) {
@@ -1215,14 +1301,21 @@ class _SongListScreenState extends State<SongListScreen> {
         _ytResults = cached;
         _ytLoading = false;
       } else {
-        _ytLoading = true;
+        _ytResults = const [];
+        _ytStatus = YoutubeFetchStatus.ok;
+        _ytMessage = null;
+        _ytLoading = autoFetch;
       }
     });
-    if (cached != null) return;
+    if (cached != null || !autoFetch) return;
 
     final result = switch (kind) {
-      YoutubeChartKind.popular => await _ytClient.mostPopularMusic(),
+      YoutubeChartKind.domestic =>
+        await _ytClient.mostPopularTop100(koreanOnly: true),
+      YoutubeChartKind.global =>
+        await _ytClient.mostPopularTop100(regionCode: 'US'),
       YoutubeChartKind.karaoke => await _ytClient.karaokeChannelPopular(),
+      YoutubeChartKind.decade => const YoutubeFetchResult.ok([]),
     };
     if (!mounted) return;
     // 로딩 중 다른 칩으로 옮겼거나 검색을 시작했으면 버린다.
@@ -1233,14 +1326,89 @@ class _SongListScreenState extends State<SongListScreen> {
       _ytMessage = result.message;
       _ytResults = result.videos;
       if (result.status == YoutubeFetchStatus.ok) {
-        _ytChartCache[kind] = result.videos;
+        _ytChartCache[cacheKey] = result.videos;
       }
     });
   }
 
+  /// 연도별 차트 [불러오기] — 명시적 버튼에서만(검색 100유닛/회) + 조합 캐시.
+  Future<void> _loadDecadeChart() async {
+    final cacheKey = _chartCacheKey(YoutubeChartKind.decade);
+    final cached = _ytChartCache[cacheKey];
+    if (cached != null) {
+      setState(() {
+        _ytStatus = YoutubeFetchStatus.ok;
+        _ytMessage = null;
+        _ytResults = cached;
+        _ytLoading = false;
+      });
+      return;
+    }
+    setState(() => _ytLoading = true);
+    final result = await _ytClient.decadeChart(
+      decade: _ytDecade,
+      genre: _ytGenre,
+    );
+    if (!mounted) return;
+    if (_ytChart != YoutubeChartKind.decade || _ytQuery.isNotEmpty) return;
+    if (_chartCacheKey(YoutubeChartKind.decade) != cacheKey) return;
+    setState(() {
+      _ytLoading = false;
+      _ytStatus = result.status;
+      _ytMessage = result.message;
+      _ytResults = result.videos;
+      if (result.status == YoutubeFetchStatus.ok) {
+        _ytChartCache[cacheKey] = result.videos;
+      }
+    });
+  }
+
+  /// 연대/장르 칩 — 선택만 바꾸고 결과는 캐시가 있을 때만 즉시 반영.
+  void _changeDecade(int decade) {
+    setState(() {
+      _ytDecade = decade;
+      _ytResults =
+          _ytChartCache[_chartCacheKey(YoutubeChartKind.decade)] ?? const [];
+    });
+  }
+
+  void _changeGenre(String genre) {
+    setState(() {
+      _ytGenre = genre;
+      _ytResults =
+          _ytChartCache[_chartCacheKey(YoutubeChartKind.decade)] ?? const [];
+    });
+  }
+
+  /// [미리듣기] — 기본 브라우저 새 창으로 유튜브를 연다(앱 내 재생 아님).
+  Future<void> _previewYoutube(YoutubeVideo video) async {
+    final ok = await launchUrl(
+      Uri.parse(video.url),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ok && mounted) _showSnack('브라우저를 열지 못했습니다.');
+  }
+
   /// [가져오기] — 구성 팝업(기본/남자키/4번슬롯)을 띄우고 선택대로 가져온다.
+  /// 노래방 자동 검색 타깃이 대기 중이면 키 선택만 받고 그 곡으로 직행한다.
   /// 저작권 게이트·스낵바는 각 경로가 처리한다.
   Future<void> _importFromYoutubeSearch(YoutubeVideo video) async {
+    final targetId = _karaokeTargetSongId;
+    if (targetId != null) {
+      final semitones = await YoutubeImportDialog.showKaraokeKey(
+        context,
+        videoTitle: video.title,
+        songTitle: _karaokeTargetTitle ?? '',
+      );
+      if (semitones == null || !mounted) return;
+      await _importKaraokeToSong(
+        video,
+        semitones: semitones,
+        targetSongId: targetId,
+      );
+      return;
+    }
+
     final choice = await YoutubeImportDialog.show(
       context,
       videoTitle: video.title,
@@ -1261,15 +1429,32 @@ class _SongListScreenState extends State<SongListScreen> {
 
   /// 4번슬롯 — 기존 곡을 골라 노래방 반주로 붙인다. 영상이 이미 반주라
   /// 분리 없이 그대로(asIs) 받고, 키를 골랐으면 파이프라인이 구워 넣는다.
+  /// [targetSongId]가 오면(자동 검색 흐름) 곡 고르기를 건너뛴다.
   Future<void> _importKaraokeToSong(
     YoutubeVideo video, {
     int semitones = 0,
+    String? targetSongId,
   }) async {
     if (_songs.isEmpty) {
       _showSnack('먼저 곡을 하나 등록해 주세요. 노래방 반주는 기존 곡에 붙습니다.');
       return;
     }
-    final song = await PickSongDialog.show(context, songs: _songs);
+    Song? song;
+    if (targetSongId != null) {
+      for (final s in _songs) {
+        if (s.id == targetSongId) {
+          song = s;
+          break;
+        }
+      }
+      if (song == null) {
+        _cancelKaraokeTarget();
+        _showSnack('대상 곡을 찾을 수 없습니다. 곡을 다시 골라 주세요.');
+        return;
+      }
+    } else {
+      song = await PickSongDialog.show(context, songs: _songs);
+    }
     if (song == null || !mounted) return;
     if (!await _confirmYoutubeNotice()) return;
     final outcome = await _app.enqueueTrackImport(
@@ -1281,6 +1466,11 @@ class _SongListScreenState extends State<SongListScreen> {
       semitones: semitones,
     );
     if (!mounted) return;
+    if (outcome.ok && targetSongId != null) {
+      // 자동 검색 타깃 완료 — 배너를 내리고 진행 표시가 있는 홈으로.
+      _cancelKaraokeTarget();
+      _changeDestination(AppDestination.home);
+    }
     _showSnack(
       outcome.ok
           ? "'${song.title}'의 4번 슬롯으로 가져오는 중입니다."
@@ -1340,21 +1530,49 @@ class _SongListScreenState extends State<SongListScreen> {
       separatorStatusLabel: _separatorStatusLabel,
       separatorOnline: _separatorOnline,
     );
-    if (choice == null) return;
-    if (!await _confirmYoutubeNotice()) return;
-    final outcome = await _app.enqueueTrackImport(
-      songId: choice.songId,
-      url: choice.url,
-      mode: choice.mode,
-      slot: choice.slot,
-      label: choice.label,
-    );
-    if (!mounted) return;
-    _showSnack(
-      outcome.ok
-          ? '반주를 가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.'
-          : (outcome.message ?? '반주를 가져오지 못했습니다.'),
-    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case AddTrackKaraokeSearch(:final song):
+        await _startKaraokeAutoSearch(song);
+      case AddTrackFromUrl():
+        if (!await _confirmYoutubeNotice()) return;
+        final outcome = await _app.enqueueTrackImport(
+          songId: choice.songId,
+          url: choice.url,
+          mode: choice.mode,
+          slot: choice.slot,
+          label: choice.label,
+        );
+        if (!mounted) return;
+        _showSnack(
+          outcome.ok
+              ? '반주를 가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.'
+              : (outcome.message ?? '반주를 가져오지 못했습니다.'),
+        );
+    }
+  }
+
+  /// 노래방 자동 검색 — 유튜브 탭을 열고 "제목 가수 노래방"으로 바로 검색.
+  /// 결과에서 [가져오기]를 누르면 이 곡 4번 슬롯으로 붙는다(_importFromYoutubeSearch).
+  Future<void> _startKaraokeAutoSearch(Song song) async {
+    setState(() {
+      _karaokeTargetSongId = song.id;
+      _karaokeTargetTitle = song.title;
+      // _changeDestination 대신 직접 — 차트 lazy-fetch가 검색과 겹치지 않게.
+      _destination = AppDestination.youtube;
+    });
+    final query = '${song.title} ${song.artist} 노래방'
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    await _searchYoutube(query);
+  }
+
+  /// 노래방 자동 검색의 대기 타깃 해제 — 배너 [취소]와 성공 경로가 쓴다.
+  void _cancelKaraokeTarget() {
+    setState(() {
+      _karaokeTargetSongId = null;
+      _karaokeTargetTitle = null;
+    });
   }
 
   /// 곡 추가의 유일한 경로 — 링크를 받아 가져오기 파이프라인에 넘긴다.
@@ -1568,7 +1786,7 @@ class _SongListScreenState extends State<SongListScreen> {
     }
     for (final dest in AppDestination.values) {
       if (dest.name == view) {
-        setState(() => _destination = dest);
+        _changeDestination(dest);
         return true;
       }
     }
@@ -1605,8 +1823,13 @@ class _SongListScreenState extends State<SongListScreen> {
       // 재생·녹음·싱크 단축키는 재생 화면이 보이는 탭(홈·즐겨찾기)에서만.
       // 곡 검색·설정 등 다른 탭에서 R·T·Space가 먹으면 사고다.
       // 전체화면 무대는 같은 actions를 자기 스코프에서 소비한다.
+      // 트레이닝 탭은 따라하기 세션 중에만 켜지고, overrideHandler가
+      // Space·Home만 세션 제어로 받고 나머지 기본 매핑은 차단한다.
       enabled: _destination == AppDestination.home ||
-          _destination == AppDestination.favorites,
+          _destination == AppDestination.favorites ||
+          (_destination == AppDestination.training &&
+              _trainingSession.active),
+      overrideHandler: _handleTrainingKey,
       settings: _settings,
       onSettingsChanged: _updateSettings,
       actions: _prompterActions,
@@ -1619,7 +1842,7 @@ class _SongListScreenState extends State<SongListScreen> {
         loading: _loading,
         onStartSeparator: _app.ensureSeparatorOnline,
         destination: _destination,
-        onDestinationChanged: (next) => setState(() => _destination = next),
+        onDestinationChanged: _changeDestination,
         songs: _songs,
         queue: _queue,
         selectedSong: snapshot.song,
@@ -1702,6 +1925,12 @@ class _SongListScreenState extends State<SongListScreen> {
         onStartCourse: _startTrainingCourse,
         onRoutineChanged: _changeRoutine,
         onToggleRoutineStep: _toggleRoutineStep,
+        trainingSession: _trainingSessionView,
+        onStartTrainingSession: _startTrainingSession,
+        onTogglePauseTrainingSession: _trainingSession.togglePause,
+        onRestartTrainingStep: _trainingSession.restartStep,
+        onSkipTrainingStep: _trainingSession.skipStep,
+        onStopTrainingSession: _trainingSession.stop,
         lyricsScrollController: _lyricsScrollController,
         highlightLineIndex: _playback.lineIndex.value,
         searchQuery: _searchQuery,
@@ -1717,12 +1946,15 @@ class _SongListScreenState extends State<SongListScreen> {
         onReorderSongs: _reorderSongList,
         onRunMaintenance: _runMaintenance,
         onSearchQueryChanged: (value) => setState(() => _searchQuery = value),
-        searchSource: _searchSource,
-        onSearchSourceChanged: _onSearchSourceChanged,
         youtubeSearch: _youtubeSearchState,
         onYoutubeSearch: _searchYoutube,
         onYoutubeChartChanged: _loadYoutubeChart,
         onYoutubeImport: _importFromYoutubeSearch,
+        onCancelKaraokeTarget: _cancelKaraokeTarget,
+        onYoutubeDecadeChanged: _changeDecade,
+        onYoutubeGenreChanged: _changeGenre,
+        onLoadYoutubeDecadeChart: _loadDecadeChart,
+        onYoutubePreview: _previewYoutube,
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),
         onAddSong: _addSong,

@@ -49,6 +49,94 @@ class YoutubeImportDialog {
       builder: (_) => _YoutubeImportDialogBody(videoTitle: videoTitle),
     );
   }
+
+  /// 노래방 자동 검색 흐름 전용 — 대상 곡이 이미 정해져 있어 프리셋 없이
+  /// 4번 슬롯 키만 고른다. 반환은 반음(취소면 null).
+  static Future<int?> showKaraokeKey(
+    BuildContext context, {
+    required String videoTitle,
+    required String songTitle,
+  }) {
+    return showDialog<int>(
+      context: context,
+      builder: (_) => _KaraokeKeyDialogBody(
+        videoTitle: videoTitle,
+        songTitle: songTitle,
+      ),
+    );
+  }
+}
+
+/// 노래방 키 선택만 있는 축약 팝업.
+class _KaraokeKeyDialogBody extends StatefulWidget {
+  final String videoTitle;
+  final String songTitle;
+
+  const _KaraokeKeyDialogBody({
+    required this.videoTitle,
+    required this.songTitle,
+  });
+
+  @override
+  State<_KaraokeKeyDialogBody> createState() => _KaraokeKeyDialogBodyState();
+}
+
+class _KaraokeKeyDialogBodyState extends State<_KaraokeKeyDialogBody> {
+  int _key = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text("'${widget.songTitle}' 4번 슬롯 키 선택"),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.videoTitle,
+              style: AppTypography.bodyMuted,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final key in const [0, -2, -5, -7])
+                  _KeyPresetChip(
+                    semitones: key,
+                    selected: _key == key,
+                    onTap: () => setState(() => _key = key),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _KeyStepper(
+              label: '수동',
+              value: _key,
+              onChanged: (v) => setState(() => _key = v),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _key),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(140, AppConstants.minTouchTarget),
+          ),
+          child: const Text('4번 슬롯에 넣기'),
+        ),
+      ],
+    );
+  }
 }
 
 class _YoutubeImportDialogBody extends StatefulWidget {

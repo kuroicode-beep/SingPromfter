@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../constants/app_constants.dart';
+import '../constants/app_shortcuts.dart';
 import '../constants/app_version.dart';
 import '../models/practice_session.dart';
 import '../models/prompter_display_mode.dart';
@@ -205,6 +206,8 @@ class SettingsPanel extends StatelessWidget {
         const SizedBox(height: 24),
         const _AppDisplaySection(),
         const SizedBox(height: 24),
+        _TrainingSection(settings: settings, onChanged: onSettingsChanged),
+        const SizedBox(height: 24),
         const _ShortcutHelpSection(),
         const SizedBox(height: 24),
         const _KeyDiagSection(),
@@ -243,37 +246,52 @@ class SettingsPanel extends StatelessWidget {
   }
 }
 
+/// 트레이닝 — 따라하기 스케일 단계의 피아노 음역(남성/여성).
+class _TrainingSection extends StatelessWidget {
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onChanged;
+
+  const _TrainingSection({required this.settings, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final current = settings.trainingVoiceRange;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('트레이닝', style: AppTypography.listTitle),
+        const SizedBox(height: 4),
+        Text(
+          '따라하기 스케일 단계의 피아노 음역을 정합니다. 남성: 도3~도4, 여성: 파3~파4.',
+          style: AppTypography.bodyMuted,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _SelectChip(
+              label: '남성 (기본)',
+              selected: current != 'female',
+              onTap: () =>
+                  onChanged(settings.copyWith(trainingVoiceRange: 'male')),
+            ),
+            const SizedBox(width: 8),
+            _SelectChip(
+              label: '여성',
+              selected: current == 'female',
+              onTap: () =>
+                  onChanged(settings.copyWith(trainingVoiceRange: 'female')),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 /// 단축키 안내 — 종류가 많아져서(사용자 요청) 한 곳에 정리한다.
 /// 홈·즐겨찾기·전체화면에서만 동작하고, 텍스트 입력 중에는 자동으로 꺼진다.
 class _ShortcutHelpSection extends StatelessWidget {
   const _ShortcutHelpSection();
-
-  static const _shortcuts = <(String, String)>[
-    ('Space', '재생 / 일시정지'),
-    ('F5', '전체화면 무대 열기'),
-    ('ESC', '무대 닫기'),
-    ('R', '녹음 시작 / 중지'),
-    ('← / →', '가사 0.2초 늦추기 / 앞당기기 (꾹 누르면 연속)'),
-    ('Ctrl+← / →', '가사 1초 늦추기 / 앞당기기'),
-    ('Alt+← / →', '다음 줄부터 아래만 보정 — 간주 뒤 어긋남용 (위는 그대로)'),
-    ('[', '싱크 리셋 — 처음 상태로 (T와 같음)'),
-    (']', '싱크 대기 — 가사를 멈췄다가, 나올 타이밍에 다시 누르면 그만큼 늦춰 이어감'),
-    ('L', '싱크 잠금 토글 — 잠그면 싱크 조절 키가 전부 꺼진다'),
-    ('↑ / ↓', '이전 줄 / 다음 줄 (꾹 누르면 연속)'),
-    ('Shift+← / →', '30초 뒤로 / 앞으로 이동'),
-    ('Shift+↑ / ↓', '볼륨'),
-    ('O / P', '이전 줄 / 다음 줄 (꾹 누르면 연속)'),
-    ('T', '가사 싱크를 원래대로 리셋'),
-    ('. / /', '가사 0.2초 늦추기 / 앞당기기 (꾹 누르면 연속)'),
-    ('E', '현재 가사 줄 편집 — ESC로 저장'),
-    ('D', '현재 가사 줄 삭제 — 곡 끝의 환청 줄 지우기 (원본 .bak 백업)'),
-    ('F', '가사 편집 실행취소 — D 삭제·부분 보정·줄 편집을 되돌림 (20단계)'),
-    ('G', '가사를 보관된 원본(.bak)으로 복구 — 확인창을 거침'),
-    ('Home / End', '곡 처음 / 끝으로'),
-    ('Ctrl+휠', '글자 크기'),
-    ('Alt+휠', '키(피치)'),
-    ('Shift+휠', '템포'),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -283,11 +301,12 @@ class _ShortcutHelpSection extends StatelessWidget {
         Text('단축키', style: AppTypography.listTitle),
         const SizedBox(height: 4),
         Text(
-          '홈·즐겨찾기·전체화면에서 동작합니다. 글자를 입력하는 중에는 꺼집니다.',
+          '홈·즐겨찾기·전체화면에서 동작합니다. 글자를 입력하는 중에는 꺼집니다. '
+          '음성 안내는 도움말 탭에 있습니다.',
           style: AppTypography.bodyMuted,
         ),
         const SizedBox(height: 8),
-        for (final (key, description) in _shortcuts)
+        for (final entry in AppShortcuts.entries)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),
             child: Row(
@@ -295,10 +314,10 @@ class _ShortcutHelpSection extends StatelessWidget {
               children: [
                 SizedBox(
                   width: 110,
-                  child: Text(key, style: AppTypography.mono),
+                  child: Text(entry.keys, style: AppTypography.mono),
                 ),
                 Expanded(
-                  child: Text(description, style: AppTypography.body),
+                  child: Text(entry.description, style: AppTypography.body),
                 ),
               ],
             ),

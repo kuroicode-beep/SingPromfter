@@ -12,9 +12,19 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '3.27.0';
+  static const String current = '4.0.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '4.0.0',
+      '2026-08-05',
+      '음성 안내 대개편 — 트레이닝 따라하기 세션(내장 TTS female_calm 안내, '
+          '호흡 박자 큐, 남/녀 음역 피아노 스케일, 자동 진행·체크, Space/Home '
+          '단축키), 상단 메뉴 9개 개편(검색·유튜브 분리, 도움말 탭 신설), '
+          '유튜브 차트 확장(국내·글로벌 TOP100, 연도별·장르, 미리듣기 새 창), '
+          '노래방 반주 자동 검색(4번 슬롯), 도움말 단축키 음성 낭독, '
+          '볼륨(+/-)·탐색(PgUp/PgDn) 단축키',
+    ),
     AppVersionEntry(
       '3.27.0',
       '2026-08-03',

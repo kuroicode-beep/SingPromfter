@@ -180,6 +180,11 @@ class PrompterKeyboardScope extends StatefulWidget {
   /// 살아 있어야 한다. 호출부가 현재 탭으로 판단해 넘긴다.
   final bool enabled;
 
+  /// 기본 매핑보다 먼저 키를 받는 훅 — 트레이닝 따라하기(Space·Home)처럼
+  /// 특정 탭 상태에서만 다른 의미를 갖는 키에 쓴다. handled를 돌려주면
+  /// 기본 매핑은 건너뛴다. (텍스트 입력 중에는 호출되지 않는다)
+  final KeyEventResult Function(KeyEvent event)? overrideHandler;
+
   const PrompterKeyboardScope({
     super.key,
     required this.child,
@@ -191,6 +196,7 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.onEditCurrentLine,
     this.enablePlaybackShortcuts = true,
     this.enabled = true,
+    this.overrideHandler,
   });
 
   @override
@@ -290,6 +296,14 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       return KeyEventResult.ignored;
     }
 
+    // 탭 상태 전용 키(트레이닝 따라하기 등)가 기본 매핑보다 먼저 받는다.
+    // skipRemainingHandlers = "이 탭에서 기본 매핑은 전부 무시" 신호.
+    final override = widget.overrideHandler?.call(event);
+    if (override == KeyEventResult.handled) return KeyEventResult.handled;
+    if (override == KeyEventResult.skipRemainingHandlers) {
+      return KeyEventResult.ignored;
+    }
+
     // 싱크 밀고 당기기는 꾹 누르면 반복되는 게 자연스럽다 — 반복 이벤트도
     // 받는다. 나머지 단축키는 최초 눌림만(토글이 튀지 않게).
     final nudge = lyricsNudgeFor(
@@ -383,6 +397,40 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
       );
       if (adjusted != null) {
         widget.onSettingsChanged(adjusted);
+        return KeyEventResult.handled;
+      }
+    }
+
+    // +/- = 볼륨, PageUp/PageDown = 10초 이동 (v4.0.0) — 홈·무대 공통.
+    // 문자('+','=','-')와 논리 키(넘패드 포함)를 함께 본다(자판 편차 대응).
+    // 꾹 누르면 연속으로 움직이도록 반복 이벤트도 받는다.
+    final char = event.character;
+    final volumeUp = key == LogicalKeyboardKey.numpadAdd ||
+        key == LogicalKeyboardKey.add ||
+        char == '+' ||
+        char == '=';
+    final volumeDown = key == LogicalKeyboardKey.numpadSubtract ||
+        key == LogicalKeyboardKey.minus ||
+        char == '-' ||
+        char == '_';
+    if (volumeUp || volumeDown) {
+      final adjusted = SongListShortcutService.adjustSettings(
+        widget.settings,
+        volumeUp ? LogicalKeyboardKey.arrowUp : LogicalKeyboardKey.arrowDown,
+      );
+      if (adjusted != null) {
+        widget.onSettingsChanged(adjusted);
+        return KeyEventResult.handled;
+      }
+    }
+    if (key == LogicalKeyboardKey.pageUp || key == LogicalKeyboardKey.pageDown) {
+      final seekCb = widget.actions?.seekRelative;
+      if (seekCb != null) {
+        seekCb(
+          key == LogicalKeyboardKey.pageUp
+              ? -SongListShortcutService.seekStepMedium
+              : SongListShortcutService.seekStepMedium,
+        );
         return KeyEventResult.handled;
       }
     }

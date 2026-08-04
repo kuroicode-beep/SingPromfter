@@ -21,14 +21,22 @@ export '../services/youtube_data_client.dart'
     show YoutubeVideo, YoutubeFetchStatus;
 
 /// 검색어가 비었을 때 보여 줄 차트.
-enum YoutubeChartKind { popular, karaoke }
+enum YoutubeChartKind { domestic, global, karaoke, decade }
 
 extension YoutubeChartKindInfo on YoutubeChartKind {
   String get label => switch (this) {
-    YoutubeChartKind.popular => '인기곡',
+    YoutubeChartKind.domestic => '국내 TOP100',
+    YoutubeChartKind.global => '글로벌 TOP100',
     YoutubeChartKind.karaoke => '노래방 인기',
+    YoutubeChartKind.decade => '연도별·장르',
   };
 }
+
+/// 연도별 차트의 연대 선택지.
+const youtubeDecades = [1980, 1990, 2000, 2010, 2020];
+
+/// 연도별 차트의 장르 선택지 — '전체'는 장르 없이 연대만.
+const youtubeGenres = ['전체', '발라드', '댄스', '트로트', '힙합', 'R&B'];
 
 /// 화면(State)이 소유한 유튜브 검색 상태 묶음 — props 폭발을 막는 값 객체.
 @immutable
@@ -43,14 +51,25 @@ class YoutubeSearchViewState {
   /// failed일 때 사용자에게 보여 줄 사유.
   final String? message;
 
+  /// 노래방 자동 검색의 대상 곡 제목 — 있으면 배너로 안내하고
+  /// [가져오기]가 그 곡 4번 슬롯으로 직행한다.
+  final String? karaokeTargetTitle;
+
+  /// 연도별 차트의 현재 연대·장르.
+  final int decade;
+  final String genre;
+
   const YoutubeSearchViewState({
     this.query = '',
     this.status = YoutubeFetchStatus.ok,
     this.results = const [],
     this.loading = false,
-    this.chart = YoutubeChartKind.popular,
+    this.chart = YoutubeChartKind.domestic,
     this.apiKeyAvailable = true,
     this.message,
+    this.karaokeTargetTitle,
+    this.decade = 2020,
+    this.genre = '전체',
   });
 }
 
@@ -64,12 +83,28 @@ class YoutubeSearchPanel extends StatefulWidget {
   /// [가져오기] — 팝업으로 구성(기본/남자키/4번슬롯)을 골라 가져온다.
   final ValueChanged<YoutubeVideo> onImport;
 
+  /// 노래방 자동 검색 배너의 [취소].
+  final VoidCallback? onCancelKaraokeTarget;
+
+  /// 연도별 차트 — 연대/장르 선택과 [불러오기](검색 100유닛이라 명시 버튼).
+  final ValueChanged<int>? onDecadeChanged;
+  final ValueChanged<String>? onGenreChanged;
+  final VoidCallback? onLoadDecadeChart;
+
+  /// [미리듣기] — 유튜브 링크를 기본 브라우저 새 창으로 연다.
+  final ValueChanged<YoutubeVideo>? onPreview;
+
   const YoutubeSearchPanel({
     super.key,
     required this.state,
     required this.onSearch,
     required this.onChartChanged,
     required this.onImport,
+    this.onCancelKaraokeTarget,
+    this.onDecadeChanged,
+    this.onGenreChanged,
+    this.onLoadDecadeChart,
+    this.onPreview,
   });
 
   @override
@@ -109,6 +144,38 @@ class _YoutubeSearchPanelState extends State<YoutubeSearchPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (state.karaokeTargetTitle != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.selectedSurface,
+                borderRadius: AppShapes.controlRadius,
+                border: Border.all(color: AppColors.primary, width: 2),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.mic_external_on,
+                      size: 20, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "'${state.karaokeTargetTitle}' 4번 슬롯에 넣을 노래방 반주를 골라 주세요.",
+                      style: AppTypography.body,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: widget.onCancelKaraokeTarget,
+                    style: TextButton.styleFrom(
+                      minimumSize:
+                          const Size(72, AppConstants.minTouchTarget),
+                    ),
+                    child: const Text('취소'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
           Row(
             children: [
               Expanded(
@@ -145,9 +212,10 @@ class _YoutubeSearchPanelState extends State<YoutubeSearchPanel> {
             ],
           ),
           const SizedBox(height: 10),
-          if (chartMode)
+          if (chartMode) ...[
             Wrap(
               spacing: 8,
+              runSpacing: 8,
               children: [
                 for (final kind in YoutubeChartKind.values)
                   _ChartChip(
@@ -157,12 +225,53 @@ class _YoutubeSearchPanelState extends State<YoutubeSearchPanel> {
                   ),
               ],
             ),
-          if (chartMode) const SizedBox(height: 8),
+            if (state.chart == YoutubeChartKind.decade) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final decade in youtubeDecades)
+                    _ChartChip(
+                      label: '$decade년대',
+                      selected: state.decade == decade,
+                      onTap: () => widget.onDecadeChanged?.call(decade),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final genre in youtubeGenres)
+                    _ChartChip(
+                      label: genre,
+                      selected: state.genre == genre,
+                      onTap: () => widget.onGenreChanged?.call(genre),
+                    ),
+                  FilledButton.icon(
+                    onPressed: widget.onLoadDecadeChart,
+                    icon: const Icon(Icons.download),
+                    label: const Text('불러오기'),
+                    style: FilledButton.styleFrom(
+                      minimumSize:
+                          const Size(110, AppConstants.minTouchTarget),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+          ],
           const Divider(height: 1),
           Expanded(child: _buildBody(state)),
           const SizedBox(height: 6),
           Text(
-            '저작권 안내: 내려받은 음원은 본인 연습 용도로만 사용하세요.',
+            state.chart == YoutubeChartKind.karaoke || !chartMode
+                ? '저작권 안내: 내려받은 음원은 본인 연습 용도로만 사용하세요.'
+                : '유튜브 인기 음악(mostPopular) 기반 목록입니다 · '
+                    '내려받은 음원은 본인 연습 용도로만 사용하세요.',
             style: AppTypography.bodyMuted,
           ),
         ],
@@ -207,8 +316,16 @@ class _YoutubeSearchPanelState extends State<YoutubeSearchPanel> {
       );
     }
     if (state.results.isEmpty) {
+      // 연도별 차트는 검색 100유닛이라 자동으로 부르지 않는다 — 안내만.
+      final decadePrompt = state.query.trim().isEmpty &&
+          state.chart == YoutubeChartKind.decade;
       return Center(
-        child: Text('검색 결과가 없습니다', style: AppTypography.bodyMuted),
+        child: Text(
+          decadePrompt
+              ? '연대와 장르를 고르고 [불러오기]를 눌러 주세요.'
+              : '검색 결과가 없습니다',
+          style: AppTypography.bodyMuted,
+        ),
       );
     }
     return ListView.separated(
@@ -216,7 +333,15 @@ class _YoutubeSearchPanelState extends State<YoutubeSearchPanel> {
       separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) => _VideoRow(
         video: state.results[index],
+        rank: state.query.trim().isEmpty &&
+                (state.chart == YoutubeChartKind.domestic ||
+                    state.chart == YoutubeChartKind.global)
+            ? index + 1
+            : null,
         onImport: () => widget.onImport(state.results[index]),
+        onPreview: widget.onPreview == null
+            ? null
+            : () => widget.onPreview!(state.results[index]),
       ),
     );
   }
@@ -272,7 +397,18 @@ class _VideoRow extends StatelessWidget {
   final YoutubeVideo video;
   final VoidCallback onImport;
 
-  const _VideoRow({required this.video, required this.onImport});
+  /// TOP100 차트에서의 순위(1부터). 검색·기타 차트는 null.
+  final int? rank;
+
+  /// [미리듣기] — 브라우저 새 창으로 열기.
+  final VoidCallback? onPreview;
+
+  const _VideoRow({
+    required this.video,
+    required this.onImport,
+    this.rank,
+    this.onPreview,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +417,15 @@ class _VideoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
+          if (rank != null)
+            SizedBox(
+              width: 36,
+              child: Text(
+                '$rank',
+                textAlign: TextAlign.center,
+                style: AppTypography.mono,
+              ),
+            ),
           SizedBox(
             width: 80,
             height: 45,
@@ -323,6 +468,21 @@ class _VideoRow extends StatelessWidget {
               ],
             ),
           ),
+          if (onPreview != null) ...[
+            const SizedBox(width: 8),
+            Semantics(
+              label: '${video.title} 미리듣기 — 브라우저 새 창으로 열기',
+              child: OutlinedButton.icon(
+                onPressed: onPreview,
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('미리듣기'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, AppConstants.minTouchTarget),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(width: 8),
           // 버튼 하나 — 누르면 구성(기본/남자키/4번슬롯) 팝업이 뜬다.
           Semantics(

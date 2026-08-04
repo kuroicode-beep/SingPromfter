@@ -21,6 +21,9 @@ class SongListShortcutService {
   static const Duration seekStep = Duration(seconds: 5);
   static const Duration seekStepLarge = Duration(seconds: 30);
 
+  /// PageUp/PageDown 전용 이동 폭(v4.0.0) — 5초와 30초 사이의 중간 걸음.
+  static const Duration seekStepMedium = Duration(seconds: 10);
+
   static bool isTextInputFocused() {
     final primaryFocus = FocusManager.instance.primaryFocus;
     final context = primaryFocus?.context;

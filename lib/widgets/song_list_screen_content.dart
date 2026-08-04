@@ -26,12 +26,13 @@ import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
 import 'prompter_line_list_view.dart' show LineEditRequest;
-import 'search_hub_panel.dart';
+import 'help_panel.dart';
 import 'song_search_panel.dart';
 import 'youtube_search_panel.dart';
 import 'import_progress_strip.dart';
 import 'recordings_panel.dart';
 import 'training_panel.dart';
+import 'training_session_card.dart';
 import 'youtube_import_panel.dart';
 
 class SongListScreenContent extends StatelessWidget {
@@ -126,6 +127,14 @@ class SongListScreenContent extends StatelessWidget {
   final VoidCallback onStartCourse;
   final ValueChanged<String> onRoutineChanged;
   final ValueChanged<String> onToggleRoutineStep;
+
+  /// 따라하기 세션(음성 안내 자동 진행) 상태와 제어.
+  final TrainingSessionView trainingSession;
+  final VoidCallback onStartTrainingSession;
+  final VoidCallback onTogglePauseTrainingSession;
+  final VoidCallback onRestartTrainingStep;
+  final VoidCallback onSkipTrainingStep;
+  final VoidCallback onStopTrainingSession;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
@@ -143,13 +152,16 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
 
-  /// 곡 검색 탭의 [내 곡 | 유튜브] 전환과 유튜브 검색 상태(화면 State 소유).
-  final SearchSource searchSource;
-  final ValueChanged<SearchSource> onSearchSourceChanged;
+  /// 유튜브 탭의 검색·차트 상태(화면 State 소유).
   final YoutubeSearchViewState youtubeSearch;
   final ValueChanged<String> onYoutubeSearch;
   final ValueChanged<YoutubeChartKind> onYoutubeChartChanged;
   final ValueChanged<YoutubeVideo> onYoutubeImport;
+  final VoidCallback? onCancelKaraokeTarget;
+  final ValueChanged<int>? onYoutubeDecadeChanged;
+  final ValueChanged<String>? onYoutubeGenreChanged;
+  final VoidCallback? onLoadYoutubeDecadeChart;
+  final ValueChanged<YoutubeVideo>? onYoutubePreview;
   final VoidCallback onAddSong;
   final VoidCallback? onExportTrack;
   final List<int> queueLengths;
@@ -275,6 +287,12 @@ class SongListScreenContent extends StatelessWidget {
     required this.trainingCompletedThisWeek,
     required this.onRoutineChanged,
     required this.onToggleRoutineStep,
+    this.trainingSession = TrainingSessionView.idle,
+    required this.onStartTrainingSession,
+    required this.onTogglePauseTrainingSession,
+    required this.onRestartTrainingStep,
+    required this.onSkipTrainingStep,
+    required this.onStopTrainingSession,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
@@ -288,12 +306,15 @@ class SongListScreenContent extends StatelessWidget {
     required this.searchFilterMode,
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
-    required this.searchSource,
-    required this.onSearchSourceChanged,
     required this.youtubeSearch,
     required this.onYoutubeSearch,
     required this.onYoutubeChartChanged,
     required this.onYoutubeImport,
+    this.onCancelKaraokeTarget,
+    this.onYoutubeDecadeChanged,
+    this.onYoutubeGenreChanged,
+    this.onLoadYoutubeDecadeChart,
+    this.onYoutubePreview,
     required this.onAddSong,
     this.onExportTrack,
     this.queueLengths = const [0, 0, 0],
@@ -518,33 +539,35 @@ class SongListScreenContent extends StatelessWidget {
       ),
       prompterPanel: _buildPrompterPanel(showQueue: false),
       queuePanel: _buildQueuePanel(),
-      searchPanel: SearchHubPanel(
-        source: searchSource,
-        onSourceChanged: onSearchSourceChanged,
-        mySongsPanel: SongSearchPanel(
-          songs: songs,
-          searchQuery: searchQuery,
-          filterMode: searchFilterMode,
-          onSearchQueryChanged: onSearchQueryChanged,
-          onFilterModeChanged: onSearchFilterModeChanged,
-          onStart: onStart,
-          onReserve: onReserveSong,
-          onReserveAll: () {
-            final results = SongFilterService.filter(
-              songs,
-              query: searchQuery,
-              mode: searchFilterMode,
-            );
-            onReserveAllSongs(results);
-          },
-        ),
-        youtubePanel: YoutubeSearchPanel(
-          state: youtubeSearch,
-          onSearch: onYoutubeSearch,
-          onChartChanged: onYoutubeChartChanged,
-          onImport: onYoutubeImport,
-        ),
+      searchPanel: SongSearchPanel(
+        songs: songs,
+        searchQuery: searchQuery,
+        filterMode: searchFilterMode,
+        onSearchQueryChanged: onSearchQueryChanged,
+        onFilterModeChanged: onSearchFilterModeChanged,
+        onStart: onStart,
+        onReserve: onReserveSong,
+        onReserveAll: () {
+          final results = SongFilterService.filter(
+            songs,
+            query: searchQuery,
+            mode: searchFilterMode,
+          );
+          onReserveAllSongs(results);
+        },
       ),
+      youtubePanel: YoutubeSearchPanel(
+        state: youtubeSearch,
+        onSearch: onYoutubeSearch,
+        onChartChanged: onYoutubeChartChanged,
+        onImport: onYoutubeImport,
+        onCancelKaraokeTarget: onCancelKaraokeTarget,
+        onDecadeChanged: onYoutubeDecadeChanged,
+        onGenreChanged: onYoutubeGenreChanged,
+        onLoadDecadeChart: onLoadYoutubeDecadeChart,
+        onPreview: onYoutubePreview,
+      ),
+      helpPanel: const HelpPanel(),
       trainingPanel: TrainingPanel(
         todayLog: todayGoal,
         streak: trainingStreak,
@@ -555,6 +578,12 @@ class SongListScreenContent extends StatelessWidget {
         goalLogs: goalLogs,
         courseStart: trainingCourseStart,
         onStartCourse: onStartCourse,
+        session: trainingSession,
+        onStartSession: onStartTrainingSession,
+        onTogglePauseSession: onTogglePauseTrainingSession,
+        onRestartSessionStep: onRestartTrainingStep,
+        onSkipSessionStep: onSkipTrainingStep,
+        onStopSession: onStopTrainingSession,
       ),
       recordingsPanel: RecordingsPanel(
         takes: recordingTakes,

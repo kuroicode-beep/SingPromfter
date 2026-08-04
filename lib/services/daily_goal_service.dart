@@ -108,6 +108,14 @@ class DailyGoalService {
     await _store.save(_logs);
   }
 
+  /// 따라하기 세션이 끝낸 단계를 체크한다(이미 체크돼 있으면 그대로).
+  Future<DailyGoalLog> markStepDone(String stepId, {DateTime? now}) async {
+    final log = today(now: now);
+    final next = log.markDone(stepId);
+    if (!identical(next, log)) await put(next);
+    return next;
+  }
+
   Future<DailyGoalLog> toggleStep(DailyGoalLog log, String stepId) async {
     final next = log.toggle(stepId);
     await put(next);
