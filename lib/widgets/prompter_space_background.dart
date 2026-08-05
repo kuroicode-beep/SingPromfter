@@ -127,18 +127,35 @@ class _SpacePainter extends CustomPainter {
       super(repaint: repaint);
 
   /// 2겹 별밭 — 먼 층(작고 느림)·가까운 층(크고 빠름)으로 원근감을 낸다.
-  static final List<SpaceStar> _farStars = generateStars(120, seed: 7);
-  static final List<SpaceStar> _nearStars = generateStars(48, seed: 21);
+  static final List<SpaceStar> _farStars = generateStars(160, seed: 7);
+  static final List<SpaceStar> _nearStars = generateStars(70, seed: 21);
 
-  /// 별똥별 주기(초) — 한 주기 안에서 앞 1.1초만 날아간다.
-  static const double _meteorPeriod = 6.5;
+  /// 별똥별 주기(초) — 한 주기 안에서 앞 1.2초만 날아간다.
+  static const double _meteorPeriod = 4.5;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
     final t = time.value;
 
-    // (1) 은하수 띠 — 대각선으로 아주 옅게 흐르는 빛무리.
+    // (0) 심우주 워시 — 위에서 아래로 짙은 남색이 깔려 "우주에 있다"는
+    // 느낌을 바로 준다. 어두운 톤이라 흰 가사 대비는 그대로다.
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF0E1430).withValues(alpha: 0.55),
+            const Color(0xFF090C1E).withValues(alpha: 0.30),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(Offset.zero & size),
+    );
+
+    // (1) 은하수 띠 — 대각선으로 흐르는 빛무리.
     final bandShift = 0.06 * math.sin(t * 0.03);
     canvas.drawRect(
       Offset.zero & size,
@@ -148,9 +165,9 @@ class _SpacePainter extends CustomPainter {
           end: Alignment(1, 0.6 + bandShift),
           colors: [
             Colors.white.withValues(alpha: 0),
-            AppColors.accentStrong.withValues(alpha: 0.045),
-            Colors.white.withValues(alpha: 0.06),
-            AppColors.primary.withValues(alpha: 0.045),
+            AppColors.accentStrong.withValues(alpha: 0.10),
+            Colors.white.withValues(alpha: 0.13),
+            AppColors.primary.withValues(alpha: 0.10),
             Colors.white.withValues(alpha: 0),
           ],
           stops: const [0.15, 0.38, 0.5, 0.62, 0.85],
@@ -166,9 +183,9 @@ class _SpacePainter extends CustomPainter {
         size.width * (0.22 + 0.07 * math.sin(t * 0.05)),
         size.height * (0.28 + 0.06 * math.cos(t * 0.04)),
       ),
-      radius: size.shortestSide * 0.58,
+      radius: size.shortestSide * 0.62,
       color: AppColors.primary,
-      alpha: 0.12 * breathe,
+      alpha: 0.22 * breathe,
     );
     _nebula(
       canvas,
@@ -177,9 +194,9 @@ class _SpacePainter extends CustomPainter {
         size.width * (0.80 - 0.06 * math.cos(t * 0.037)),
         size.height * (0.66 + 0.07 * math.sin(t * 0.045)),
       ),
-      radius: size.shortestSide * 0.52,
+      radius: size.shortestSide * 0.55,
       color: AppColors.accentStrong,
-      alpha: 0.10 * (1.5 - breathe * 0.5),
+      alpha: 0.18 * (1.5 - breathe * 0.5),
     );
     _nebula(
       canvas,
@@ -188,29 +205,29 @@ class _SpacePainter extends CustomPainter {
         size.width * (0.55 + 0.08 * math.sin(t * 0.028)),
         size.height * (0.12 + 0.04 * math.cos(t * 0.05)),
       ),
-      radius: size.shortestSide * 0.38,
+      radius: size.shortestSide * 0.42,
       color: AppColors.tertiary,
-      alpha: 0.05,
+      alpha: 0.10,
     );
 
     // (3) 별 — 먼 층은 느리게, 가까운 층은 빠르게 흘러 원근감을 만든다.
-    _drawStars(canvas, size, _farStars, t, drift: t * 0.003, scale: 0.8, maxAlpha: 0.45);
-    _drawStars(canvas, size, _nearStars, t, drift: t * 0.009, scale: 1.35, maxAlpha: 0.62, cross: true);
+    _drawStars(canvas, size, _farStars, t, drift: t * 0.003, scale: 0.9, maxAlpha: 0.70);
+    _drawStars(canvas, size, _nearStars, t, drift: t * 0.011, scale: 1.6, maxAlpha: 0.92, cross: true);
 
-    // (4) 별똥별 — 6.5초마다 대각선으로 스친다. 머리에 작은 광점.
+    // (4) 별똥별 — 4.5초마다 대각선으로 스친다. 머리에 광점.
     final cycle = t % _meteorPeriod;
-    if (cycle < 1.1) {
-      final progress = cycle / 1.1;
+    if (cycle < 1.2) {
+      final progress = cycle / 1.2;
       final n = t ~/ _meteorPeriod;
       final rng = math.Random(n * 31 + 5);
       final sx = size.width * (0.10 + 0.75 * rng.nextDouble());
       final sy = size.height * (0.05 + 0.30 * rng.nextDouble());
       final head = Offset(
-        sx + size.width * 0.26 * progress,
-        sy + size.height * 0.20 * progress,
+        sx + size.width * 0.28 * progress,
+        sy + size.height * 0.22 * progress,
       );
-      final tail = head - Offset(size.width * 0.08, size.height * 0.06);
-      final fade = math.sin(progress * math.pi) * 0.7; // 스르륵 나타났다 사라짐
+      final tail = head - Offset(size.width * 0.10, size.height * 0.075);
+      final fade = math.sin(progress * math.pi) * 0.95; // 스르륵 나타났다 사라짐
       canvas.drawLine(
         tail,
         head,
@@ -221,17 +238,17 @@ class _SpacePainter extends CustomPainter {
               Colors.white.withValues(alpha: fade),
             ],
           ).createShader(Rect.fromPoints(tail, head))
-          ..strokeWidth = 2.0
+          ..strokeWidth = 2.6
           ..strokeCap = StrokeCap.round,
       );
-      final headArea = Rect.fromCircle(center: head, radius: 7);
+      final headArea = Rect.fromCircle(center: head, radius: 10);
       canvas.drawCircle(
         head,
-        7,
+        10,
         Paint()
           ..shader = RadialGradient(
             colors: [
-              Colors.white.withValues(alpha: fade * 0.9),
+              Colors.white.withValues(alpha: fade),
               Colors.white.withValues(alpha: 0),
             ],
           ).createShader(headArea),
@@ -267,13 +284,13 @@ class _SpacePainter extends CustomPainter {
         r,
         Paint()..color = color.withValues(alpha: alpha),
       );
-      // 큰 별이 가장 밝은 순간에만 십자광이 살짝 번진다.
-      if (cross && star.size > 1.3 && twinkle > 0.82) {
-        final flare = (twinkle - 0.82) / 0.18;
-        final len = r * (3.0 + 2.5 * flare);
+      // 큰 별이 밝아지는 순간 십자광이 번진다.
+      if (cross && star.size > 1.1 && twinkle > 0.76) {
+        final flare = (twinkle - 0.76) / 0.24;
+        final len = r * (3.2 + 3.0 * flare);
         final flarePaint = Paint()
-          ..color = color.withValues(alpha: 0.30 * flare)
-          ..strokeWidth = 1.0
+          ..color = color.withValues(alpha: 0.5 * flare)
+          ..strokeWidth = 1.2
           ..strokeCap = StrokeCap.round;
         canvas.drawLine(Offset(x - len, y), Offset(x + len, y), flarePaint);
         canvas.drawLine(Offset(x, y - len), Offset(x, y + len), flarePaint);
