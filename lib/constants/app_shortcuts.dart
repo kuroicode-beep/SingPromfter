@@ -174,10 +174,11 @@ class AppShortcuts {
     ),
     ShortcutHelpEntry(
       keys: 'B',
-      description: '우주 배경 켜기 / 끄기',
+      description: '우주 배경 단계 순환 — 성야·오로라·은하·유성우·스톰·끄기',
       clipId: 'help_space_bg',
       spokenKeys: '비',
-      spokenDescription: '가사 뒤의 우주 배경을 켜거나 끕니다.',
+      spokenDescription:
+          '가사 뒤의 우주 배경을 순환합니다. 성야, 오로라, 은하, 유성우, 스톰, 그리고 끄기 순서입니다.',
     ),
     ShortcutHelpEntry(
       keys: 'Home / End',

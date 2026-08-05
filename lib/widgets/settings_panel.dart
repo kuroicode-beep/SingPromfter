@@ -26,6 +26,8 @@ import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/key_label.dart';
 import 'preset_btn.dart';
+import 'prompter_space_background.dart'
+    show spaceBackgroundLevelLabel, spaceBackgroundMaxLevel;
 
 class SettingsPanel extends StatelessWidget {
   final List<PracticeSummary> practiceSummaries;
@@ -620,12 +622,27 @@ class _StageDisplaySection extends StatelessWidget {
           offLabel: '꺼짐 — 움직임이 신경 쓰이면 꺼 둘 수 있습니다',
           onChanged: (v) => onChanged(settings.copyWith(showEqMeter: v)),
         ),
-        _SettingSwitch(
-          title: '우주 배경 (단축키 B)',
-          value: settings.spaceBackground,
-          onLabel: '켜짐 — 가사 뒤에 별밭·성운이 은은하게 흐릅니다',
-          offLabel: '꺼짐 — 검은 배경만',
-          onChanged: (v) => onChanged(settings.copyWith(spaceBackground: v)),
+        const SizedBox(height: 8),
+        Text('우주 배경 (단축키 B로 순환)', style: AppTypography.body),
+        const SizedBox(height: 4),
+        Text(
+          '단계마다 패턴이 다릅니다 — 성야·오로라·은하·유성우·스톰.',
+          style: AppTypography.bodyMuted,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var level = 0; level <= spaceBackgroundMaxLevel; level++)
+              _SelectChip(
+                label: spaceBackgroundLevelLabel(level),
+                selected: settings.spaceBackgroundLevel == level,
+                onTap: () => onChanged(
+                  settings.copyWith(spaceBackgroundLevel: level),
+                ),
+              ),
+          ],
         ),
       ],
     );

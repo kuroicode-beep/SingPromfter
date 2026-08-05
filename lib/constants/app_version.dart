@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '4.1.2';
+  static const String current = '4.2.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '4.2.0',
+      '2026-08-05',
+      '우주 배경 5단계 패턴 — 성야·오로라 커튼·회전 은하·유성우·코스믹 스톰. '
+          'B 단축키가 1~5단계→끄기 순환(스낵 안내), 설정에 단계 칩',
+    ),
     AppVersionEntry(
       '4.1.2',
       '2026-08-05',

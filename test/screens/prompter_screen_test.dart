@@ -245,7 +245,7 @@ class PrompterScreenArgs {
     controlsDrawerOpen: controlsDrawerOpen,
     showEqMeter: showEqMeter,
     // 우주 배경은 영구 Ticker라 pumpAndSettle이 끝나지 않는다 — 테스트는 끈다.
-    spaceBackground: false,
+    spaceBackgroundLevel: 0,
     onControlsDrawerChanged: onControlsDrawerChanged,
     actions: PrompterActions(
       editLyricsLine: onEditLyricsLine,

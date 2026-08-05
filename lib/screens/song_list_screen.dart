@@ -59,6 +59,8 @@ import '../widgets/youtube_search_panel.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
 import '../widgets/prompter_keyboard_scope.dart';
+import '../widgets/prompter_space_background.dart'
+    show nextSpaceBackgroundLevel, spaceBackgroundLevelLabel;
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 
 class SongListScreen extends StatefulWidget {
@@ -1830,9 +1832,13 @@ class _SongListScreenState extends State<SongListScreen> {
           (_destination == AppDestination.training &&
               _trainingSession.active),
       overrideHandler: _handleTrainingKey,
-      onToggleSpaceBackground: () => _updateSettings(
-        _settings.copyWith(spaceBackground: !_settings.spaceBackground),
-      ),
+      onToggleSpaceBackground: () {
+        final next = nextSpaceBackgroundLevel(
+          _settings.spaceBackgroundLevel,
+        );
+        _updateSettings(_settings.copyWith(spaceBackgroundLevel: next));
+        _showSnack('우주 배경: ${spaceBackgroundLevelLabel(next)}');
+      },
       settings: _settings,
       onSettingsChanged: _updateSettings,
       actions: _prompterActions,

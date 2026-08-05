@@ -61,9 +61,9 @@ class PrompterNavigation {
           boldText: initial.boldText,
           displayMode: initial.displayMode,
           showEqMeter: initial.showEqMeter,
-          spaceBackground: initial.spaceBackground,
-          onSpaceBackgroundChanged: (on) =>
-              update((s) => s.copyWith(spaceBackground: on)),
+          spaceBackgroundLevel: initial.spaceBackgroundLevel,
+          onSpaceBackgroundChanged: (level) =>
+              update((s) => s.copyWith(spaceBackgroundLevel: level)),
           showSyllableSweep: initial.showSyllableSweep,
           controlsDrawerOpen: initial.controlsDrawerOpen,
           actions: actions,

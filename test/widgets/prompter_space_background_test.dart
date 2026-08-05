@@ -1,11 +1,28 @@
 // file: test/widgets/prompter_space_background_test.dart
 //
-// 우주 배경 — 별밭 생성 규칙과 위젯 온/오프.
+// 우주 배경 — 단계 순환 규칙·별밭 생성·위젯 온/오프.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/widgets/prompter_space_background.dart';
 
 void main() {
+  group('nextSpaceBackgroundLevel', () {
+    test('1→2→3→4→5→끄기→1 순환', () {
+      expect(nextSpaceBackgroundLevel(1), 2);
+      expect(nextSpaceBackgroundLevel(4), 5);
+      expect(nextSpaceBackgroundLevel(5), 0);
+      expect(nextSpaceBackgroundLevel(0), 1);
+    });
+
+    test('단계 이름이 전부 있다', () {
+      for (var level = 0; level <= spaceBackgroundMaxLevel; level++) {
+        expect(spaceBackgroundLevelLabel(level), isNotEmpty);
+      }
+      expect(spaceBackgroundLevelLabel(0), contains('끄기'));
+      expect(spaceBackgroundLevelLabel(5), contains('스톰'));
+    });
+  });
+
   group('generateStars', () {
     test('개수·범위·시드 재현성', () {
       final a = generateStars(110);
@@ -29,13 +46,12 @@ void main() {
     });
   });
 
-  testWidgets('꺼져 있으면 아무것도 그리지 않는다', (tester) async {
+  testWidgets('0단계(끄기)면 아무것도 그리지 않는다', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(body: PrompterSpaceBackground(enabled: false)),
+        home: Scaffold(body: PrompterSpaceBackground(level: 0)),
       ),
     );
-    // 프레임워크 내부 CustomPaint와 섞이지 않게 배경 위젯 하위로만 본다.
     expect(
       find.descendant(
         of: find.byType(PrompterSpaceBackground),
@@ -45,20 +61,29 @@ void main() {
     );
   });
 
-  testWidgets('켜져 있으면 CustomPaint가 그려지고 몇 프레임을 버틴다', (tester) async {
+  testWidgets('1~5단계 전부 CustomPaint가 그려지고 몇 프레임을 버틴다', (tester) async {
+    for (var level = 1; level <= spaceBackgroundMaxLevel; level++) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: PrompterSpaceBackground(level: level)),
+        ),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(PrompterSpaceBackground),
+          matching: find.byType(CustomPaint),
+        ),
+        findsOneWidget,
+        reason: '$level단계',
+      );
+      await tester.pump(const Duration(milliseconds: 80));
+      await tester.pump(const Duration(milliseconds: 80));
+    }
+    // 마지막에 꺼서 Ticker를 정리한다.
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(body: PrompterSpaceBackground(enabled: true)),
+        home: Scaffold(body: PrompterSpaceBackground(level: 0)),
       ),
     );
-    expect(
-      find.descendant(
-        of: find.byType(PrompterSpaceBackground),
-        matching: find.byType(CustomPaint),
-      ),
-      findsOneWidget,
-    );
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pump(const Duration(milliseconds: 100));
   });
 }

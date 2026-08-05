@@ -231,10 +231,10 @@ class PrompterPanel extends StatelessWidget {
                 clipBehavior: Clip.antiAlias,
                 child: Stack(
                   children: [
-                    // 우주 배경 — 가사 뒤에 깔린다(설정·단축키 B로 토글).
+                    // 우주 배경 — 가사 뒤에 깔린다(설정·단축키 B로 단계 순환).
                     Positioned.fill(
                       child: PrompterSpaceBackground(
-                        enabled: settings.spaceBackground,
+                        level: settings.spaceBackgroundLevel,
                       ),
                     ),
                     AnimatedBuilder(

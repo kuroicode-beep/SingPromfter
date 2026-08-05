@@ -17,6 +17,7 @@ import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_drawer.dart';
 import '../widgets/prompter_space_background.dart';
 import '../widgets/prompter_stage_metrics.dart';
+import '../widgets/snack_message.dart';
 import '../widgets/recording_badge.dart';
 import '../widgets/sync_lock_badge.dart';
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
@@ -44,9 +45,9 @@ class PrompterScreen extends StatefulWidget {
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
 
-  /// 우주 배경(별밭) — 무대에서 B로 토글되면 onSpaceBackgroundChanged로 알린다.
-  final bool spaceBackground;
-  final ValueChanged<bool>? onSpaceBackgroundChanged;
+  /// 우주 배경 단계(0~5) — 무대에서 B로 순환하면 onSpaceBackgroundChanged로 알린다.
+  final int spaceBackgroundLevel;
+  final ValueChanged<int>? onSpaceBackgroundChanged;
 
   /// Shift+휠 — 템포. null이면 아무 일도 하지 않는다.
   final void Function(double delta)? onStepTempo;
@@ -95,7 +96,7 @@ class PrompterScreen extends StatefulWidget {
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
-    this.spaceBackground = true,
+    this.spaceBackgroundLevel = 1,
     this.onSpaceBackgroundChanged,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
@@ -150,11 +151,18 @@ class _PrompterScreenState extends State<PrompterScreen> {
   late PrompterDisplayMode _displayMode;
 
   /// 우주 배경의 로컬 소유본 — 드로어와 같은 이유(무대 builder는 한 번만 돈다).
-  late bool _spaceBackground;
+  late int _spaceBackgroundLevel;
 
-  void _toggleSpaceBackground() {
-    setState(() => _spaceBackground = !_spaceBackground);
-    widget.onSpaceBackgroundChanged?.call(_spaceBackground);
+  /// B — 1→2→…→5→끄기 순환. 어느 단계인지 스낵으로 알린다(조용한 변화 금지).
+  void _cycleSpaceBackground() {
+    setState(() {
+      _spaceBackgroundLevel = nextSpaceBackgroundLevel(_spaceBackgroundLevel);
+    });
+    widget.onSpaceBackgroundChanged?.call(_spaceBackgroundLevel);
+    SnackMessage.show(
+      context,
+      '우주 배경: ${spaceBackgroundLevelLabel(_spaceBackgroundLevel)}',
+    );
   }
 
   @override
@@ -166,7 +174,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _customFontSizePt = widget.customFontSizePt;
     _displayMode = widget.displayMode;
     _drawerOpen = widget.controlsDrawerOpen;
-    _spaceBackground = widget.spaceBackground;
+    _spaceBackgroundLevel = widget.spaceBackgroundLevel;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -266,7 +274,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
         actions: widget.actions,
         onEditCurrentLine:
             widget.actions?.editLyricsLine == null ? null : _editCurrentLine,
-        onToggleSpaceBackground: _toggleSpaceBackground,
+        onToggleSpaceBackground: _cycleSpaceBackground,
         onClose: () => Navigator.pop(context),
         child: PrompterWheelScope(
           onStepFontSize: _stepFontSize,
@@ -341,9 +349,9 @@ class _PrompterScreenState extends State<PrompterScreen> {
         );
         return Stack(
           children: [
-            // 우주 배경 — 가사 뒤 전체를 덮는다(설정·B 토글).
+            // 우주 배경 — 가사 뒤 전체를 덮는다(설정·B 단계 순환).
             Positioned.fill(
-              child: PrompterSpaceBackground(enabled: _spaceBackground),
+              child: PrompterSpaceBackground(level: _spaceBackgroundLevel),
             ),
             // Positioned.fill(bottom:)이 아니라 상단 고정 + 명시 높이.
             // 무대가 커지는 동안에도 가사 뷰포트가 흔들리지 않는다.
