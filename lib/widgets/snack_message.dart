@@ -14,10 +14,11 @@ class SnackMessage {
   static Timer? _timer;
 
   /// [actionLabel]/[onAction]을 주면 토스트에 실행 버튼(예: 실행취소)이 붙는다.
+  /// 기본 표시시간은 v4.2.1에서 2배(2.6→5.2초)로 늘렸다 — 노래 중 놓친다는 피드백.
   static void show(
     BuildContext context,
     String message, {
-    Duration duration = const Duration(milliseconds: 2600),
+    Duration duration = const Duration(milliseconds: 5200),
     String? actionLabel,
     VoidCallback? onAction,
   }) {

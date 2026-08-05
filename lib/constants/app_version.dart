@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '4.2.0';
+  static const String current = '4.2.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '4.2.1',
+      '2026-08-05',
+      '알림 오버레이 표시시간 2배(2.6→5.2초) — B 단계 전환 안내 포함 전체 적용',
+    ),
     AppVersionEntry(
       '4.2.0',
       '2026-08-05',
