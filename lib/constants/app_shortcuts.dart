@@ -173,6 +173,13 @@ class AppShortcuts {
       spokenDescription: '가사를 보관된 원본으로 복구합니다. 확인창을 거칩니다.',
     ),
     ShortcutHelpEntry(
+      keys: 'B',
+      description: '우주 배경 켜기 / 끄기',
+      clipId: 'help_space_bg',
+      spokenKeys: '비',
+      spokenDescription: '가사 뒤의 우주 배경을 켜거나 끕니다.',
+    ),
+    ShortcutHelpEntry(
       keys: 'Home / End',
       description: '곡 처음 / 끝으로',
       clipId: 'help_home_end',

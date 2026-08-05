@@ -185,6 +185,9 @@ class PrompterKeyboardScope extends StatefulWidget {
   /// 기본 매핑은 건너뛴다. (텍스트 입력 중에는 호출되지 않는다)
   final KeyEventResult Function(KeyEvent event)? overrideHandler;
 
+  /// B = 프롬프터 우주 배경 토글 (v4.1.0). null이면 무시.
+  final VoidCallback? onToggleSpaceBackground;
+
   const PrompterKeyboardScope({
     super.key,
     required this.child,
@@ -197,6 +200,7 @@ class PrompterKeyboardScope extends StatefulWidget {
     this.enablePlaybackShortcuts = true,
     this.enabled = true,
     this.overrideHandler,
+    this.onToggleSpaceBackground,
   });
 
   @override
@@ -437,6 +441,13 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {
       widget.onClose!();
+      return KeyEventResult.handled;
+    }
+
+    // B = 우주 배경 토글 (v4.1.0).
+    if (key == LogicalKeyboardKey.keyB &&
+        widget.onToggleSpaceBackground != null) {
+      widget.onToggleSpaceBackground!();
       return KeyEventResult.handled;
     }
 

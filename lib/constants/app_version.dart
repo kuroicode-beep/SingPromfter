@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '4.0.0';
+  static const String current = '4.1.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '4.1.0',
+      '2026-08-05',
+      'EQ 미터 연출 강화(부드러운 어택, 하이라이트 스윕, 급상승 스파크, '
+          '피크 잔광) + 프롬프터 우주 배경(별밭·성운·별똥별, 저알파로 가독성 '
+          '유지) — 설정·단축키 B 토글, 홈·무대 공통',
+    ),
     AppVersionEntry(
       '4.0.0',
       '2026-08-05',

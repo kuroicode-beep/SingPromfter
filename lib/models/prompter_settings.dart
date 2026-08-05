@@ -31,6 +31,9 @@ class PrompterSettings {
   /// 트레이닝 스케일 음역('male'|'female'). 기본 남성 — 피아노 런 범위를 정한다.
   final String trainingVoiceRange;
 
+  /// 프롬프터 우주 배경 애니메이션(별밭·성운). 단축키 B로도 토글된다.
+  final bool spaceBackground;
+
   /// 곡 목록 폴더의 표시 순서. 여기 있는 이름은 곡이 없어도 폴더로 보인다
   /// (새 폴더를 만들고 나중에 곡을 담는 흐름). 곡에만 적힌 폴더는 뒤에 붙는다.
   final List<String> folderOrder;
@@ -78,6 +81,7 @@ class PrompterSettings {
     this.pitchSemitonesBySong = const {},
     this.trainingCourseStart,
     this.trainingVoiceRange = 'male',
+    this.spaceBackground = true,
     this.folderOrder = const [],
     this.expandedFolders = const [],
     this.exportFolder = 'C:\\Downloads',
@@ -110,6 +114,7 @@ class PrompterSettings {
     Map<String, int>? pitchSemitonesBySong,
     String? trainingCourseStart,
     String? trainingVoiceRange,
+    bool? spaceBackground,
     List<String>? folderOrder,
     List<String>? expandedFolders,
     String? exportFolder,
@@ -143,6 +148,7 @@ class PrompterSettings {
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
       trainingCourseStart: trainingCourseStart ?? this.trainingCourseStart,
       trainingVoiceRange: trainingVoiceRange ?? this.trainingVoiceRange,
+      spaceBackground: spaceBackground ?? this.spaceBackground,
       folderOrder: folderOrder ?? this.folderOrder,
       expandedFolders: expandedFolders ?? this.expandedFolders,
       exportFolder: exportFolder ?? this.exportFolder,
@@ -215,6 +221,7 @@ class PrompterSettings {
     'pitchSemitonesBySong': pitchSemitonesBySong,
     'trainingCourseStart': trainingCourseStart,
     'trainingVoiceRange': trainingVoiceRange,
+    'spaceBackground': spaceBackground,
     'folderOrder': folderOrder,
     'expandedFolders': expandedFolders,
     'exportFolder': exportFolder,
@@ -267,6 +274,7 @@ class PrompterSettings {
       pitchSemitonesBySong: pitchBySong,
       trainingCourseStart: json['trainingCourseStart'] as String?,
       trainingVoiceRange: json['trainingVoiceRange'] as String? ?? 'male',
+      spaceBackground: json['spaceBackground'] as bool? ?? true,
       folderOrder: (json['folderOrder'] as List?)
               ?.whereType<String>()
               .toList(growable: false) ??

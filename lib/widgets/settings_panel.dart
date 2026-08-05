@@ -620,6 +620,13 @@ class _StageDisplaySection extends StatelessWidget {
           offLabel: '꺼짐 — 움직임이 신경 쓰이면 꺼 둘 수 있습니다',
           onChanged: (v) => onChanged(settings.copyWith(showEqMeter: v)),
         ),
+        _SettingSwitch(
+          title: '우주 배경 (단축키 B)',
+          value: settings.spaceBackground,
+          onLabel: '켜짐 — 가사 뒤에 별밭·성운이 은은하게 흐릅니다',
+          offLabel: '꺼짐 — 검은 배경만',
+          onChanged: (v) => onChanged(settings.copyWith(spaceBackground: v)),
+        ),
       ],
     );
   }

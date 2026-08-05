@@ -1830,6 +1830,9 @@ class _SongListScreenState extends State<SongListScreen> {
           (_destination == AppDestination.training &&
               _trainingSession.active),
       overrideHandler: _handleTrainingKey,
+      onToggleSpaceBackground: () => _updateSettings(
+        _settings.copyWith(spaceBackground: !_settings.spaceBackground),
+      ),
       settings: _settings,
       onSettingsChanged: _updateSettings,
       actions: _prompterActions,

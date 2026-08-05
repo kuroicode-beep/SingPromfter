@@ -23,9 +23,18 @@ import '../controllers/playback_controller.dart';
 import '../services/level_analysis_service.dart' show levelBandCount;
 import '../theme/app_theme.dart';
 
-/// 스무딩 규칙: 어택은 즉시, 릴리즈는 프레임당 비율 감쇠. (순수 함수 — 테스트 대상)
-double smoothLevel(double previous, double target, {double release = 0.08}) {
-  if (target >= previous) return target;
+/// 스무딩 규칙: 어택도 릴리즈도 지수 보간 — 즉시 점프하던 어택을 v4.1.0에서
+/// 부드럽게 바꿨다(프레임당 55%씩 접근, 반응성은 유지). (순수 함수 — 테스트 대상)
+double smoothLevel(
+  double previous,
+  double target, {
+  double attack = 0.55,
+  double release = 0.10,
+}) {
+  if (target >= previous) {
+    final next = previous + (target - previous) * attack;
+    return (target - next) < 0.002 ? target : next;
+  }
   final next = previous - (previous - target) * release * 4;
   return next < target ? target : next;
 }
@@ -60,7 +69,19 @@ class _EqFrame {
   /// 피크가 얼마나 갓 찍혔는지 1..0. 갓 찍힌 피크만 밝게 번쩍인다.
   final List<double> peakAges;
 
-  const _EqFrame(this.bars, this.peaks, this.peakAges);
+  /// 급상승 스파크 1..0 — 막대가 빠르게 치솟은 직후 끝이 빛난다. (v4.1.0)
+  final List<double> sparks;
+
+  /// 하이라이트 스윕의 가로 위상 0..1. (v4.1.0)
+  final double shimmer;
+
+  const _EqFrame(
+    this.bars,
+    this.peaks,
+    this.peakAges, [
+    this.sparks = const [],
+    this.shimmer = 0,
+  ]);
 }
 
 class PrompterEqMeter extends StatefulWidget {
@@ -85,7 +106,9 @@ class _PrompterEqMeterState extends State<PrompterEqMeter>
   List<double> _bars = List.filled(_fallbackBandCount, 0);
   List<double> _peaks = List.filled(_fallbackBandCount, 0);
   List<double> _peakAges = List.filled(_fallbackBandCount, 0);
+  List<double> _sparks = List.filled(_fallbackBandCount, 0);
   double _pulsePhase = 0;
+  double _shimmer = 0;
   bool _reducedMotion = false;
 
   @override
@@ -158,9 +181,11 @@ class _PrompterEqMeterState extends State<PrompterEqMeter>
       _bars = List.filled(targets.length, 0);
       _peaks = List.filled(targets.length, 0);
       _peakAges = List.filled(targets.length, 0);
+      _sparks = List.filled(targets.length, 0);
     }
 
     var changed = false;
+    var levelSum = 0.0;
     for (var i = 0; i < targets.length; i++) {
       final nextBar = smoothLevel(_bars[i], targets[i]);
       final nextPeak = holdPeak(_peaks[i], nextBar);
@@ -168,14 +193,28 @@ class _PrompterEqMeterState extends State<PrompterEqMeter>
       final nextAge = nextPeak > _peaks[i] + 0.001
           ? 1.0
           : (_peakAges[i] - 0.02).clamp(0.0, 1.0);
+      // 급상승이면 스파크가 되살아나고, 아니면 빠르게 식는다.
+      final nextSpark = nextBar - _bars[i] > 0.07
+          ? 1.0
+          : (_sparks[i] - 0.06).clamp(0.0, 1.0);
       if ((nextBar - _bars[i]).abs() > 0.001 ||
           (nextPeak - _peaks[i]).abs() > 0.001 ||
-          (nextAge - _peakAges[i]).abs() > 0.001) {
+          (nextAge - _peakAges[i]).abs() > 0.001 ||
+          (nextSpark - _sparks[i]).abs() > 0.001) {
         changed = true;
       }
       _bars[i] = nextBar;
       _peaks[i] = nextPeak;
       _peakAges[i] = nextAge;
+      _sparks[i] = nextSpark;
+      levelSum += nextBar;
+    }
+
+    // 스윕은 레벨이 높을수록 빨라진다 — 조용하면 거의 멈춘 듯 흐른다.
+    if (playing && targets.isNotEmpty) {
+      final avg = levelSum / targets.length;
+      _shimmer = (_shimmer + 0.003 + 0.009 * avg) % 1.0;
+      changed = true;
     }
 
     if (changed) {
@@ -183,6 +222,8 @@ class _PrompterEqMeterState extends State<PrompterEqMeter>
         List.unmodifiable(_bars),
         List.unmodifiable(_peaks),
         List.unmodifiable(_peakAges),
+        List.unmodifiable(_sparks),
+        _shimmer,
       );
     }
     if (!playing) _syncTicker();
@@ -311,6 +352,56 @@ class _EqMeterPainter extends CustomPainter {
       );
     }
 
+    // (4b) 하이라이트 스윕 — 밝은 띠 하나가 막대들 위를 흐른다. (v4.1.0)
+    // blur 없이 가로 그라데이션 사각형 하나라 비용이 거의 없다.
+    if (!reducedMotion && avg > 0.02 && frame.shimmer > 0) {
+      final bandW = size.width * 0.22;
+      final x = frame.shimmer * (size.width + bandW) - bandW;
+      final area = Rect.fromLTWH(x, 0, bandW, mainH);
+      canvas.save();
+      canvas.clipPath(bloom);
+      canvas.drawRect(
+        area,
+        Paint()
+          ..shader = LinearGradient(
+            colors: [
+              AppColors.accentMax.withValues(alpha: 0),
+              AppColors.accentMax.withValues(alpha: 0.10 + 0.16 * avg),
+              AppColors.accentMax.withValues(alpha: 0),
+            ],
+          ).createShader(area)
+          ..blendMode = BlendMode.plus,
+      );
+      canvas.restore();
+    }
+
+    // (4c) 급상승 스파크 — 치솟은 막대 끝만 반짝. 원마다 방사 그라데이션이라
+    // MaskFilter 없이 끝난다(blur 1회 규칙 유지). (v4.1.0)
+    if (!reducedMotion) {
+      for (var i = 0; i < count; i++) {
+        final spark = i < frame.sparks.length ? frame.sparks[i] : 0.0;
+        if (spark <= 0.12) continue;
+        final level = i < frame.bars.length ? frame.bars[i] : 0.0;
+        if (level <= 0.02) continue;
+        final cx = i * (m.barWidth + m.gap) + m.barWidth / 2;
+        final cy = mainH * (1 - level);
+        final r = m.barWidth * 1.6 + 3;
+        final area = Rect.fromCircle(center: Offset(cx, cy), radius: r);
+        canvas.drawCircle(
+          Offset(cx, cy),
+          r,
+          Paint()
+            ..shader = RadialGradient(
+              colors: [
+                AppColors.accentMax.withValues(alpha: 0.55 * spark),
+                AppColors.accentMax.withValues(alpha: 0),
+              ],
+            ).createShader(area)
+            ..blendMode = BlendMode.plus,
+        );
+      }
+    }
+
     // (5) 가로 세그먼트 — 막대마다 계산하지 않고 전폭 선 스무 줄로 끝낸다.
     final segStep = (mainH / 20).clamp(3.0, 8.0);
     final segPaint = Paint()
@@ -321,14 +412,34 @@ class _EqMeterPainter extends CustomPainter {
     }
 
     // (6) 피크 캡 — 갓 찍힌 피크는 밝고, 오래된 피크는 흐려진다.
+    // 갓 찍힌 캡 아래로 짧은 잔광 꼬리를 남긴다(v4.1.0, blur 없음).
     for (var i = 0; i < count; i++) {
       final peak = i < frame.peaks.length ? frame.peaks[i] : 0.0;
       if (peak <= 0.02) continue;
       final age = i < frame.peakAges.length ? frame.peakAges[i] : 0.0;
+      final x = i * (m.barWidth + m.gap);
       final y = mainH * (1 - peak);
+      if (!reducedMotion && age > 0.05) {
+        final trailH = (10.0 * age).clamp(0.0, mainH - y);
+        if (trailH > 1) {
+          final area = Rect.fromLTWH(x, y + 1, m.barWidth, trailH);
+          canvas.drawRect(
+            area,
+            Paint()
+              ..shader = LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  AppColors.accentMax.withValues(alpha: 0.35 * age),
+                  AppColors.accentMax.withValues(alpha: 0),
+                ],
+              ).createShader(area),
+          );
+        }
+      }
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTWH(i * (m.barWidth + m.gap), y - 1, m.barWidth, 2),
+          Rect.fromLTWH(x, y - 1, m.barWidth, 2),
           const Radius.circular(1),
         ),
         Paint()

@@ -15,6 +15,7 @@ import '../utils/pitch_math.dart';
 import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_drawer.dart';
+import '../widgets/prompter_space_background.dart';
 import '../widgets/prompter_stage_metrics.dart';
 import '../widgets/recording_badge.dart';
 import '../widgets/sync_lock_badge.dart';
@@ -42,6 +43,10 @@ class PrompterScreen extends StatefulWidget {
   final bool boldText;
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
+
+  /// 우주 배경(별밭) — 무대에서 B로 토글되면 onSpaceBackgroundChanged로 알린다.
+  final bool spaceBackground;
+  final ValueChanged<bool>? onSpaceBackgroundChanged;
 
   /// Shift+휠 — 템포. null이면 아무 일도 하지 않는다.
   final void Function(double delta)? onStepTempo;
@@ -90,6 +95,8 @@ class PrompterScreen extends StatefulWidget {
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
+    this.spaceBackground = true,
+    this.onSpaceBackgroundChanged,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
     this.actions,
@@ -142,6 +149,14 @@ class _PrompterScreenState extends State<PrompterScreen> {
   late double? _customFontSizePt;
   late PrompterDisplayMode _displayMode;
 
+  /// 우주 배경의 로컬 소유본 — 드로어와 같은 이유(무대 builder는 한 번만 돈다).
+  late bool _spaceBackground;
+
+  void _toggleSpaceBackground() {
+    setState(() => _spaceBackground = !_spaceBackground);
+    widget.onSpaceBackgroundChanged?.call(_spaceBackground);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -151,6 +166,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _customFontSizePt = widget.customFontSizePt;
     _displayMode = widget.displayMode;
     _drawerOpen = widget.controlsDrawerOpen;
+    _spaceBackground = widget.spaceBackground;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -250,6 +266,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
         actions: widget.actions,
         onEditCurrentLine:
             widget.actions?.editLyricsLine == null ? null : _editCurrentLine,
+        onToggleSpaceBackground: _toggleSpaceBackground,
         onClose: () => Navigator.pop(context),
         child: PrompterWheelScope(
           onStepFontSize: _stepFontSize,
@@ -324,6 +341,10 @@ class _PrompterScreenState extends State<PrompterScreen> {
         );
         return Stack(
           children: [
+            // 우주 배경 — 가사 뒤 전체를 덮는다(설정·B 토글).
+            Positioned.fill(
+              child: PrompterSpaceBackground(enabled: _spaceBackground),
+            ),
             // Positioned.fill(bottom:)이 아니라 상단 고정 + 명시 높이.
             // 무대가 커지는 동안에도 가사 뷰포트가 흔들리지 않는다.
             Positioned(
