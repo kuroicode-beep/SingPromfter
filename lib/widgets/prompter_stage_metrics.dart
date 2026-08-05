@@ -20,9 +20,10 @@ class PrompterStageMetrics {
   static const double meterInsetLeft = 16;
   static const double meterInsetVertical = 8;
 
+  /// v4.3.0: 노래방 연출 강화로 미터가 무대 폭 전체를 쓴다(여백 제외).
   static const double meterMinWidth = 180;
-  static const double meterMaxWidth = 520;
-  static const double meterWidthRatio = 0.30;
+  static const double meterMaxWidth = 3840;
+  static const double meterWidthRatio = 1.0;
 
   /// 무대 조작판(드로어 본체)의 고정 높이.
   ///

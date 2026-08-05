@@ -308,23 +308,14 @@ class PrompterPanel extends StatelessWidget {
             ),
           ),
           // EQ는 가사와 하단 바 사이의 형제 — 구조적으로 겹치지 않는다.
+          // v4.3.0: 노래방 연출 강화로 폭 전체를 쓴다.
           if (settings.showEqMeter)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-              child: LayoutBuilder(
-                builder: (context, constraints) => SizedBox(
-                  height: 56,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: (constraints.maxWidth * 0.45).clamp(
-                        160.0,
-                        420.0,
-                      ),
-                      child: PrompterEqMeter(playback: playback),
-                    ),
-                  ),
-                ),
+              child: SizedBox(
+                height: 72,
+                width: double.infinity,
+                child: PrompterEqMeter(playback: playback),
               ),
             ),
           PrompterBottomBar(

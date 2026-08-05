@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '4.2.1';
+  static const String current = '4.3.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '4.3.0',
+      '2026-08-05',
+      'EQ 노래방 스타일 전면 개편 — 무대·홈 풀와이드 확장, Catmull-Rom '
+          '스펙트럼 곡선(가산 글로우), 비트 글로우(평균 급등 감지), 비트 '
+          '파티클(막대 끝 불꽃), 기존 스윕·스파크·피크 잔광 유지',
+    ),
     AppVersionEntry(
       '4.2.1',
       '2026-08-05',
