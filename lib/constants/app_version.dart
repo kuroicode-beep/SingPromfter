@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '4.1.0';
+  static const String current = '4.1.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '4.1.1',
+      '2026-08-05',
+      '우주 배경 연출 보강 — 2겹 별밭(원근 표류)·큰 별 십자광·성운 3덩이 '
+          '숨쉬기·은하수 띠·별똥별 6.5초 주기. 시스템 움직임 줄이기와 무관하게 '
+          '동작(B 단축키로 직접 제어)',
+    ),
     AppVersionEntry(
       '4.1.0',
       '2026-08-05',

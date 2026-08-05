@@ -1,13 +1,15 @@
 // file: lib/widgets/prompter_space_background.dart
 //
-// 프롬프터 우주 배경 — 별밭(반짝임) + 성운 + 이따금 별똥별.
-// 가사 가독성이 우선이라 전부 저채도·저알파로 그린다(별 최대 알파 0.55,
-// 성운 0.09). 설정(spaceBackground)과 단축키 B로 켜고 끈다.
+// 프롬프터 우주 배경 — 2겹 별밭(원근 표류·반짝임·십자광) + 성운 3덩이 +
+// 은하수 띠 + 별똥별. 가사 가독성이 우선이라 전부 저알파로 그린다.
+// 설정(spaceBackground)과 단축키 B로 켜고 끈다.
+//
+// 시스템 '움직임 줄이기'는 따르지 않는다 — B 단축키가 있으니 사용자가 직접
+// 끄는 것으로 정리(2026-08-05 사용자 지정).
 //
 // 렌더 원칙은 EQ 미터와 동일:
 // - setState 없이 CustomPaint repaint notifier로만 다시 그린다.
 // - 시각 장식이므로 IgnorePointer + ExcludeSemantics.
-// - 시스템 '움직임 줄이기'면 Ticker를 멈추고 정적인 별만 남긴다.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -46,7 +48,7 @@ List<SpaceStar> generateStars(int count, {int seed = 7}) {
       y: rng.nextDouble(),
       size: 0.6 + rng.nextDouble() * 1.4,
       twinklePhase: rng.nextDouble() * math.pi * 2,
-      twinkleSpeed: 0.4 + rng.nextDouble() * 1.2,
+      twinkleSpeed: 0.4 + rng.nextDouble() * 1.6,
       tone: toneRoll < 0.72 ? 0 : (toneRoll < 0.94 ? 1 : 2),
     );
   });
@@ -68,7 +70,6 @@ class _PrompterSpaceBackgroundState extends State<PrompterSpaceBackground>
 
   /// 경과 시간(초) — painter가 반짝임·표류·별똥별 위상을 전부 이걸로 만든다.
   final ValueNotifier<double> _time = ValueNotifier(0);
-  bool _reducedMotion = false;
 
   @override
   void initState() {
@@ -87,20 +88,10 @@ class _PrompterSpaceBackgroundState extends State<PrompterSpaceBackground>
     if (oldWidget.enabled != widget.enabled) _syncTicker();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (reduced == _reducedMotion) return;
-    _reducedMotion = reduced;
-    _syncTicker();
-  }
-
   void _syncTicker() {
-    final needsTick = widget.enabled && !_reducedMotion;
-    if (needsTick && !_ticker.isActive) {
+    if (widget.enabled && !_ticker.isActive) {
       _ticker.start();
-    } else if (!needsTick && _ticker.isActive) {
+    } else if (!widget.enabled && _ticker.isActive) {
       _ticker.stop();
     }
   }
@@ -119,7 +110,7 @@ class _PrompterSpaceBackgroundState extends State<PrompterSpaceBackground>
       child: ExcludeSemantics(
         child: RepaintBoundary(
           child: CustomPaint(
-            painter: _SpacePainter(repaint: _time, static_: _reducedMotion),
+            painter: _SpacePainter(repaint: _time),
             size: Size.infinite,
           ),
         ),
@@ -130,53 +121,139 @@ class _PrompterSpaceBackgroundState extends State<PrompterSpaceBackground>
 
 class _SpacePainter extends CustomPainter {
   final ValueNotifier<double> time;
-  final bool static_;
 
-  _SpacePainter({required ValueNotifier<double> repaint, this.static_ = false})
+  _SpacePainter({required ValueNotifier<double> repaint})
     : time = repaint,
       super(repaint: repaint);
 
-  static final List<SpaceStar> _stars = generateStars(110);
+  /// 2겹 별밭 — 먼 층(작고 느림)·가까운 층(크고 빠름)으로 원근감을 낸다.
+  static final List<SpaceStar> _farStars = generateStars(120, seed: 7);
+  static final List<SpaceStar> _nearStars = generateStars(48, seed: 21);
 
-  /// 별똥별 주기(초) — 한 주기 안에서 앞 0.9초만 날아간다.
-  static const double _meteorPeriod = 11.0;
+  /// 별똥별 주기(초) — 한 주기 안에서 앞 1.1초만 날아간다.
+  static const double _meteorPeriod = 6.5;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) return;
-    final t = static_ ? 0.0 : time.value;
+    final t = time.value;
 
-    // (1) 성운 — 아주 옅은 방사 그라데이션 두 덩이가 천천히 표류한다.
+    // (1) 은하수 띠 — 대각선으로 아주 옅게 흐르는 빛무리.
+    final bandShift = 0.06 * math.sin(t * 0.03);
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment(-1, -0.6 + bandShift),
+          end: Alignment(1, 0.6 + bandShift),
+          colors: [
+            Colors.white.withValues(alpha: 0),
+            AppColors.accentStrong.withValues(alpha: 0.045),
+            Colors.white.withValues(alpha: 0.06),
+            AppColors.primary.withValues(alpha: 0.045),
+            Colors.white.withValues(alpha: 0),
+          ],
+          stops: const [0.15, 0.38, 0.5, 0.62, 0.85],
+        ).createShader(Offset.zero & size),
+    );
+
+    // (2) 성운 — 세 덩이가 천천히 표류하며 숨쉬듯 밝기가 오르내린다.
+    final breathe = 0.75 + 0.25 * math.sin(t * 0.11);
     _nebula(
       canvas,
       size,
       center: Offset(
-        size.width * (0.24 + 0.06 * math.sin(t * 0.05)),
-        size.height * (0.30 + 0.05 * math.cos(t * 0.04)),
+        size.width * (0.22 + 0.07 * math.sin(t * 0.05)),
+        size.height * (0.28 + 0.06 * math.cos(t * 0.04)),
       ),
-      radius: size.shortestSide * 0.55,
+      radius: size.shortestSide * 0.58,
       color: AppColors.primary,
-      alpha: 0.085,
+      alpha: 0.12 * breathe,
     );
     _nebula(
       canvas,
       size,
       center: Offset(
-        size.width * (0.78 - 0.05 * math.cos(t * 0.037)),
-        size.height * (0.68 + 0.06 * math.sin(t * 0.045)),
+        size.width * (0.80 - 0.06 * math.cos(t * 0.037)),
+        size.height * (0.66 + 0.07 * math.sin(t * 0.045)),
       ),
-      radius: size.shortestSide * 0.48,
+      radius: size.shortestSide * 0.52,
       color: AppColors.accentStrong,
-      alpha: 0.06,
+      alpha: 0.10 * (1.5 - breathe * 0.5),
+    );
+    _nebula(
+      canvas,
+      size,
+      center: Offset(
+        size.width * (0.55 + 0.08 * math.sin(t * 0.028)),
+        size.height * (0.12 + 0.04 * math.cos(t * 0.05)),
+      ),
+      radius: size.shortestSide * 0.38,
+      color: AppColors.tertiary,
+      alpha: 0.05,
     );
 
-    // (2) 별 — 사인 반짝임. 화면을 아주 느리게 흘러(표류) 살아있게 한다.
-    final drift = static_ ? 0.0 : t * 0.004;
-    for (final star in _stars) {
-      final twinkle = static_
-          ? 0.55
-          : 0.35 + 0.65 * (1 + math.sin(star.twinklePhase + t * star.twinkleSpeed)) / 2;
-      final alpha = 0.55 * twinkle * (0.4 + 0.6 * (star.size / 2.0));
+    // (3) 별 — 먼 층은 느리게, 가까운 층은 빠르게 흘러 원근감을 만든다.
+    _drawStars(canvas, size, _farStars, t, drift: t * 0.003, scale: 0.8, maxAlpha: 0.45);
+    _drawStars(canvas, size, _nearStars, t, drift: t * 0.009, scale: 1.35, maxAlpha: 0.62, cross: true);
+
+    // (4) 별똥별 — 6.5초마다 대각선으로 스친다. 머리에 작은 광점.
+    final cycle = t % _meteorPeriod;
+    if (cycle < 1.1) {
+      final progress = cycle / 1.1;
+      final n = t ~/ _meteorPeriod;
+      final rng = math.Random(n * 31 + 5);
+      final sx = size.width * (0.10 + 0.75 * rng.nextDouble());
+      final sy = size.height * (0.05 + 0.30 * rng.nextDouble());
+      final head = Offset(
+        sx + size.width * 0.26 * progress,
+        sy + size.height * 0.20 * progress,
+      );
+      final tail = head - Offset(size.width * 0.08, size.height * 0.06);
+      final fade = math.sin(progress * math.pi) * 0.7; // 스르륵 나타났다 사라짐
+      canvas.drawLine(
+        tail,
+        head,
+        Paint()
+          ..shader = LinearGradient(
+            colors: [
+              Colors.white.withValues(alpha: 0),
+              Colors.white.withValues(alpha: fade),
+            ],
+          ).createShader(Rect.fromPoints(tail, head))
+          ..strokeWidth = 2.0
+          ..strokeCap = StrokeCap.round,
+      );
+      final headArea = Rect.fromCircle(center: head, radius: 7);
+      canvas.drawCircle(
+        head,
+        7,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [
+              Colors.white.withValues(alpha: fade * 0.9),
+              Colors.white.withValues(alpha: 0),
+            ],
+          ).createShader(headArea),
+      );
+    }
+  }
+
+  void _drawStars(
+    Canvas canvas,
+    Size size,
+    List<SpaceStar> stars,
+    double t, {
+    required double drift,
+    required double scale,
+    required double maxAlpha,
+    bool cross = false,
+  }) {
+    for (final star in stars) {
+      final twinkle =
+          0.30 + 0.70 * (1 + math.sin(star.twinklePhase + t * star.twinkleSpeed)) / 2;
+      final alpha =
+          (maxAlpha * twinkle * (0.4 + 0.6 * (star.size / 2.0))).clamp(0.0, maxAlpha);
       final color = switch (star.tone) {
         1 => AppColors.accentStrong,
         2 => AppColors.tertiary,
@@ -184,42 +261,22 @@ class _SpacePainter extends CustomPainter {
       };
       final x = ((star.x + drift) % 1.0) * size.width;
       final y = star.y * size.height;
+      final r = star.size * scale;
       canvas.drawCircle(
         Offset(x, y),
-        star.size,
-        Paint()..color = color.withValues(alpha: alpha.clamp(0.0, 0.55)),
+        r,
+        Paint()..color = color.withValues(alpha: alpha),
       );
-    }
-
-    // (3) 별똥별 — 주기의 앞 0.9초 동안 대각선으로 스친다. 정적 모드는 생략.
-    if (!static_) {
-      final cycle = t % _meteorPeriod;
-      if (cycle < 0.9) {
-        final progress = cycle / 0.9;
-        // 주기 번호로 시작점을 바꿔 매번 다른 곳에서 떨어진다.
-        final n = (t ~/ _meteorPeriod);
-        final rng = math.Random(n * 31 + 5);
-        final sx = size.width * (0.15 + 0.7 * rng.nextDouble());
-        final sy = size.height * (0.05 + 0.25 * rng.nextDouble());
-        final head = Offset(
-          sx + size.width * 0.22 * progress,
-          sy + size.height * 0.18 * progress,
-        );
-        final tail = head - Offset(size.width * 0.05, size.height * 0.04);
-        final fade = (1 - progress) * 0.5;
-        canvas.drawLine(
-          tail,
-          head,
-          Paint()
-            ..shader = LinearGradient(
-              colors: [
-                Colors.white.withValues(alpha: 0),
-                Colors.white.withValues(alpha: fade),
-              ],
-            ).createShader(Rect.fromPoints(tail, head))
-            ..strokeWidth = 1.6
-            ..strokeCap = StrokeCap.round,
-        );
+      // 큰 별이 가장 밝은 순간에만 십자광이 살짝 번진다.
+      if (cross && star.size > 1.3 && twinkle > 0.82) {
+        final flare = (twinkle - 0.82) / 0.18;
+        final len = r * (3.0 + 2.5 * flare);
+        final flarePaint = Paint()
+          ..color = color.withValues(alpha: 0.30 * flare)
+          ..strokeWidth = 1.0
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(Offset(x - len, y), Offset(x + len, y), flarePaint);
+        canvas.drawLine(Offset(x, y - len), Offset(x, y + len), flarePaint);
       }
     }
   }
@@ -250,6 +307,5 @@ class _SpacePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _SpacePainter oldDelegate) =>
-      oldDelegate.static_ != static_;
+  bool shouldRepaint(covariant _SpacePainter oldDelegate) => false;
 }
