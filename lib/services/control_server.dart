@@ -17,10 +17,14 @@ import 'package:flutter/foundation.dart';
 
 import '../constants/app_version.dart';
 import '../controllers/app_controller.dart';
+import '../controllers/compose_job_controller.dart';
 import '../controllers/import_job_controller.dart';
+import '../models/composition.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
+import '../models/recording_take.dart';
 import '../models/song.dart';
+import 'recording_library_service.dart';
 
 /// 라우팅 결과 — 상태코드와 JSON 본문.
 class ControlResponse {
@@ -376,6 +380,92 @@ class ControlRouter {
         app.importJobs.clearFinished();
         return ControlResponse.ok();
 
+      // ── 작곡 (v3.0.0, 로컬AI 게이트는 AppController가 검사) ──
+      case ('GET', ['compose']):
+        return ControlResponse.ok({
+          'compositions': app.composeLibrary.items
+              .map(_compositionJson)
+              .toList(growable: false),
+        });
+
+      case ('POST', ['compose']):
+        final request = ComposeRequest(
+          title: (body['title'] as String?)?.trim() ?? '',
+          mode: ComposeModeInfo.fromStorage(body['mode'] as String?),
+          // API는 최종 프롬프트를 받는다 — 다듬기는 호출자(에이전트) 몫.
+          stylePromptEn: (body['prompt'] as String?)?.trim() ?? '',
+          lyrics: (body['lyrics'] as String?)?.trim() ?? '',
+          vocalType: (body['vocalType'] as String?)?.trim() ?? '',
+          genre: (body['genre'] as String?)?.trim() ?? '',
+          bpm: (body['bpm'] as num?)?.toInt(),
+          durationSec: (body['durationSec'] as num?)?.toInt() ?? 210,
+          seed: (body['seed'] as num?)?.toInt() ?? -1,
+        );
+        final outcome = await app.enqueueCompose(request);
+        if (!outcome.ok) {
+          final status = switch (outcome.errorCode) {
+            'local_ai_disabled' => 403,
+            'empty_prompt' => 422,
+            _ => 503,
+          };
+          return ControlResponse.error(
+            status,
+            outcome.errorCode!,
+            outcome.message ?? '생성을 시작하지 못했습니다.',
+          );
+        }
+        return ControlResponse.ok({'jobId': outcome.jobId});
+
+      case ('GET', ['compose', 'jobs']):
+        return ControlResponse.ok({
+          'jobs': app.composeJobs.jobs
+              .map(_composeJobJson)
+              .toList(growable: false),
+        });
+
+      case ('POST', ['compose', 'jobs', final String id, 'cancel']):
+        app.composeJobs.cancel(id);
+        return ControlResponse.ok();
+
+      case ('POST', ['compose', 'jobs', final String id, 'retry']):
+        app.composeJobs.retry(id);
+        return ControlResponse.ok();
+
+      case ('POST', ['compose', final String id, 'register']):
+        final song = await app.registerCompositionAsSong(id);
+        if (song == null) {
+          return ControlResponse.error(
+            422,
+            'register_failed',
+            '곡 등록에 실패했습니다. 생성곡 id를 확인해 주세요.',
+          );
+        }
+        if (body['karaokeSet'] == true) {
+          await app.makeKaraokeSetForComposition(id);
+        }
+        return ControlResponse.ok({'songId': song.id});
+
+      case ('DELETE', ['compose', final String id]):
+        final item = app.composeLibrary.byId(id);
+        if (item == null) {
+          return ControlResponse.error(
+            404,
+            'composition_not_found',
+            '해당 생성곡을 찾을 수 없습니다.',
+          );
+        }
+        await app.composeLibrary.remove(item);
+        return ControlResponse.ok();
+
+      // ── 녹음 (v3.0.0, 읽기 전용 목록) ──
+      case ('GET', ['recordings']):
+        final library = RecordingLibraryService();
+        await library.load();
+        return ControlResponse.ok({
+          'takes':
+              library.takes.map(_recordingJson).toList(growable: false),
+        });
+
       default:
         return ControlResponse.notFound();
     }
@@ -414,12 +504,21 @@ class ControlRouter {
       'activeJobs': app.importJobs.jobs
           .where((j) => !j.status.isFinished)
           .length,
+      'activeComposeJobs': app.composeJobs.jobs
+          .where((j) => !j.status.isFinished)
+          .length,
+      'localAiEnabled': app.settings.localAiEnabled,
       'tools': {
         'ytDlp': {'found': app.ytDlpAvailable, 'version': app.ytDlpVersion},
         'separator': {
           'online': app.separatorOnline,
           'label': app.separatorStatusLabel,
         },
+        'compose': {
+          'online': app.composeServerOnline,
+          'label': app.composeStatusLabel,
+        },
+        'bgm': {'online': app.bgmServerOnline, 'label': app.bgmStatusLabel},
       },
     };
   }
@@ -460,6 +559,44 @@ class ControlRouter {
     'ratio': job.ratio,
     'statusDetail': job.statusDetail,
     'songId': job.songId,
+  };
+
+  Map<String, dynamic> _compositionJson(Composition item) => {
+    'id': item.id,
+    'title': item.title,
+    'mode': item.mode.storageValue,
+    'durationSec': item.durationSec,
+    'seed': item.seed,
+    'lyrics': item.lyrics,
+    'createdAt': item.createdAt.toIso8601String(),
+    'genTimeSec': item.genTimeSec,
+    'registeredSongId': item.registeredSongId,
+    'batchId': item.batchId,
+  };
+
+  Map<String, dynamic> _composeJobJson(ComposeJob job) => {
+    'id': job.id,
+    'title': job.request.title,
+    'mode': job.request.mode.storageValue,
+    'status': job.status.name,
+    'statusLabel': job.status.label,
+    'statusDetail': job.statusDetail,
+    'resultCompositionId': job.resultCompositionId,
+  };
+
+  Map<String, dynamic> _recordingJson(RecordingTake take) => {
+    'id': take.id,
+    'songId': take.songId,
+    'songTitle': take.songTitle,
+    'recordedAt': take.recordedAt.toIso8601String(),
+    'durationMs': take.durationMs,
+    'pitchSemitones': take.pitchSemitones,
+    'rating': take.rating,
+    'comment': take.comment,
+    'isKeep': take.isKeep,
+    'hasAccompaniment': take.hasAccompaniment,
+    'hasMix': take.hasMix,
+    'hasSeparatedVocal': take.hasSeparatedVocal,
   };
 }
 
