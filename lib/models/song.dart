@@ -2,6 +2,7 @@
 
 import '../utils/music_key.dart';
 import 'backing_track.dart';
+import 'track_variant.dart';
 
 class Song {
   final String id;
@@ -21,6 +22,18 @@ class Song {
   /// 실제로 들리는 조성은 여기에 구운 키·사용자 키를 더한 값이다.
   final MusicKey? musicalKey;
 
+  /// 싱크 잠금(L 토글). 켜져 있으면 싱크 조절 동작 전부가 거부된다 —
+  /// 다 맞춘 싱크를 노래 중 오타로 망가뜨리지 않기 위한 자물쇠.
+  final bool syncLocked;
+
+  /// 가져온 유튜브 링크(있으면). '가사 다시 생성'이 수동 자막을 다시
+  /// 조회할 때 쓴다. v3.19.0 이전에 등록한 곡은 null이다.
+  final String? sourceUrl;
+
+  /// 목록 폴더 이름(1단계 트리). 빈 문자열이면 폴더 없음 — 목록 최상단에
+  /// 평평하게 보인다. 폴더는 별도 엔티티가 아니라 곡에 적힌 이름의 집합이다.
+  final String folder;
+
   const Song({
     required this.id,
     required this.title,
@@ -33,6 +46,9 @@ class Song {
     this.isFavorite = false,
     this.lrcFileName,
     this.musicalKey,
+    this.syncLocked = false,
+    this.sourceUrl,
+    this.folder = '',
   });
 
   String get lyrics => lyricsText;
@@ -51,6 +67,28 @@ class Song {
     return null;
   }
 
+  /// 가사 싱크 오프셋을 [slot]과 **같은 녹음을 쓰는 슬롯들**에 함께 적용한다.
+  ///
+  /// 1·2·3번(원곡·MR·키조절)은 같은 녹음이라 한 번 맞추면 셋 다 맞고, 4번
+  /// (노래방)은 다른 녹음이라 자기 값만 갖는다 — 규약은 [lyricsSyncSlotGroup].
+  /// 그래서 슬롯을 바꿔 가며 불러도 맞춰 둔 싱크가 유지된다.
+  ///
+  /// [slot]이 없는 곡이면 아무것도 바꾸지 않고 자기 자신을 돌려준다.
+  Song withLyricsOffsetForSlot(int slot, int offsetMs) {
+    if (trackForSlot(slot) == null) return this;
+    final group = lyricsSyncSlotGroup(slot);
+    return copyWith(
+      backingTracks: backingTracks
+          .map(
+            (t) => group.contains(t.slot)
+                ? t.copyWith(lyricsOffsetMs: offsetMs)
+                : t,
+          )
+          .toList(growable: false),
+      updatedAt: DateTime.now(),
+    );
+  }
+
   Song copyWith({
     String? id,
     String? title,
@@ -63,6 +101,9 @@ class Song {
     bool? isFavorite,
     String? lrcFileName,
     MusicKey? musicalKey,
+    bool? syncLocked,
+    String? sourceUrl,
+    String? folder,
     bool clearLrcFileName = false,
     bool clearMusicalKey = false,
   }) {
@@ -82,6 +123,9 @@ class Song {
       musicalKey: clearMusicalKey
           ? null
           : (musicalKey ?? this.musicalKey),
+      syncLocked: syncLocked ?? this.syncLocked,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
+      folder: folder ?? this.folder,
     );
   }
 
@@ -103,6 +147,9 @@ class Song {
     'isFavorite': isFavorite,
     'lrcFileName': lrcFileName,
     'musicalKey': musicalKey?.storageValue,
+    'syncLocked': syncLocked,
+    'sourceUrl': sourceUrl,
+    'folder': folder,
   };
 
   factory Song.fromJson(Map<String, dynamic> json) {
@@ -132,6 +179,9 @@ class Song {
       isFavorite: json['isFavorite'] as bool? ?? false,
       lrcFileName: json['lrcFileName'] as String?,
       musicalKey: MusicKey.fromStorage(json['musicalKey'] as String?),
+      syncLocked: json['syncLocked'] as bool? ?? false,
+      sourceUrl: json['sourceUrl'] as String?,
+      folder: (json['folder'] as String?)?.trim() ?? '',
     );
   }
 
@@ -140,6 +190,17 @@ class Song {
     String lyricsText = '',
   }) {
     return Song.fromJson({...json, 'lyricsText': lyricsText});
+  }
+
+  /// 곡들에 적힌 폴더 이름 목록(중복 제거, 가나다순). (순수 함수)
+  static List<String> folderNames(List<Song> songs) {
+    final names = songs
+        .map((s) => s.folder)
+        .where((f) => f.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return names;
   }
 
   static String encodeList(List<Song> songs) =>

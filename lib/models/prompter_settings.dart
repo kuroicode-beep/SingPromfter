@@ -1,6 +1,7 @@
 ﻿import 'dart:convert';
 
 import '../models/prompter_display_mode.dart';
+import '../services/song_sort_service.dart';
 import '../utils/pitch_math.dart';
 import '../theme/prompter_levels.dart';
 
@@ -23,7 +24,39 @@ class PrompterSettings {
   /// 곡·슬롯별 키(원곡 대비 반음). 키는 `songId:slot` 형태다.
   /// 재생 취향이라 songs.json이 아니라 설정에 둔다(제목을 바꿔도 유지된다).
   final Map<String, int> pitchSemitonesBySong;
+
+  /// 4주 보컬 코스 시작일(yyyy-MM-dd). null이면 코스 미시작.
+  final String? trainingCourseStart;
+
+  /// 트레이닝 스케일 음역('male'|'female'). 기본 남성 — 피아노 런 범위를 정한다.
+  final String trainingVoiceRange;
+
+  /// 프롬프터 우주 배경 단계(0=끄기, 1~5=패턴). 단축키 B가 순환시킨다.
+  final int spaceBackgroundLevel;
+
+  /// 곡 목록 폴더의 표시 순서. 여기 있는 이름은 곡이 없어도 폴더로 보인다
+  /// (새 폴더를 만들고 나중에 곡을 담는 흐름). 곡에만 적힌 폴더는 뒤에 붙는다.
+  final List<String> folderOrder;
+
+  /// 펼쳐 둔 폴더 이름들 — 재실행해도 열림 상태가 유지된다.
+  final List<String> expandedFolders;
+
+  /// MR 내보내기 대상 폴더.
+  final String exportFolder;
+
+  /// 녹음 입력 장치(DirectShow 이름). null이면 첫 장치를 쓴다.
+  final String? recordingDevice;
   final PrompterDisplayMode displayMode;
+
+  /// 홈 곡 목록의 정렬. '내 순서(manual)'는 드래그로 바꾼 저장 순서를
+  /// 그대로 쓴다 — 재실행해도 유지돼야 하므로 설정에 남긴다.
+  final SongSortMode songSortMode;
+
+  /// 예약 큐 사이드바 열림. 기본 열림 — 드로어 아이콘으로 여닫는다.
+  final bool queueSidebarOpen;
+
+  /// 하단 재생바(재생 버튼 줄+진행바) 열림. 기본 숨김 — 조작판처럼 드로어다.
+  final bool playbackBarOpen;
 
   /// 전체화면 프롬프터의 EQ 애니메이션 표시 여부.
   /// 움직임이 신경 쓰이는 사용자를 위해 끌 수 있어야 한다(저시력 배려).
@@ -35,9 +68,6 @@ class PrompterSettings {
 
   /// 하단 조작판을 펼쳐 둘지. 기본은 닫힘 — 가사 자리를 먼저 준다.
   final bool controlsDrawerOpen;
-
-  /// 녹음 입력 장치 이름. null이면 첫 번째 장치를 자동 선택한다.
-  final String? recordingDeviceName;
 
   /// 녹음 입력 볼륨(0.0~2.0). 캡처 시점에 파일에 구워진다.
   final double recordingGain;
@@ -62,12 +92,21 @@ class PrompterSettings {
     this.customFontSizePt,
     this.lastSelectedTrackSlotBySong = const {},
     this.pitchSemitonesBySong = const {},
+    this.trainingCourseStart,
+    this.trainingVoiceRange = 'male',
+    this.spaceBackgroundLevel = 1,
+    this.folderOrder = const [],
+    this.expandedFolders = const [],
+    this.exportFolder = 'C:\\Downloads',
+    this.recordingDevice,
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
+    this.songSortMode = SongSortMode.title,
+    this.queueSidebarOpen = true,
+    this.playbackBarOpen = false,
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
-    this.recordingDeviceName,
     this.recordingGain = 1.0,
     this.localAiEnabled = false,
     this.cloudAiEnabled = false,
@@ -90,12 +129,21 @@ class PrompterSettings {
     double? customFontSizePt,
     Map<String, int>? lastSelectedTrackSlotBySong,
     Map<String, int>? pitchSemitonesBySong,
+    String? trainingCourseStart,
+    String? trainingVoiceRange,
+    int? spaceBackgroundLevel,
+    List<String>? folderOrder,
+    List<String>? expandedFolders,
+    String? exportFolder,
+    String? recordingDevice,
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
+    SongSortMode? songSortMode,
+    bool? queueSidebarOpen,
+    bool? playbackBarOpen,
     bool? showEqMeter,
     bool? showSyllableSweep,
     bool? controlsDrawerOpen,
-    String? recordingDeviceName,
     double? recordingGain,
     bool? localAiEnabled,
     bool? cloudAiEnabled,
@@ -120,14 +168,23 @@ class PrompterSettings {
           lastSelectedTrackSlotBySong ?? this.lastSelectedTrackSlotBySong,
       pitchSemitonesBySong:
           pitchSemitonesBySong ?? this.pitchSemitonesBySong,
+      trainingCourseStart: trainingCourseStart ?? this.trainingCourseStart,
+      trainingVoiceRange: trainingVoiceRange ?? this.trainingVoiceRange,
+      spaceBackgroundLevel: spaceBackgroundLevel ?? this.spaceBackgroundLevel,
+      folderOrder: folderOrder ?? this.folderOrder,
+      expandedFolders: expandedFolders ?? this.expandedFolders,
+      exportFolder: exportFolder ?? this.exportFolder,
+      recordingDevice: clearRecordingDevice
+          ? null
+          : (recordingDevice ?? this.recordingDevice),
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
+      songSortMode: songSortMode ?? this.songSortMode,
+      queueSidebarOpen: queueSidebarOpen ?? this.queueSidebarOpen,
+      playbackBarOpen: playbackBarOpen ?? this.playbackBarOpen,
       showEqMeter: showEqMeter ?? this.showEqMeter,
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
       controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
-      recordingDeviceName: clearRecordingDevice
-          ? null
-          : (recordingDeviceName ?? this.recordingDeviceName),
       recordingGain: recordingGain ?? this.recordingGain,
       localAiEnabled: localAiEnabled ?? this.localAiEnabled,
       cloudAiEnabled: cloudAiEnabled ?? this.cloudAiEnabled,
@@ -190,12 +247,21 @@ class PrompterSettings {
     'customFontSizePt': customFontSizePt,
     'lastSelectedTrackSlotBySong': lastSelectedTrackSlotBySong,
     'pitchSemitonesBySong': pitchSemitonesBySong,
+    'trainingCourseStart': trainingCourseStart,
+    'trainingVoiceRange': trainingVoiceRange,
+    'spaceBackgroundLevel': spaceBackgroundLevel,
+    'folderOrder': folderOrder,
+    'expandedFolders': expandedFolders,
+    'exportFolder': exportFolder,
+    'recordingDevice': recordingDevice,
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
+    'songSortMode': songSortMode.storageValue,
+    'queueSidebarOpen': queueSidebarOpen,
+    'playbackBarOpen': playbackBarOpen,
     'showEqMeter': showEqMeter,
     'showSyllableSweep': showSyllableSweep,
     'controlsDrawerOpen': controlsDrawerOpen,
-    'recordingDeviceName': recordingDeviceName,
     'recordingGain': recordingGain,
     'localAiEnabled': localAiEnabled,
     'cloudAiEnabled': cloudAiEnabled,
@@ -238,14 +304,37 @@ class PrompterSettings {
       customFontSizePt: (json['customFontSizePt'] as num?)?.toDouble(),
       lastSelectedTrackSlotBySong: bySong,
       pitchSemitonesBySong: pitchBySong,
+      trainingCourseStart: json['trainingCourseStart'] as String?,
+      trainingVoiceRange: json['trainingVoiceRange'] as String? ?? 'male',
+      // v4.1의 bool(spaceBackground)에서 이관 — false만 끄기로 존중한다.
+      spaceBackgroundLevel: (json['spaceBackgroundLevel'] as num?)?.toInt() ??
+          (json['spaceBackground'] == false ? 0 : 1),
+      folderOrder: (json['folderOrder'] as List?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const [],
+      expandedFolders: (json['expandedFolders'] as List?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const [],
+      exportFolder: (json['exportFolder'] as String?)?.trim().isNotEmpty == true
+          ? (json['exportFolder'] as String).trim()
+          : 'C:\\Downloads',
+      // recordingDeviceName은 v3.0.0(작곡 라인)의 옛 키 — 폴백으로 흡수한다.
+      recordingDevice: json['recordingDevice'] as String? ??
+          json['recordingDeviceName'] as String?,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
+      queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
+      playbackBarOpen: json['playbackBarOpen'] as bool? ?? false,
+      songSortMode: SongSortModeInfo.fromStorage(
+        json['songSortMode'] as String?,
+      ),
       displayMode: PrompterDisplayModeCodec.fromStorage(
         json['displayMode'] as String?,
       ),
       showEqMeter: json['showEqMeter'] as bool? ?? true,
       showSyllableSweep: json['showSyllableSweep'] as bool? ?? true,
       controlsDrawerOpen: json['controlsDrawerOpen'] as bool? ?? false,
-      recordingDeviceName: json['recordingDeviceName'] as String?,
       recordingGain:
           ((json['recordingGain'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 2.0),
       localAiEnabled: json['localAiEnabled'] as bool? ?? false,

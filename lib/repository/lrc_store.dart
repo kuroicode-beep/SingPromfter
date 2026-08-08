@@ -51,6 +51,44 @@ class LrcStore {
     }
   }
 
+  /// 재타이밍 전에 원본을 남긴다. 이미 백업이 있으면 덮지 않는다 —
+  /// 첫 원본이 진짜 원본이다(재타이밍을 거듭해도 되돌아갈 곳은 하나).
+  Future<void> backup(String songId) async {
+    try {
+      final file = await fileFor(songId);
+      if (!await file.exists()) return;
+      final bak = File('${file.path}.bak');
+      if (await bak.exists()) return;
+      await file.copy(bak.path);
+    } catch (e) {
+      debugPrint('lrc 백업 실패($songId): $e');
+    }
+  }
+
+  /// 보관된 원본(.bak)을 읽는다. 없으면 null.
+  Future<String?> readBackup(String songId) async {
+    try {
+      final bak = File('${(await fileFor(songId)).path}.bak');
+      if (!await bak.exists()) return null;
+      final raw = await bak.readAsString();
+      return raw.trim().isEmpty ? null : raw;
+    } catch (e) {
+      debugPrint('lrc 백업 읽기 실패($songId): $e');
+      return null;
+    }
+  }
+
+  /// 보관된 원본(.bak)을 지운다 — 새 가사가 부착돼 옛 원본이 남의 판본이
+  /// 됐을 때. (안 지우면 G 복구가 예전 판본을 되살린다)
+  Future<void> deleteBackup(String songId) async {
+    try {
+      final bak = File('${(await fileFor(songId)).path}.bak');
+      if (await bak.exists()) await bak.delete();
+    } catch (e) {
+      debugPrint('lrc 백업 삭제 실패($songId): $e');
+    }
+  }
+
   Future<void> delete(String songId) async {
     try {
       final file = await fileFor(songId);

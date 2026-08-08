@@ -57,6 +57,10 @@ class AppColors {
 class AppFonts {
   AppFonts._();
 
+  /// SVIL 표준 UI 글꼴(라인시드). v2.10.0부터 앱 전체 기본값.
+  /// Regular 단일 웨이트 — 위계는 크기·색으로 표현한다(볼드 합성 금지).
+  static const String lineSeed = 'LINESeedKR';
+
   static const String brand = 'KyoboHandwriting2019';
   static const String mono = 'Consolas';
   static const String legible = 'MalgunGothic';
@@ -92,39 +96,39 @@ class AppTypography {
   // 본문을 13로 낮췄다. 무대(프롬프터) 가사는 여기 영향을 받지 않고
   // PrompterLevels의 자체 글자 크기를 그대로 쓴다 — 읽는 화면은 계속 크다.
   static const screenTitle = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 18,
     color: AppColors.onSurface,
   );
   static const listTitle = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 15,
     color: AppColors.onSurface,
   );
   static const body = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 13,
     color: AppColors.onSurface,
   );
   static const bodyMuted = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 13,
     color: AppColors.onSurfaceVariant,
   );
   /// 배지·보조 라벨용 최소 크기.
   static const caption = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 12,
     color: AppColors.onSurfaceVariant,
   );
   // 강조는 색(accent)으로. (구 labelStrong 자리 호환)
   static const labelStrong = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 13,
     color: AppColors.onSurface,
   );
   static const emphasis = TextStyle(
-    fontFamily: AppFonts.brand,
+    fontFamily: AppFonts.lineSeed,
     fontSize: 13,
     color: AppColors.primary,
   );
@@ -165,7 +169,7 @@ class AppTheme {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
-          fontFamily: AppFonts.brand,
+          fontFamily: AppFonts.lineSeed,
           fontSize: 16,
           color: AppColors.onSurface,
           letterSpacing: 0.2,

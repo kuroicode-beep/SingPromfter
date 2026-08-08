@@ -6,8 +6,8 @@
 // 쌓이고, 곡을 지워도 기록은 남아야 하기 때문이다. songId는 소프트 FK이고
 // 표시에는 songTitle 스냅샷을 쓴다.
 //
-// v2(스키마): 반주 조각·믹스 설정·분리 보컬 필드 추가 — 전부 additive라
-// v1 파일은 기본값으로 자연 흡수된다.
+// v2(스키마): 반주 조각·믹스 설정·분리 보컬·AI 보정(correctedFrom) 필드 추가 —
+// 전부 additive라 v1 파일은 기본값으로 자연 흡수된다.
 
 /// 믹스 시 보컬에 거는 리버브 프리셋.
 enum ReverbPreset { none, karaoke, hall, studio }
@@ -61,6 +61,9 @@ class RecordingTake {
   /// 반주와 합친 파일명(있으면). data/recordings 안.
   final String? mixedFileName;
 
+  /// AI 보정본이면 원본 테이크 id. null이면 생녹음이다.
+  final String? correctedFrom;
+
   /// 녹음 당시 실제 재생 파일(키/템포 변형본 포함) 절대경로.
   /// 반주 조각을 다시 잘라야 할 때(캐시 잔존 시) 쓴다.
   final String? sourceAudioPath;
@@ -97,6 +100,7 @@ class RecordingTake {
     this.rating = 0,
     this.isKeep = false,
     this.mixedFileName,
+    this.correctedFrom,
     this.sourceAudioPath,
     this.tempoScale = 1.0,
     this.accompanimentFileName,
@@ -114,12 +118,15 @@ class RecordingTake {
 
   bool get hasMix => (mixedFileName ?? '').isNotEmpty;
 
+  bool get isCorrected => (correctedFrom ?? '').isNotEmpty;
+
   bool get hasAccompaniment => (accompanimentFileName ?? '').isNotEmpty;
 
   bool get hasSeparatedVocal => (separatedFileName ?? '').isNotEmpty;
 
   RecordingTake copyWith({
     String? mixedFileName,
+    String? correctedFrom,
     String? songTitle,
     String? comment,
     int? rating,
@@ -148,6 +155,7 @@ class RecordingTake {
       rating: rating ?? this.rating,
       isKeep: isKeep ?? this.isKeep,
       mixedFileName: mixedFileName ?? this.mixedFileName,
+      correctedFrom: correctedFrom ?? this.correctedFrom,
       sourceAudioPath: sourceAudioPath ?? this.sourceAudioPath,
       tempoScale: tempoScale ?? this.tempoScale,
       accompanimentFileName:
@@ -173,6 +181,7 @@ class RecordingTake {
     'rating': rating,
     'isKeep': isKeep,
     'mixedFileName': mixedFileName,
+    'correctedFrom': correctedFrom,
     'sourceAudioPath': sourceAudioPath,
     'tempoScale': tempoScale,
     'accompanimentFileName': accompanimentFileName,
@@ -199,6 +208,7 @@ class RecordingTake {
       rating: ((json['rating'] as num?)?.toInt() ?? 0).clamp(0, 5),
       isKeep: json['isKeep'] as bool? ?? false,
       mixedFileName: json['mixedFileName'] as String?,
+      correctedFrom: json['correctedFrom'] as String?,
       sourceAudioPath: json['sourceAudioPath'] as String?,
       tempoScale: (json['tempoScale'] as num?)?.toDouble() ?? 1.0,
       accompanimentFileName: json['accompanimentFileName'] as String?,

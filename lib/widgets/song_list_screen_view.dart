@@ -15,17 +15,19 @@ class SongListScreenView extends StatelessWidget {
   final bool loading;
   final AppDestination destination;
   final ValueChanged<AppDestination> onDestinationChanged;
-  final VoidCallback onAddSong;
   final Song? selectedSong;
   final int? selectedTrackSlot;
   final bool playing;
-  final bool queueIsEmpty;
-  final VoidCallback? onStartPrompter;
+  final int queueLength;
+  final bool queueSidebarOpen;
+  final ValueChanged<bool> onQueueSidebarChanged;
   final Widget homeSongListPanel;
   final Widget favoritesSongListPanel;
   final Widget prompterPanel;
   final Widget queuePanel;
   final Widget searchPanel;
+  final Widget youtubePanel;
+  final Widget helpPanel;
   final Widget trainingPanel;
   final Widget recordingsPanel;
   final Widget composePanel;
@@ -42,17 +44,19 @@ class SongListScreenView extends StatelessWidget {
     required this.loading,
     required this.destination,
     required this.onDestinationChanged,
-    required this.onAddSong,
     required this.selectedSong,
     required this.selectedTrackSlot,
     required this.playing,
-    required this.queueIsEmpty,
-    required this.onStartPrompter,
+    required this.queueLength,
+    required this.queueSidebarOpen,
+    required this.onQueueSidebarChanged,
     required this.homeSongListPanel,
     required this.favoritesSongListPanel,
     required this.prompterPanel,
     required this.queuePanel,
     required this.searchPanel,
+    required this.youtubePanel,
+    required this.helpPanel,
     required this.trainingPanel,
     required this.recordingsPanel,
     required this.composePanel,
@@ -71,7 +75,6 @@ class SongListScreenView extends StatelessWidget {
           AppTopNavBar(
             destination: destination,
             onDestinationChanged: onDestinationChanged,
-            onAddSong: onAddSong,
             disabled: disabledDestinations,
             onDisabledTap: onDisabledDestinationTap,
           ),
@@ -98,6 +101,10 @@ class SongListScreenView extends StatelessWidget {
     switch (destination) {
       case AppDestination.search:
         return searchPanel;
+      case AppDestination.youtube:
+        return youtubePanel;
+      case AppDestination.help:
+        return helpPanel;
       case AppDestination.training:
         return trainingPanel;
       case AppDestination.recordings:
@@ -120,7 +127,6 @@ class SongListScreenView extends StatelessWidget {
       song: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
-      onStartPrompter: onStartPrompter,
     );
 
     if (wide) {
@@ -139,7 +145,9 @@ class SongListScreenView extends StatelessWidget {
                 Expanded(child: prompterPanel),
                 const VerticalDivider(width: 1, thickness: 1),
                 CollapsibleQueueSidebar(
-                  queueIsEmpty: queueIsEmpty,
+                  open: queueSidebarOpen,
+                  onOpenChanged: onQueueSidebarChanged,
+                  queueLength: queueLength,
                   child: queuePanel,
                 ),
               ],

@@ -24,6 +24,7 @@ import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/recording_take.dart';
 import '../models/song.dart';
+import 'app_capture.dart';
 import 'recording_library_service.dart';
 
 /// 라우팅 결과 — 상태코드와 JSON 본문.
@@ -108,13 +109,35 @@ class ControlRouter {
 
       case ('POST', ['songs']):
         final url = (body['url'] as String?)?.trim() ?? '';
-        final mode = MrSourceModeInfo.fromStorage(body['mode'] as String?);
         final fetchLyrics = body['fetchLyrics'] as bool? ?? true;
-        // plan이 없으면 기존 동작(반주 1개) — 하위 호환.
+        // 링크만 오면(모드·계획 둘 다 미지정) "부를 수 있는 곡"이 기본이다 —
+        // 원곡/MR/MR−2키 3슬롯 + 가사 + 싱크 보정까지. 어느 하나라도 명시한
+        // 호출은 명시한 대로 동작한다(기존 자동화와의 호환).
+        final rawMode = body['mode'] as String?;
         final rawPlan = body['plan'];
-        final plan = rawPlan is Map<String, dynamic>
+        final bareLink = rawMode == null && rawPlan == null;
+        var mode = bareLink
+            ? MrSourceMode.aiSeparate
+            : MrSourceModeInfo.fromStorage(rawMode);
+        var plan = rawPlan is Map<String, dynamic>
             ? ImportPlan.fromJson(rawPlan)
-            : const ImportPlan.single();
+            : (bareLink ? const ImportPlan.full() : const ImportPlan.single());
+        String? note;
+        if (bareLink && !app.separatorOnline) {
+          // 30초 주기 표시가 낡았을 수 있다 — 거절하기 전에 한 번은 두드린다.
+          await app.refreshToolAvailability();
+        }
+        if (bareLink &&
+            !app.separatorOnline &&
+            !await app.canAutoStartSeparator()) {
+          // 서버가 꺼져 있고 자동 기동도 불가능하면, 거절하는 대신 원곡만
+          // 남긴다 — "링크만 주면 된다"는 계약이 서버 상태에 따라 깨지지
+          // 않게. 자동 기동이 가능하면 파이프라인이 알아서 켠다.
+          mode = MrSourceMode.asIs;
+          plan = const ImportPlan(makeOriginal: true, makeInstrumental: false);
+          note = '분리 서버가 꺼져 있어 원곡만 등록합니다. '
+              '서버를 켠 뒤 [+반주]로 MR을 추가해 주세요.';
+        }
         final outcome = await app.enqueueImport(
           url,
           mode,
@@ -129,7 +152,7 @@ class ControlRouter {
             outcome.message ?? '가져오기를 시작하지 못했습니다.',
           );
         }
-        return ControlResponse.ok({'jobId': outcome.jobId});
+        return ControlResponse.ok({'jobId': outcome.jobId, 'note': ?note});
 
       case ('PATCH', ['songs', final String id]):
         final updated = await app.updateSongFields(
@@ -137,6 +160,7 @@ class ControlRouter {
           title: body['title'] as String?,
           artist: body['artist'] as String?,
           lyrics: body['lyrics'] as String?,
+          folder: body['folder'] as String?,
         );
         if (updated == null) {
           return ControlResponse.error(
@@ -157,6 +181,49 @@ class ControlRouter {
         return ControlResponse.ok({
           'found': outcome.success,
           'message': outcome.message,
+        });
+
+      // LRC 원문을 직접 붙인다 — LRCLIB에 없는 곡(로컬 전사 등)의 입구.
+      case ('POST', ['songs', final String id, 'lyrics', 'lrc']):
+        final content = body['content'] as String?;
+        if (content == null || content.trim().isEmpty) {
+          return ControlResponse.error(
+            422,
+            'missing_content',
+            'content(LRC 원문, [mm:ss.xx] 형식)가 필요합니다.',
+          );
+        }
+        final attached = await app.attachLrc(songId: id, content: content);
+        if (attached == null) {
+          return ControlResponse.error(
+            422,
+            'lrc_invalid',
+            '곡을 찾을 수 없거나 LRC를 해석하지 못했습니다.',
+          );
+        }
+        return ControlResponse.ok({'song': _songJson(attached)});
+
+      // 가사 다시 생성 — 정밀 파이프라인(자막→보컬 스템 받아쓰기→환청 정리).
+      // 분리·전사가 겹치면 수 분 걸린다. MCP·배치 정리의 입구.
+      case ('POST', ['songs', final String id, 'lyrics', 'regenerate']):
+        if (app.songById(id) == null) return _songNotFound();
+        final ok = await app.regenerateLyrics(
+          songId: id,
+          useVocalStem: body['useVocalStem'] as bool? ?? true,
+          useDeepSeek: body['useDeepSeek'] as bool? ?? true,
+          useYoutubeSubs: body['useYoutubeSubs'] as bool? ?? true,
+          referenceLyrics: body['referenceLyrics'] as String?,
+        );
+        if (!ok) {
+          return ControlResponse.error(
+            422,
+            'regenerate_failed',
+            '가사를 다시 만들지 못했습니다. 앱 하단 메시지를 확인해 주세요.',
+          );
+        }
+        final regenerated = app.songById(id);
+        return ControlResponse.ok({
+          'song': regenerated == null ? null : _songJson(regenerated),
         });
 
       // 원곡·MR을 비교해 가사 싱크를 맞춘다. 몇 초 걸린다.
@@ -283,6 +350,34 @@ class ControlRouter {
         return ControlResponse.ok();
 
       // ── 재생 ──
+      case ('POST', ['screenshot']):
+        final path = (body['path'] as String?)?.trim() ?? '';
+        if (path.isEmpty) {
+          return ControlResponse.error(422, 'bad_path', 'path가 필요합니다.');
+        }
+        final saved = await captureAppScreenshot(path);
+        if (saved == null) {
+          return ControlResponse.error(
+            500,
+            'capture_failed',
+            '앱 화면 캡처에 실패했습니다.',
+          );
+        }
+        return ControlResponse.ok({'path': saved});
+
+      case ('POST', ['view']):
+        final name = (body['name'] as String?)?.trim() ?? '';
+        final handled = app.onNavigate?.call(name) ?? false;
+        if (!handled) {
+          return ControlResponse.error(
+            422,
+            'bad_view',
+            'name은 home/search/favorites/training/recordings/jobs/'
+                'settings/stage/back 중 하나여야 합니다.',
+          );
+        }
+        return ControlResponse.ok({'view': name});
+
       case ('POST', ['playback', 'select']):
         final song = app.songById((body['songId'] as String?) ?? '');
         if (song == null) return _songNotFound();

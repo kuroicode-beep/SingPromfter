@@ -8,19 +8,25 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'process_runner.dart';
 
-enum ExternalTool { ytDlp, ffmpeg }
+/// node는 yt-dlp의 YouTube JS 챌린지 해석용이다. 없으면 yt-dlp가 제한된
+/// 클라이언트로 조용히 폴백해 포맷이 빠지거나 다운로드가 403으로 깨진다.
+enum ExternalTool { ytDlp, ffmpeg, node }
 
 extension ExternalToolInfo on ExternalTool {
-  String get executableName =>
-      this == ExternalTool.ytDlp ? 'yt-dlp' : 'ffmpeg';
+  String get executableName => switch (this) {
+    ExternalTool.ytDlp => 'yt-dlp',
+    ExternalTool.ffmpeg => 'ffmpeg',
+    ExternalTool.node => 'node',
+  };
 
-  String get displayName =>
-      this == ExternalTool.ytDlp ? 'yt-dlp' : 'ffmpeg';
+  String get displayName => executableName;
 
   /// 사용자가 직접 설치할 때 안내할 명령.
-  String get installHint => this == ExternalTool.ytDlp
-      ? 'winget install yt-dlp'
-      : 'winget install Gyan.FFmpeg';
+  String get installHint => switch (this) {
+    ExternalTool.ytDlp => 'winget install yt-dlp',
+    ExternalTool.ffmpeg => 'winget install Gyan.FFmpeg',
+    ExternalTool.node => 'winget install OpenJS.NodeJS.LTS',
+  };
 
   String get prefsKey => 'tool_path_$executableName';
 }
@@ -82,6 +88,9 @@ class ExternalToolLocator {
         '$localAppData\\Programs\\Python\\Python313\\Scripts\\$exe',
         '$localAppData\\Programs\\Python\\Python312\\Scripts\\$exe',
       ],
+      // node의 표준 설치 위치는 <Program Files>\nodejs — 아래 일반 규칙과 다르다.
+      if (tool == ExternalTool.node && programFiles != null)
+        '$programFiles\\nodejs\\$exe',
       if (programFiles != null) '$programFiles\\$name\\bin\\$exe',
       'C:\\$name\\bin\\$exe',
     ];
@@ -147,7 +156,8 @@ class ExternalToolLocator {
   }
 
   Future<String?> _readVersion(ExternalTool tool, String path) async {
-    final args = tool == ExternalTool.ytDlp ? ['--version'] : ['-version'];
+    // ffmpeg만 홑대시 -version, 나머지(yt-dlp·node)는 --version.
+    final args = tool == ExternalTool.ffmpeg ? ['-version'] : ['--version'];
     final result = await _runner.run(path, args);
     if (!result.ok) return null;
     final line = result.stdout.split(RegExp(r'\r?\n')).first.trim();

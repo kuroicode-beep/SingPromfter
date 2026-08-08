@@ -13,7 +13,12 @@ import '../models/track_variant.dart';
 import '../services/youtube_import_service.dart';
 import '../theme/app_theme.dart';
 
-class AddTrackFromUrl {
+/// 반주 추가 다이얼로그의 결과 — URL 직접 입력 또는 노래방 자동 검색.
+sealed class AddTrackChoice {
+  const AddTrackChoice();
+}
+
+class AddTrackFromUrl extends AddTrackChoice {
   final String songId;
   final int slot;
   final String url;
@@ -27,6 +32,14 @@ class AddTrackFromUrl {
     required this.mode,
     required this.label,
   });
+}
+
+/// '노래방 반주 자동 검색' — 유튜브 탭에서 "제목 가수 노래방"으로 검색해
+/// 고른 결과를 이 곡의 4번 슬롯에 붙이는 흐름의 시작 신호.
+class AddTrackKaraokeSearch extends AddTrackChoice {
+  final Song song;
+
+  const AddTrackKaraokeSearch(this.song);
 }
 
 class AddTrackDialog extends StatefulWidget {
@@ -49,7 +62,7 @@ class AddTrackDialog extends StatefulWidget {
     this.localAiEnabled = true,
   });
 
-  static Future<AddTrackFromUrl?> show(
+  static Future<AddTrackChoice?> show(
     BuildContext context, {
     required Song song,
     required bool toolAvailable,
@@ -58,7 +71,7 @@ class AddTrackDialog extends StatefulWidget {
     required bool separatorOnline,
     bool localAiEnabled = true,
   }) {
-    return showDialog<AddTrackFromUrl>(
+    return showDialog<AddTrackChoice>(
       context: context,
       builder: (_) => AddTrackDialog(
         song: song,
@@ -182,6 +195,27 @@ class _AddTrackDialogState extends State<AddTrackDialog> {
                 ),
                 const SizedBox(height: 12),
               ],
+              // 링크 없이 시작하는 빠른 길 — 유튜브 탭에서 자동 검색해
+              // 이 곡 4번 슬롯(노래방)에 붙인다.
+              OutlinedButton.icon(
+                onPressed: widget.toolAvailable
+                    ? () => Navigator.pop(
+                          context,
+                          AddTrackKaraokeSearch(widget.song),
+                        )
+                    : null,
+                icon: const Icon(Icons.travel_explore),
+                label: const Text('노래방 반주 자동 검색 (4번 슬롯)'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, AppConstants.minTouchTarget),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "'제목 가수 노래방'으로 유튜브를 검색해 골라 넣습니다.",
+                style: AppTypography.bodyMuted,
+              ),
+              const SizedBox(height: 14),
               Text('유튜브 링크', style: AppTypography.bodyMuted),
               const SizedBox(height: 6),
               TextField(

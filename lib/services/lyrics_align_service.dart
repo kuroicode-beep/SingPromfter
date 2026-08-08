@@ -124,6 +124,51 @@ class LyricsAlignResult {
   });
 }
 
+/// 드리프트 곡(속도가 다른 LRC 판본)의 선형 보정안: 실측 ≈ scale·줄시각 + offset.
+class LyricsDriftFit {
+  final double scale;
+  final int offsetMs;
+
+  /// 회귀가 표본을 얼마나 설명하는가(0..1). 낮으면 선형이 아니라는 뜻.
+  final double r2;
+
+  const LyricsDriftFit({
+    required this.scale,
+    required this.offsetMs,
+    required this.r2,
+  });
+
+  /// 속도 차이(%) — 사용자에게 보여 줄 값.
+  double get speedDiffPercent => (scale - 1).abs() * 100;
+}
+
+/// (줄시각, 실측시각) 표본의 최소자승 직선. (순수 함수 — 테스트 대상)
+/// 표본 2개 미만이거나 x가 퍼져 있지 않으면 null.
+LyricsDriftFit? fitLinearDrift(List<({int x, int y})> samples) {
+  final n = samples.length;
+  if (n < 2) return null;
+  final meanX = samples.fold(0, (s, p) => s + p.x) / n;
+  final meanY = samples.fold(0, (s, p) => s + p.y) / n;
+  var covXY = 0.0;
+  var varX = 0.0;
+  for (final p in samples) {
+    covXY += (p.x - meanX) * (p.y - meanY);
+    varX += (p.x - meanX) * (p.x - meanX);
+  }
+  if (varX == 0) return null;
+  final scale = covXY / varX;
+  final offset = meanY - scale * meanX;
+  var ssRes = 0.0;
+  var ssTot = 0.0;
+  for (final p in samples) {
+    final predicted = scale * p.x + offset;
+    ssRes += (p.y - predicted) * (p.y - predicted);
+    ssTot += (p.y - meanY) * (p.y - meanY);
+  }
+  final r2 = ssTot == 0 ? 1.0 : 1 - ssRes / ssTot;
+  return LyricsDriftFit(scale: scale, offsetMs: offset.round(), r2: r2);
+}
+
 /// 판정할 수 없는 이유.
 enum LyricsAlignFailure {
   /// 소리를 재지 못했다.
@@ -145,15 +190,21 @@ class LyricsAlignOutcome {
   final int samples;
   final int spreadMs;
 
+  /// inconsistent(드리프트) 판정에서 선형 보정이 가능하면 그 보정안.
+  /// 표본이 직선에 잘 맞을 때만 채워진다 — 아니면 재타이밍도 포기가 맞다.
+  final LyricsDriftFit? drift;
+
   const LyricsAlignOutcome.success(LyricsAlignResult this.result)
     : failure = null,
       samples = 0,
-      spreadMs = 0;
+      spreadMs = 0,
+      drift = null;
 
   const LyricsAlignOutcome.failed(
     LyricsAlignFailure this.failure, {
     this.samples = 0,
     this.spreadMs = 0,
+    this.drift,
   }) : result = null;
 
   bool get ok => result != null;
@@ -176,12 +227,13 @@ LyricsAlignOutcome estimateLyricsOffset({
   final search = alignSearchWindow.inMilliseconds * fps ~/ 1000;
 
   final diffs = <int>[];
+  final pairs = <({int x, int y})>[];
   final usedOnsets = <int>{};
 
   for (final line in lyrics.lines) {
     if (line.text.trim().isEmpty) continue;
-    final target =
-        (line.time.inMilliseconds + lyrics.offsetMs) * fps ~/ 1000;
+    final lineMs = line.time.inMilliseconds + lyrics.offsetMs;
+    final target = lineMs * fps ~/ 1000;
     final from = (target - search).clamp(0, active.length);
     final to = (target + search).clamp(0, active.length);
 
@@ -192,7 +244,9 @@ LyricsAlignOutcome estimateLyricsOffset({
       if (active.sublist(i - silence, i).any((v) => v)) continue;
       // 같은 시작점에 여러 줄이 붙으면 첫 줄만 센다.
       if (!usedOnsets.add(i)) break;
-      diffs.add((i * 1000 ~/ fps) - (line.time.inMilliseconds + lyrics.offsetMs));
+      final onsetMs = i * 1000 ~/ fps;
+      diffs.add(onsetMs - lineMs);
+      pairs.add((x: lineMs, y: onsetMs));
       break;
     }
   }
@@ -207,10 +261,17 @@ LyricsAlignOutcome estimateLyricsOffset({
   diffs.sort();
   final spread = diffs.last - diffs.first;
   if (spread > maxAlignSpreadMs) {
+    // 오프셋 하나로는 못 맞추지만, 어긋남이 직선이면(속도가 다른 판본)
+    // scale·offset 재타이밍으로는 맞출 수 있다. 직선에 잘 맞고(R²)
+    // 속도 차가 상식 범위(±10%)일 때만 보정안을 붙인다.
+    final fit = fitLinearDrift(pairs);
+    final usable =
+        fit != null && fit.r2 >= 0.95 && fit.scale >= 0.9 && fit.scale <= 1.1;
     return LyricsAlignOutcome.failed(
       LyricsAlignFailure.inconsistent,
       samples: diffs.length,
       spreadMs: spread,
+      drift: usable ? fit : null,
     );
   }
 

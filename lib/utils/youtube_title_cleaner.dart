@@ -34,6 +34,19 @@ final List<RegExp> _noisePatterns = [
   RegExp(r'^[-+]?\d+\s*(키|key)$', caseSensitive: false),
   RegExp(r'^(여자|남자|원)\s*키$'),
   RegExp(r'^(커버|cover)(\s*by\s*.+)?$', caseSensitive: false),
+  // 가사 영상 계열: "(가사첨부)", "(한글 가사)", "[가사/번역]", "(자막)".
+  // 실제 사고: "윤후 - 선물(가사첨부)"의 (가사첨부)가 남아 곡 제목이 되고,
+  // 그 제목으로는 LRCLIB 검색이 실패했다.
+  RegExp(r'^(한글|한국어)?\s*가사(\s*(첨부|포함|자막|번역|비디오|영상))?$'),
+  RegExp(r'^(한글|한국어)?\s*자막$'),
+  RegExp(r'^번역$'),
+  RegExp(r'^(고음질\s*)?음원(\s*첨부)?$'),
+  RegExp(r'^고음질$'),
+  RegExp(r'^(mv|m/v|pv|뮤직비디오)$', caseSensitive: false),
+  RegExp(r'^(hd|hq|4k|8k|2160p|1440p|1080p|720p)$', caseSensitive: false),
+  RegExp(r'^full\s*(audio|ver\.?|version)?$', caseSensitive: false),
+  RegExp(r'^color\s*coded(\s*lyrics)?$', caseSensitive: false),
+  RegExp(r'^(eng|kor|han|rom)\s*subs?$', caseSensitive: false),
 ];
 
 /// 복합 괄호 내용용: 내용 전체가 노이즈 토큰들의 나열이면 노이즈로 본다.
@@ -79,7 +92,15 @@ String _stripBareNoiseTokens(String input) {
     r'[-+]?\d+\s*(?:키|key)|(?:여자|남자|원)\s*키)(?=\s|$)',
     caseSensitive: false,
   );
-  return input.replaceAll(bare, ' ');
+  // 괄호 없이 붙는 홍보 문구도 걷어낸다. 실제 사례:
+  // "봄이 와도 (When Spring Comes) Official Video" — 괄호 패턴만으로는
+  // 못 잡아 곡 제목에 남았고, 그 제목으로는 가사 검색이 실패했다.
+  final barePhrases = RegExp(
+    r'(^|\s)(official\s*(music\s*)?(video|audio|mv|m/v)|'
+    r'music\s*video|lyric\s*video|official)(?=\s|$)',
+    caseSensitive: false,
+  );
+  return input.replaceAll(bare, ' ').replaceAll(barePhrases, ' ');
 }
 
 String _collapseSpaces(String input) =>

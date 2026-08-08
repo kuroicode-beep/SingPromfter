@@ -11,16 +11,21 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'prompter_bottom_bar.dart';
+import 'prompter_drawer.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/pitch_math.dart';
 import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import 'pitch_hud.dart';
 import 'prompter_eq_meter.dart';
+import 'prompter_line_list_view.dart' show LineEditRequest;
 import 'prompter_lyrics_view.dart';
+import 'prompter_space_background.dart';
 import 'prompter_sweep_line.dart';
 import 'prompter_wheel_scope.dart';
 import 'queue_panel.dart';
+import 'recording_badge.dart';
+import 'sync_lock_badge.dart';
 
 class PrompterPanel extends StatelessWidget {
   final Song? song;
@@ -43,6 +48,18 @@ class PrompterPanel extends StatelessWidget {
 
   /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
   final VoidCallback? onAutoAlignLyrics;
+
+  /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
+  final VoidCallback? onAnchorFirstLine;
+
+  /// AI 받아쓰기(STT)로 싱크 가사를 만든다. null이면 버튼을 감춘다.
+  final VoidCallback? onSttLyrics;
+
+  /// 가사 줄을 길게 눌러 고쳤을 때. null이면 편집 불가.
+  final void Function(int index, String text)? onEditLyricsLine;
+
+  /// 단축키(E)로 들어오는 인라인 편집 요청.
+  final LineEditRequest? lineEditRequest;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -76,6 +93,13 @@ class PrompterPanel extends StatelessWidget {
   final VoidCallback onRestart;
   final VoidCallback onSkipNext;
   final ValueChanged<Song> onOpenPrompter;
+
+  /// 우상단에서 조작판으로 옮겨 온 곡 추가·서버 상태(v2.10.0).
+  final VoidCallback? onAddSong;
+  final Future<bool> Function()? onStartSeparator;
+
+  /// 현재 반주 mp3를 다운로드 폴더로 복사.
+  final VoidCallback? onExportTrack;
   final ValueChanged<Duration> onSeek;
   final ValueChanged<PrompterSettings> onSettingsChanged;
   final VoidCallback onCustomFontSize;
@@ -106,6 +130,10 @@ class PrompterPanel extends StatelessWidget {
     required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
+    this.onAnchorFirstLine,
+    this.onSttLyrics,
+    this.onEditLyricsLine,
+    this.lineEditRequest,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
@@ -126,6 +154,9 @@ class PrompterPanel extends StatelessWidget {
     required this.onRestart,
     required this.onSkipNext,
     required this.onOpenPrompter,
+    this.onAddSong,
+    this.onStartSeparator,
+    this.onExportTrack,
     required this.onSeek,
     required this.onSettingsChanged,
     required this.onCustomFontSize,
@@ -163,6 +194,26 @@ class PrompterPanel extends StatelessWidget {
       );
     }
 
+    // 펼친 조작판이 가사 뷰를 통째로 밀어내지 못하게 패널 높이의 절반까지만
+    // 준다. 조작판을 다 펼치면 300px이 넘어(실측: 바 전체 197→514) 좁은 창에서
+    // 가사가 사라지고 아래가 잘렸다 — 손잡이를 눌렀는데 화면이 망가지니
+    // "안 열린다"로 보인다. 남는 높이는 가사가 갖는다.
+    return LayoutBuilder(
+      builder: (context, constraints) => _build(
+        context,
+        currentSong,
+        maxDrawerBodyHeight: constraints.maxHeight.isFinite
+            ? drawerBodyBudget(constraints.maxHeight)
+            : null,
+      ),
+    );
+  }
+
+  Widget _build(
+    BuildContext context,
+    Song currentSong, {
+    required double? maxDrawerBodyHeight,
+  }) {
     return Container(
       color: AppColors.background,
       child: Column(
@@ -171,7 +222,6 @@ class PrompterPanel extends StatelessWidget {
           // 휠=줄 이동, Ctrl+휠=글자 크기, Alt+휠=키.
           Expanded(
             child: PrompterWheelScope(
-              onStepLine: playback.stepLine,
               onStepFontSize: _stepFontSize,
               onStepPitch: onStepPitch ?? onAdjustPitch,
               onStepTempo: (delta) => onAdjustTempo(delta * tempoStep),
@@ -181,6 +231,12 @@ class PrompterPanel extends StatelessWidget {
                 clipBehavior: Clip.antiAlias,
                 child: Stack(
                   children: [
+                    // 우주 배경 — 가사 뒤에 깔린다(설정·단축키 B로 단계 순환).
+                    Positioned.fill(
+                      child: PrompterSpaceBackground(
+                        level: settings.spaceBackgroundLevel,
+                      ),
+                    ),
                     AnimatedBuilder(
                       animation: Listenable.merge([
                         playback.lineIndex,
@@ -205,6 +261,8 @@ class PrompterPanel extends StatelessWidget {
                           playback: playback,
                           enabled: settings.showSyllableSweep,
                         ),
+                        onEditLine: onEditLyricsLine,
+                        editRequest: lineEditRequest,
                       ),
                     ),
                     // 키·템포를 굴리는 동안 가사 위에 크게 띄운다.
@@ -231,29 +289,33 @@ class PrompterPanel extends StatelessWidget {
                           ),
                         ),
                       ),
+                    // 싱크 잠금(L) 배지 — "눌렸는지 모르겠다"는 실사용 요청.
+                    // 좌상단은 가사 첫 글자와 겹쳐 거슬린다는 피드백으로 우상단.
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: SyncLockBadge(locked: playback.syncLockedView),
+                    ),
+                    // 녹음 중(R) 배지 — 우하단.
+                    Positioned(
+                      bottom: 10,
+                      right: 10,
+                      child: RecordingBadge(recording: playback.recordingView),
+                    ),
                   ],
                 ),
               ),
             ),
           ),
           // EQ는 가사와 하단 바 사이의 형제 — 구조적으로 겹치지 않는다.
+          // v4.3.0: 노래방 연출 강화로 폭 전체를 쓴다.
           if (settings.showEqMeter)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-              child: LayoutBuilder(
-                builder: (context, constraints) => SizedBox(
-                  height: 56,
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: (constraints.maxWidth * 0.45).clamp(
-                        160.0,
-                        420.0,
-                      ),
-                      child: PrompterEqMeter(playback: playback),
-                    ),
-                  ),
-                ),
+              child: SizedBox(
+                height: 72,
+                width: double.infinity,
+                child: PrompterEqMeter(playback: playback),
               ),
             ),
           PrompterBottomBar(
@@ -269,6 +331,8 @@ class PrompterPanel extends StatelessWidget {
             onImportLrcFile: onImportLrcFile,
             onAdjustLyricsOffset: onAdjustLyricsOffset,
             onAutoAlignLyrics: onAutoAlignLyrics,
+            onAnchorFirstLine: onAnchorFirstLine,
+            onSttLyrics: onSttLyrics,
             pitchSemitones: pitchSemitones,
             onAdjustPitch: onAdjustPitch,
             soundingKey: soundingKey,
@@ -282,11 +346,15 @@ class PrompterPanel extends StatelessWidget {
             drawerOpen: settings.controlsDrawerOpen,
             onDrawerChanged: (open) =>
                 onSettingsChanged(settings.copyWith(controlsDrawerOpen: open)),
+            maxDrawerBodyHeight: maxDrawerBodyHeight,
             onStop: onStop,
             onTogglePlayPause: onTogglePlayPause,
             onRestart: onRestart,
             onSkipNext: onSkipNext,
             onOpenPrompter: () => onOpenPrompter(currentSong),
+            onAddSong: onAddSong,
+            onStartSeparator: onStartSeparator,
+            onExportTrack: onExportTrack,
             onSeek: onSeek,
             onSettingsChanged: onSettingsChanged,
             onMessage: onMessage,

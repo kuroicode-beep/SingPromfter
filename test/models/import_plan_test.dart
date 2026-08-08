@@ -106,4 +106,53 @@ void main() {
     expect(plan.makeInstrumental, isTrue);
     expect(plan.pitchSemitones, isNull);
   });
+
+  // v2.13.0 남자키 프리셋 — MR 슬롯 자체가 키조절본.
+  group('instrumentalSemitones (남자키)', () {
+    test('maleKey 기본은 원곡 / MR−5 / 키조절−7', () {
+      const plan = ImportPlan.maleKey();
+      expect(plan.makeOriginal, isTrue);
+      expect(plan.makeInstrumental, isTrue);
+      expect(plan.instrumentalSemitones, -5);
+      expect(plan.pitchSemitones, -7);
+      expect(plan.wantsPitchedInstrumental, isTrue);
+    });
+
+    test('MR 슬롯의 구운 키와 라벨이 계획에 반영된다', () {
+      final result = resolveImportPlan(
+        plan: const ImportPlan.maleKey(),
+        instrumentalLabel: 'MR 5키 낮춤',
+        pitchLabel: '키조절 7키 낮춤',
+      );
+      final mr = result.forVariant(TrackVariant.mr)!;
+      expect(mr.slot, 2);
+      expect(mr.bakedSemitones, -5);
+      expect(mr.label, 'MR 5키 낮춤');
+      final pitch = result.forVariant(TrackVariant.pitch)!;
+      expect(pitch.bakedSemitones, -7);
+      expect(pitch.label, '키조절 7키 낮춤');
+    });
+
+    test('키 0이면 MR 라벨은 평소 그대로', () {
+      final result = resolveImportPlan(
+        plan: const ImportPlan.full(),
+        instrumentalLabel: '이 라벨은 무시돼야 한다',
+      );
+      expect(result.forVariant(TrackVariant.mr)!.label, 'MR');
+      expect(result.forVariant(TrackVariant.mr)!.bakedSemitones, 0);
+    });
+
+    test('JSON 왕복에 instrumentalSemitones가 실린다', () {
+      const plan = ImportPlan.maleKey(mrSemitones: -4, pitchSemitones: -6);
+      final back = ImportPlan.fromJson(plan.toJson());
+      expect(back.instrumentalSemitones, -4);
+      expect(back.pitchSemitones, -6);
+    });
+
+    test('v2.12 이전 JSON(필드 없음)은 0으로 읽힌다', () {
+      final plan = ImportPlan.fromJson(const {'makeInstrumental': true});
+      expect(plan.instrumentalSemitones, 0);
+      expect(plan.wantsPitchedInstrumental, isFalse);
+    });
+  });
 }

@@ -46,6 +46,12 @@ class PrompterLyricsView extends StatefulWidget {
   /// 현재 줄을 한 글자씩 밝히는 렌더러. null이면 평범한 Text.
   final Widget Function(PrompterLine line, TextStyle style)? sweepBuilder;
 
+  /// 줄을 길게 눌러 텍스트를 고쳤을 때(목록 모드 전용). null이면 편집 불가.
+  final void Function(int index, String text)? onEditLine;
+
+  /// 단축키(E)로 들어오는 편집 요청.
+  final LineEditRequest? editRequest;
+
   const PrompterLyricsView({
     super.key,
     required this.lyricsText,
@@ -64,6 +70,8 @@ class PrompterLyricsView extends StatefulWidget {
     this.autoFollow = true,
     this.trackEnd,
     this.sweepBuilder,
+    this.onEditLine,
+    this.editRequest,
   });
 
   @override
@@ -115,6 +123,8 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
       onLineTap: widget.onLineTap,
       autoFollow: widget.autoFollow,
       sweepBuilder: widget.sweepBuilder,
+      onEditLine: widget.onEditLine,
+      editRequest: widget.editRequest,
       scrollController: widget.scrollController,
     );
   }
@@ -122,17 +132,29 @@ class _PrompterLyricsViewState extends State<PrompterLyricsView> {
   /// 3줄 창 — 글자를 가장 크게 보고 싶을 때 쓰는 집중 모드.
   Widget _buildHighlightView(PrompterLines lines) {
     if (lines.isEmpty) {
+      // 상태만 알리고 끝내지 않는다 — 다음 행동을 글로 안내한다.
       return Center(
-        child: Text(
-          '(가사가 없습니다)',
-          style: prompterLineStyle(
-            fontSize: widget.fontSize,
-            lineHeight: widget.lineHeight,
-            boldText: widget.boldText,
-            isCurrent: false,
-            mutedColor: widget.mutedColor,
-            fontFamily: widget.fontFamily,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '(가사가 없습니다)',
+              style: prompterLineStyle(
+                fontSize: widget.fontSize,
+                lineHeight: widget.lineHeight,
+                boldText: widget.boldText,
+                isCurrent: false,
+                mutedColor: widget.mutedColor,
+                fontFamily: widget.fontFamily,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '곡 수정에서 가사를 붙여넣거나 .lrc 파일을 가져올 수 있습니다',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, color: widget.mutedColor),
+            ),
+          ],
         ),
       );
     }

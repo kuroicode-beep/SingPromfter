@@ -54,6 +54,29 @@ class PrompterDrawerPalette {
 /// 유일한 입구라 다른 컨트롤이 작아지더라도 여기는 줄지 않도록 따로 둔다.
 const double drawerHandleHeight = 50;
 
+/// 조작판에서 접히지 않는 부분(재생 버튼 줄 + 진행바 + 손잡이 + 여백)의 높이.
+/// 실측값이다 — 조작판을 닫아 둔 홈 하단 바 전체가 이만큼 된다.
+const double drawerChromeHeight = 200;
+
+/// 가사 뷰에 남겨 두는 최소 몫. 조작판이 아무리 길어도 이 아래로는 못 먹는다.
+const double lyricsMinShare = 0.3;
+
+/// 펼친 조작판 본체에 줄 수 있는 높이. (순수 함수 — 테스트 대상)
+///
+/// 정책: **가사가 패널 높이의 30%는 갖는다.** 남는 것에서 접히지 않는 부분을
+/// 빼고 본체에 준다. 상한에 걸리면 본체는 스크롤된다(잘라 내지 않는다).
+///
+/// 이 계산이 없던 v2.10.0에서는 조작판을 펼치면 514px을 먹어 좁은 창에서
+/// 가사가 사라지고 아래가 잘렸다 — 손잡이를 눌렀는데 화면이 망가지니
+/// 사용자에게는 "안 열린다"로 보였다.
+double drawerBodyBudget(double availableHeight) {
+  if (!availableHeight.isFinite || availableHeight <= 0) return 0;
+  final budget =
+      availableHeight * (1 - lyricsMinShare) - drawerChromeHeight;
+  // 너무 좁은 창에서도 본체는 스크롤로라도 쓸 수 있어야 한다.
+  return budget < 160 ? 160 : budget;
+}
+
 class PrompterDrawer extends StatefulWidget {
   final bool open;
   final ValueChanged<bool> onOpenChanged;
@@ -67,8 +90,22 @@ class PrompterDrawer extends StatefulWidget {
   /// 도중 리사이즈되지 않는다. 메인 창은 내용 높이를 그대로 쓴다(null).
   final double? fixedHeight;
 
+  /// 본체가 넘지 못하는 높이. 여기에 걸리면 본체는 스크롤된다.
+  ///
+  /// 홈 조작판은 다 펼치면 300px이 넘어(실측: 바 전체 197→514) 가사 뷰를
+  /// 통째로 짜부라뜨렸다 — 손잡이를 눌렀는데 가사가 사라지니 "안 열린다"로
+  /// 보인다. 부모가 자기 높이의 몫을 정해 넘겨주면 가사가 최소 몫을 지킨다.
+  /// 내용이 상한 안에 들어가면 스크롤은 생기지 않는다.
+  final double? maxBodyHeight;
+
   /// 애니메이션 진행도를 밖에서도 읽고 싶을 때(무대의 안정 크기 계산용).
   final ValueChanged<Animation<double>>? onAnimationReady;
+
+  /// true면 손잡이를 그리지 않는다 — 호출부가 [PrompterDrawerHandle]을
+  /// 따로(예: 두 드로어 손잡이를 한 줄에 나란히) 배치할 때 쓴다.
+  /// 손잡이 두 개가 세로로 쌓이면 접어도 100px 넘게 남아 "숨겨도 화면이
+  /// 안 커진다"는 실사용 불만의 원인이 됐다.
+  final bool externalHandle;
 
   const PrompterDrawer({
     super.key,
@@ -78,7 +115,9 @@ class PrompterDrawer extends StatefulWidget {
     this.label = '조작판',
     this.palette = PrompterDrawerPalette.main,
     this.fixedHeight,
+    this.maxBodyHeight,
     this.onAnimationReady,
+    this.externalHandle = false,
   });
 
   @override
@@ -151,27 +190,36 @@ class _PrompterDrawerState extends State<PrompterDrawer>
 
   @override
   Widget build(BuildContext context) {
-    final body = widget.fixedHeight == null
+    Widget body = widget.fixedHeight == null
         ? widget.child
         : SizedBox(height: widget.fixedHeight, child: widget.child);
+
+    // 상한이 있으면 그 안에서 스크롤한다. 잘라 내지 않고 스크롤하는 이유:
+    // 저시력 사용자에게 화면 밖으로 밀려난 컨트롤은 없는 컨트롤이다.
+    final maxBody = widget.maxBodyHeight;
+    if (maxBody != null) {
+      body = ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxBody),
+        child: SingleChildScrollView(child: body),
+      );
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Handle(
-          open: widget.open,
-          label: widget.label,
-          palette: widget.palette,
-          onTap: () => widget.onOpenChanged(!widget.open),
-        ),
+        if (!widget.externalHandle)
+          PrompterDrawerHandle(
+            open: widget.open,
+            label: widget.label,
+            palette: widget.palette,
+            onTap: () => widget.onOpenChanged(!widget.open),
+          ),
         ClipRect(
           child: SizeTransition(
             sizeFactor: _size,
-            // Flutter 3.41부터 alignment로 대체됐다. 이 저장소의 로컬 SDK는
-            // 3.38이라 새 인자가 아직 없어, 올리기 전까지는 이대로 둔다.
-            // SDK를 올릴 때 `alignment: Alignment.topCenter`로 바꾸고 이 줄을 지운다.
-            // ignore: deprecated_member_use
-            axisAlignment: -1,
+            // 세로 축에서 본체를 위에 붙인다(예전 axisAlignment: -1과 동일) —
+            // 접힐 때 아래쪽부터 사라져야 손잡이와의 연결이 어색하지 않다.
+            alignment: Alignment.topCenter,
             child: FadeTransition(
               opacity: _fade,
               child: IgnorePointer(
@@ -187,17 +235,23 @@ class _PrompterDrawerState extends State<PrompterDrawer>
 }
 
 /// 항상 보이는 손잡이. 텍스트 라벨을 함께 둔다(아이콘 전용 금지).
-class _Handle extends StatelessWidget {
+/// 공개 위젯이다 — 호출부가 여러 드로어의 손잡이를 한 줄에 배치할 수 있다.
+class PrompterDrawerHandle extends StatelessWidget {
   final bool open;
   final String label;
   final PrompterDrawerPalette palette;
   final VoidCallback onTap;
 
-  const _Handle({
+  /// 한 줄에 여러 개 나란히 둘 때는 좌우 마진을 호출부가 관리한다.
+  final EdgeInsets margin;
+
+  const PrompterDrawerHandle({
+    super.key,
     required this.open,
     required this.label,
     required this.palette,
     required this.onTap,
+    this.margin = const EdgeInsets.fromLTRB(12, 4, 12, 0),
   });
 
   @override
@@ -214,7 +268,7 @@ class _Handle extends StatelessWidget {
           child: Container(
             width: double.infinity,
             constraints: const BoxConstraints(minHeight: drawerHandleHeight),
-            margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            margin: margin,
             decoration: BoxDecoration(
               color: palette.surface,
               borderRadius: AppShapes.controlRadius,

@@ -28,12 +28,15 @@ class AppDisplaySettings {
 class AppDisplayController {
   AppDisplayController._();
 
-  static const String defaultFontKey = '교보손글씨2019';
+  /// v2.10.0부터 라인시드가 SVIL 표준 기본값. 사용자가 고른 값은 유지된다
+  /// (load()가 저장된 키를 우선하므로 기존 선택이 덮이지 않는다).
+  static const String defaultFontKey = '라인시드';
   static const String _fontPrefKey = 'app_display_font';
   static const String _scalePrefKey = 'app_display_scale';
 
   // 실재하는(번들된) 글꼴만 노출 — SVIL "깨진 옵션 금지".
   static const Map<String, String> fontFamilies = {
+    '라인시드': AppFonts.lineSeed,
     '교보손글씨2019': AppFonts.brand,
     '맑은 고딕': AppFonts.legible,
     'Segoe UI': 'SegoeUI',
@@ -50,7 +53,7 @@ class AppDisplayController {
       ValueNotifier<AppDisplaySettings>(const AppDisplaySettings());
 
   static String familyFor(String fontKey) =>
-      fontFamilies[fontKey] ?? AppFonts.brand;
+      fontFamilies[fontKey] ?? AppFonts.lineSeed;
 
   static String labelForScale(double scale) {
     for (final entry in sizeSteps.entries) {

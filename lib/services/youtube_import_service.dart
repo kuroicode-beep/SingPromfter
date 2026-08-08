@@ -8,10 +8,43 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/mr_source_mode.dart';
+import '../utils/lrc_edit.dart';
+import '../utils/youtube_subtitle.dart';
 import 'process/external_tool_locator.dart';
 import 'process/process_runner.dart';
 import 'process/tool_progress_parsers.dart';
+
+/// yt-dlp 실패 원인을 사람 말로 바꾼다. (순수 함수 — 테스트 대상)
+///
+/// 예전엔 모든 실패에 "오래된 yt-dlp가 원인일 수 있어요"를 붙였는데,
+/// 403(유튜브 일시 차단)에도 그 안내가 나와 사용자를 엉뚱한 데로 보냈다.
+/// 원인별로 다음 행동이 다르다: 403은 기다리고, 해석 실패는 업데이트하고,
+/// 그 외는 실제 오류를 보여 준다.
+String describeDownloadFailure(
+  List<String> errorLines, {
+  required int exitCode,
+  required bool nodeFound,
+}) {
+  final detail = errorLines.isEmpty ? '종료 코드 $exitCode' : errorLines.last;
+  if (detail.contains('403') || detail.contains('Forbidden')) {
+    final hint = nodeFound
+        ? ''
+        : ' Node.js가 없으면 제한된 방식으로 받아 이 오류가 잦습니다 — '
+              '설치를 권합니다(${ExternalTool.node.installHint}).';
+    return '유튜브가 일시적으로 요청을 막았습니다(403). '
+        '잠시 후 다시 시도해 주세요.$hint';
+  }
+  if (detail.contains('Unable to extract') ||
+      detail.contains('Unsupported URL') ||
+      detail.contains('Sign in to confirm')) {
+    return '영상을 해석하지 못했습니다: $detail — '
+        '오래된 yt-dlp가 원인일 수 있어요. 설정에서 업데이트(-U)를 실행해 보세요.';
+  }
+  return '내려받기에 실패했습니다: $detail';
+}
 
 /// 다운로드 전에 조회한 영상 정보.
 class YoutubeMetadata {
@@ -95,6 +128,17 @@ class YoutubeImportService {
        _locator = locator ?? ExternalToolLocator(runner: runner),
        _tmpDirProvider = tmpDirProvider;
 
+  /// yt-dlp의 YouTube JS 챌린지 해석에 쓸 node 지정 인자.
+  ///
+  /// PC 전역 설정(%APPDATA%\yt-dlp\config)에 기대지 않고 앱이 직접 넘긴다 —
+  /// 설정 파일이 지워지면 다운로드가 403/포맷 누락으로 조용히 깨졌었다.
+  /// node가 없으면 빈 목록(yt-dlp가 알아서 폴백하고, 실패 시 안내한다).
+  Future<List<String>> _jsRuntimeArgs() async {
+    final node = await _locator.locate(ExternalTool.node);
+    if (!node.found) return const [];
+    return ['--js-runtimes', 'node:${node.path!}'];
+  }
+
   /// 내려받기 전에 제목·가수·길이를 먼저 조회한다.
   /// 사용자가 등록 대화상자를 미리 채우고 취소할 수 있게 하기 위해서다.
   Future<YoutubeMetadata?> fetchMetadata(String url) async {
@@ -104,6 +148,7 @@ class YoutubeImportService {
     final result = await _runner.run(tool.path!, [
       '--dump-single-json',
       '--no-playlist',
+      ...await _jsRuntimeArgs(),
       url,
     ]);
     if (!result.ok || result.stdout.trim().isEmpty) return null;
@@ -114,6 +159,50 @@ class YoutubeImportService {
       return YoutubeMetadata.fromJson(decoded);
     } catch (_) {
       return null;
+    }
+  }
+
+  /// 업로더가 단 **한국어 수동 자막**을 세그먼트로 가져온다. 없으면 null.
+  ///
+  /// 수동 자막은 타이밍까지 있는 사실상 완성 LRC라 받아쓰기보다 훨씬
+  /// 정확하다. 자동 생성 자막(ASR)은 환청 문제가 같아서 받지 않는다
+  /// (--write-subs만 쓰고 --write-auto-subs는 안 쓴다).
+  Future<List<SttSegment>?> fetchManualSubtitles(String url) async {
+    final tool = await _locator.locate(ExternalTool.ytDlp);
+    if (!tool.found) return null;
+
+    final workDir = Directory(
+      '${(await _tmpDirProvider()).path}${Platform.pathSeparator}'
+      'subs_${DateTime.now().millisecondsSinceEpoch}',
+    );
+    await workDir.create(recursive: true);
+    try {
+      final result = await _runner.run(tool.path!, [
+        '--skip-download',
+        '--write-subs',
+        '--sub-langs', 'ko.*',
+        '--sub-format', 'json3',
+        '--no-playlist',
+        ...await _jsRuntimeArgs(),
+        '-o', '${workDir.path}${Platform.pathSeparator}subs.%(ext)s',
+        url,
+      ]);
+      if (!result.ok) return null;
+      final files = workDir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.json3'))
+          .toList();
+      if (files.isEmpty) return null; // 수동 자막 없음 — 정상 폴백 경로
+      final segments = segmentsFromJson3(await files.first.readAsString());
+      return segments.isEmpty ? null : segments;
+    } catch (e, stack) {
+      debugPrint('유튜브 자막 조회 실패: $e\n$stack');
+      return null;
+    } finally {
+      try {
+        await workDir.delete(recursive: true);
+      } catch (_) {}
     }
   }
 
@@ -151,6 +240,7 @@ class YoutubeImportService {
     );
     if (!await workDir.exists()) await workDir.create(recursive: true);
 
+    final jsRuntime = await _jsRuntimeArgs();
     final args = <String>[
       '-x',
       '--audio-format', 'mp3',
@@ -158,6 +248,7 @@ class YoutubeImportService {
       '--no-playlist',
       '--newline',
       if (ffmpeg.found) ...['--ffmpeg-location', ffmpeg.path!],
+      ...jsRuntime,
       '-o', '${workDir.path}${Platform.pathSeparator}audio.%(ext)s',
       url,
     ];
@@ -177,8 +268,13 @@ class YoutubeImportService {
 
     if (exitCode != 0) {
       await _cleanup(workDir);
-      final detail = errors.isEmpty ? '종료 코드 $exitCode' : errors.last;
-      return YoutubeImportResult.failure('내려받기에 실패했습니다: $detail');
+      return YoutubeImportResult.failure(
+        describeDownloadFailure(
+          errors,
+          exitCode: exitCode,
+          nodeFound: jsRuntime.isNotEmpty,
+        ),
+      );
     }
 
     var audioPath = '${workDir.path}${Platform.pathSeparator}audio.mp3';

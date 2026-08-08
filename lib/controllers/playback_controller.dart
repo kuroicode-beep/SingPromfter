@@ -12,6 +12,7 @@ import '../models/queue_item.dart';
 import '../models/song.dart';
 import '../models/timed_lyrics.dart';
 import '../models/track_levels.dart';
+import '../models/vocal_segments.dart';
 import '../repository/song_repository.dart';
 import '../services/lyrics_progress_service.dart';
 import '../services/lyrics_sync_math.dart';
@@ -121,6 +122,10 @@ class PlaybackController {
   /// 반주의 EQ 밴드 레벨을 읽어온다(없으면 백그라운드 분석 후 늦게 도착).
   final Future<TrackLevels?> Function(Song song, int slot)? levelsLoader;
 
+  /// 노래(보컬) 구간을 읽어온다 — 싱크 가사가 없는 곡의 줄 배분에 쓴다.
+  /// 원곡·MR이 없는 곡이면 null이 오고, 그러면 균등 배분으로 폴백한다.
+  final Future<VocalSegments?> Function(Song song)? vocalSegmentsLoader;
+
   /// 반주 길이가 확정될 때마다 불린다(곡을 물릴 때·슬롯을 바꿀 때).
   /// 길이를 알아야 표본 구간을 잡을 수 있는 조성 추정이 여기에 붙는다.
   /// 여러 번 불릴 수 있으니 받는 쪽이 멱등해야 한다.
@@ -141,6 +146,20 @@ class PlaybackController {
 
   /// 사용자가 가사 자동 진행을 잠시 멈춘 상태. (전체화면의 자동 스크롤 토글)
   final ValueNotifier<bool> autoScrollPaused = ValueNotifier(false);
+
+  /// 싱크 대기(]) — 켜져 있는 동안 줄 진행이 얼어붙는다. 재생은 계속되고,
+  /// 해제할 때 기다린 시간이 오프셋으로 흡수된다(AppController 소관).
+  final ValueNotifier<bool> lyricsHold = ValueNotifier(false);
+
+  /// 현재 곡의 싱크 잠금(L) 상태 — 프롬프터 우상단 자물쇠 배지가 듣는다.
+  /// 정본은 Song.syncLocked이고, 여기는 화면 표시용 거울이다
+  /// (곡 로드·토글 때 AppController가 채운다).
+  final ValueNotifier<bool> syncLockedView = ValueNotifier(false);
+
+  /// 녹음 중(R) 상태 — 프롬프터 우하단 배지가 듣는다.
+  /// 정본은 RecordingController이고, 여기는 표시용 거울이다
+  /// (화면이 리스너로 채운다 — 잠금 배지와 같은 패턴).
+  final ValueNotifier<bool> recordingView = ValueNotifier(false);
 
   /// 현재 곡의 싱크 가사. 없으면 null이고 timed 모드는 추정으로 되돌아간다.
   final ValueNotifier<TimedLyrics?> timedLyrics = ValueNotifier(null);
@@ -174,6 +193,7 @@ class PlaybackController {
     this.timedLyricsLoader,
     this.trackVariantResolver,
     this.levelsLoader,
+    this.vocalSegmentsLoader,
     this.onSongReady,
     this.onPracticeSessionEnded,
   });
@@ -212,13 +232,21 @@ class PlaybackController {
     position.dispose();
     lineIndex.dispose();
     autoScrollPaused.dispose();
+    lyricsHold.dispose();
+    syncLockedView.dispose();
+    recordingView.dispose();
     timedLyrics.dispose();
     trackLevels.dispose();
   }
 
   /// 가사 오프셋 변경을 즉시 반영한다.
+  ///
+  /// 줄 인덱스도 여기서 바로 다시 계산한다 — 위치 틱에만 맡기면
+  /// **일시정지 중에는 다음 틱이 없어서** T(리셋)·`.`/`/`(밀고 당기기)를
+  /// 눌러도 화면이 꿈쩍하지 않는다(실사용에서 "안 먹음"으로 보고된 원인).
   void applyLyricsOffset(int offsetMs) {
     _update(state.value.copyWith(lyricsOffsetMs: offsetMs));
+    _recomputeLineIndex(position.value);
   }
 
   /// 가사 자동 진행을 멈추거나 다시 시작한다.
@@ -292,6 +320,8 @@ class PlaybackController {
   /// 추정**. 이전에는 `displayMode == timed`까지 만족해야 LRC를 썼는데,
   /// 전체화면에서는 그 모드에 도달할 수 없어 싱크가 무시됐다.
   void _recomputeLineIndex(Duration current) {
+    // 싱크 대기 중에는 줄이 움직이지 않는다 — 해제 때 오프셋이 흡수한다.
+    if (lyricsHold.value) return;
     final song = state.value.song;
     if (song == null) return;
 
@@ -309,11 +339,25 @@ class PlaybackController {
     }
 
     final lines = LyricsLineUtils.splitLines(song.lyricsText).length;
-    final next = LyricsProgressService.estimatedLineIndex(
-      position: current,
-      duration: state.value.duration,
-      lineCount: lines,
-    );
+    final segments = _vocalSegments;
+    final int next;
+    if (segments != null && !segments.isEmpty) {
+      // 노래 구간에만 줄을 배분한다 — 전주 동안 첫 줄에서 대기하고
+      // 간주에서는 멈춘다. 구간은 원본 파일 축이라 템포 렌더에서는
+      // 위치를 원본 축으로 되돌려 비교한다.
+      next = LyricsProgressService.segmentLineProgress(
+        position: LyricsSyncMath.toSource(current, state.value.tempoScale),
+        segments: segments,
+        lineCount: lines,
+        offsetMs: state.value.lyricsOffsetMs,
+      ).index;
+    } else {
+      next = LyricsProgressService.estimatedLineIndex(
+        position: current,
+        duration: state.value.duration,
+        lineCount: lines,
+      );
+    }
     if (next != lineIndex.value) lineIndex.value = next;
   }
 
@@ -397,6 +441,41 @@ class PlaybackController {
     return LyricsLineUtils.splitLines(song.lyricsText).length;
   }
 
+  /// "지금이 첫 줄이다" — 현재 재생 위치를 첫 줄 시작으로 삼는 오프셋(원본 축).
+  ///
+  /// 노래를 들으며 첫 소절이 나오는 순간에 눌러 주면 싱크 전체가 그 지점에
+  /// 맞춰진다. 구간 탐지가 전주 끝을 잘못 잡았거나 LRC 판본이 다른 녹음에서
+  /// 만들어졌을 때, 사람이 직접 바로잡는 입구다.
+  ///
+  /// 근거가 없으면(싱크 가사도, 노래 구간도 없음) null — 그때는 앵커를
+  /// 걸 기준선이 아예 없다.
+  int? anchorOffsetForCurrentPosition() {
+    final tempo = state.value.tempoScale;
+    final synced = timedLyrics.value;
+    if (synced != null && !synced.isEmpty) {
+      // LRC 경로는 트림 시작을 뺀 뒤 원본 축으로 환산한다(songTimeFor와 같은 순서).
+      final rendered = Duration(
+        milliseconds:
+            position.value.inMilliseconds - (state.value.trackStartMs ?? 0),
+      );
+      return LyricsProgressService.anchorOffsetForLyrics(
+        position: LyricsSyncMath.toSource(rendered, tempo),
+        firstLineMs:
+            synced.lines.first.time.inMilliseconds + synced.offsetMs,
+      );
+    }
+
+    final segments = _vocalSegments;
+    if (segments != null && !segments.isEmpty) {
+      // 구간은 파일 절대 시각이라 trackStart를 빼지 않는다(seekToLine과 같은 규약).
+      return LyricsProgressService.anchorOffsetForSegments(
+        position: LyricsSyncMath.toSource(position.value, tempo),
+        segments: segments,
+      );
+    }
+    return null;
+  }
+
   /// 특정 줄로 이동한다. 싱크 가사가 없으면 추정 시각으로, 그마저 불가능하면
   /// 줄 번호만 옮긴다(가사만 넘겨보는 용도).
   Future<void> seekToLine(int index) async {
@@ -416,6 +495,21 @@ class PlaybackController {
         ),
       );
       return;
+    }
+
+    final segments = _vocalSegments;
+    if (segments != null && !segments.isEmpty) {
+      final source = LyricsProgressService.positionForLineIndexWithSegments(
+        index: clamped,
+        segments: segments,
+        lineCount: total,
+        offsetMs: state.value.lyricsOffsetMs,
+      );
+      if (source != null) {
+        // 구간은 원본 파일 축(파일 절대 시각)이라 trackStart를 더하지 않는다.
+        await seek(LyricsSyncMath.toRendered(source, state.value.tempoScale));
+        return;
+      }
     }
 
     final estimated = LyricsProgressService.positionForLineIndex(
@@ -457,6 +551,33 @@ class PlaybackController {
   /// 이전/다음 줄로 옮긴다. (마우스 휠·단축키용)
   Future<void> stepLine(int delta) =>
       seekToLine(lineIndex.value + delta);
+
+  /// 가사 타임스탬프가 바뀐 뒤(부분 보정 등) 현재 위치로 줄을 다시 잡는다.
+  /// 일시정지 중에는 다음 틱이 없어 이걸 부르지 않으면 화면이 안 바뀐다.
+  void refreshLineIndex() => _recomputeLineIndex(position.value);
+
+  /// **아직 시작하지 않은** 첫 줄 — Alt 부분 보정의 기준.
+  ///
+  /// 현재 줄(lineIndex)은 간주에서는 '방금 부른 줄'이라, 그걸 기준으로
+  /// 밀면 재생 위치 밑의 타임스탬프가 움직여 하이라이트가 널뛴다.
+  /// 전주면 0, 마지막 줄까지 다 시작했으면 lines.length(=밀 줄 없음).
+  int upcomingLineIndex() {
+    final synced = timedLyrics.value;
+    if (synced == null || synced.isEmpty) return 0;
+    final songTime = LyricsSyncMath.songTimeFor(
+      playerPosition: position.value,
+      trackStartMs: state.value.trackStartMs,
+      lyricsOffsetMs: state.value.lyricsOffsetMs,
+      tempoScale: state.value.tempoScale,
+    );
+    final target = songTime.inMilliseconds - synced.offsetMs;
+    var i = 0;
+    while (i < synced.lines.length &&
+        synced.lines[i].time.inMilliseconds <= target) {
+      i++;
+    }
+    return i;
+  }
 
   // ── 연습 세션 집계 ────────────────────────────────────────
 
@@ -519,6 +640,9 @@ class PlaybackController {
     _clock.reset();
     position.value = Duration.zero;
     lineIndex.value = 0;
+    // 곡이 바뀌면 싱크 대기는 무의미하다 — 얼어붙은 채 남지 않게 푼다.
+    lyricsHold.value = false;
+    syncLockedView.value = song.syncLocked;
     _update(
       state.value.copyWith(
         song: song,
@@ -536,6 +660,7 @@ class PlaybackController {
     // 정지 상태라면 다음 틱이 영영 오지 않는다.
     _recomputeLineIndex(position.value);
     _reloadTrackLevels(song, resolvedSlot);
+    _reloadVocalSegments(song);
 
     await repo.saveLastSongId(song.id);
     await prepareAudioForSelection();
@@ -671,6 +796,7 @@ class PlaybackController {
       ),
     );
     _reloadTrackLevels(song, slot);
+    _reloadVocalSegments(song);
     await prepareAudioForSelection();
   }
 
@@ -685,6 +811,26 @@ class PlaybackController {
         if (state.value.song?.id != song.id) return;
         if (state.value.trackSlot != slot) return;
         trackLevels.value = levels;
+      }),
+    );
+  }
+
+  /// 현재 곡의 노래 구간(없으면 null). 곡이 바뀌면 로더 완료까지 null이다.
+  VocalSegments? _vocalSegments;
+
+  /// 구간을 비웠다가 로더 완료 시 채운다. 곡이 바뀌었으면 결과를 버린다.
+  void _reloadVocalSegments(Song song) {
+    _vocalSegments = null;
+    final loader = vocalSegmentsLoader;
+    if (loader == null) return;
+    unawaited(
+      loader(song).then((segments) {
+        if (_disposed) return;
+        if (state.value.song?.id != song.id) return;
+        _vocalSegments = segments;
+        // 늦게 도착한 구간으로 그 자리에서 줄을 다시 잡는다 —
+        // 정지 상태라면 다음 틱이 영영 오지 않는다.
+        _recomputeLineIndex(position.value);
       }),
     );
   }

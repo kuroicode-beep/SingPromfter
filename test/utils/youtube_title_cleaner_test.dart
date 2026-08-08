@@ -99,4 +99,69 @@ void main() {
       expect(r.title, '밤편지');
     });
   });
+
+  group('가사 영상 계열 노이즈', () {
+    // 실제 사고의 회귀: (가사첨부)가 곡 제목에 남아 가사 검색이 실패했다.
+    test('「선물」 회귀 — (가사첨부)를 걷어내고 가수를 분리한다', () {
+      final r = cleanYoutubeSongName('윤후 - 선물(가사첨부)');
+      expect(r.title, '선물');
+      expect(r.artist, '윤후');
+    });
+
+    test('(한글 가사) / [자막] / (번역)', () {
+      expect(cleanYoutubeSongName('밤편지 (한글 가사)').title, '밤편지');
+      expect(cleanYoutubeSongName('밤편지 [자막]').title, '밤편지');
+      expect(cleanYoutubeSongName('밤편지 (번역)').title, '밤편지');
+    });
+
+    test('[가사/번역] 복합 괄호', () {
+      expect(cleanYoutubeSongName('밤편지 [가사/번역]').title, '밤편지');
+    });
+
+    test('(고음질 음원) / (음원첨부)', () {
+      expect(cleanYoutubeSongName('밤편지 (고음질 음원)').title, '밤편지');
+      expect(cleanYoutubeSongName('밤편지 (음원첨부)').title, '밤편지');
+    });
+
+    test('[MV] / (뮤직비디오) / [4K]', () {
+      expect(cleanYoutubeSongName('밤편지 [MV]').title, '밤편지');
+      expect(cleanYoutubeSongName('밤편지 (뮤직비디오)').title, '밤편지');
+      expect(cleanYoutubeSongName('밤편지 [4K]').title, '밤편지');
+    });
+
+    test('(Color Coded Lyrics) / (Full Audio) / [ENG SUB]', () {
+      expect(cleanYoutubeSongName('Song (Color Coded Lyrics)').title, 'Song');
+      expect(cleanYoutubeSongName('Song (Full Audio)').title, 'Song');
+      expect(cleanYoutubeSongName('Song [ENG SUB]').title, 'Song');
+    });
+
+    test('의미 있는 괄호는 그대로 둔다 — (feat.)와 부제', () {
+      expect(
+        cleanYoutubeSongName('밤편지 (feat. 아이유)').title,
+        '밤편지 (feat. 아이유)',
+      );
+      expect(cleanYoutubeSongName('선물 (The Gift)').title, '선물 (The Gift)');
+    });
+
+    test('가사라는 단어가 든 진짜 제목은 건드리지 않는다', () {
+      expect(cleanYoutubeSongName('가사 없는 노래').title, '가사 없는 노래');
+    });
+
+    // 실제 사례(로이킴 곡): 괄호 없는 꼬리 홍보 문구가 제목에 남아
+    // 가사 검색이 실패했다.
+    test('괄호 밖 꼬리 Official Video도 걷어낸다', () {
+      final r = cleanYoutubeSongName('봄이 와도 (When Spring Comes) Official Video');
+      expect(r.title, '봄이 와도 (When Spring Comes)');
+    });
+
+    test('Official Audio / Music Video / Lyric Video 변형', () {
+      expect(cleanYoutubeSongName('Song Title Official Audio').title, 'Song Title');
+      expect(cleanYoutubeSongName('Song Title Music Video').title, 'Song Title');
+      expect(cleanYoutubeSongName('Song Title Lyric Video').title, 'Song Title');
+    });
+
+    test('Video라는 단어가 든 진짜 제목은 건드리지 않는다', () {
+      expect(cleanYoutubeSongName('Video Games').title, 'Video Games');
+    });
+  });
 }

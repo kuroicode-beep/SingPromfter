@@ -21,8 +21,16 @@ class SongActionCoordinator {
     required List<Song> songs,
     required Song song,
     required Song? selectedSong,
+    Map<int, int> trackPitches = const {},
+    void Function(int slot, int semitones)? onTrackPitchChanged,
   }) async {
-    final draft = await SongEditDialog.show(context, song);
+    final draft = await SongEditDialog.show(
+      context,
+      song,
+      trackPitches: trackPitches,
+      onPitchChanged: onTrackPitchChanged,
+      existingFolders: Song.folderNames(songs),
+    );
     if (draft == null) return null;
     if (_libraryService.hasDuplicateTitle(
       songs,

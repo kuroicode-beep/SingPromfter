@@ -52,6 +52,9 @@ class ImportJob {
   /// 기존 곡에 더할 때 쓸 반주 이름.
   final String? trackLabel;
 
+  /// 기존 곡에 더할 반주에 구워 넣을 반음(노래방 키 낮춤 등). 0이면 그대로.
+  final int trackSemitones;
+
   /// 등록 완료된 곡 id — 완료 후 바로 선택하기 위해 들고 있는다.
   final String? songId;
 
@@ -69,6 +72,7 @@ class ImportJob {
     this.targetSongId,
     this.targetSlot,
     this.trackLabel,
+    this.trackSemitones = 0,
     this.songId,
   });
 
@@ -97,6 +101,7 @@ class ImportJob {
       targetSongId: targetSongId,
       targetSlot: targetSlot,
       trackLabel: trackLabel,
+      trackSemitones: trackSemitones,
       songId: songId ?? this.songId,
     );
   }
@@ -161,6 +166,7 @@ class ImportJobController extends ChangeNotifier {
     String? targetSongId,
     int? targetSlot,
     String? trackLabel,
+    int trackSemitones = 0,
   }) {
     final job = ImportJob(
       id: id,
@@ -171,6 +177,7 @@ class ImportJobController extends ChangeNotifier {
       targetSongId: targetSongId,
       targetSlot: targetSlot,
       trackLabel: trackLabel,
+      trackSemitones: trackSemitones,
     );
     _jobs.insert(0, job);
     notifyListeners();
@@ -250,6 +257,9 @@ class ImportJobController extends ChangeNotifier {
           update(
             current.copyWith(
               ratio: progress.ratio,
+              // 비율 없는 단계(가사 찾기·받아쓰기·분리)는 미정 진행바로 —
+              // 예전 비율(가득 찬 바)이 남아 멈춘 것처럼 보이지 않게.
+              clearRatio: progress.ratio == null,
               statusDetail: progress.label ?? current.statusDetail,
             ),
           );

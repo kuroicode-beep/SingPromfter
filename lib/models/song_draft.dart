@@ -38,11 +38,19 @@ class SongEditDraft {
   /// 조성 칸이 없는 경로(제어 API 등)가 자동 감지 결과를 지우지 않게 한다.
   final bool applyMusicalKey;
 
+  /// 폴더를 이 편집에서 다룰지. 조성과 같은 이유로 폴더 칸이 없는 경로가
+  /// 기존 폴더를 지우지 않게 한다. true면 [folder]로 바꾼다(''=폴더 해제).
+  final bool applyFolder;
+  final String folder;
+
   /// [applyMusicalKey]가 true일 때 넣을 값. null이면 지운다.
   final MusicKey? musicalKey;
 
   /// 슬롯별 '이미 파일에 구워진' 키(반음). 조성 표시를 바로잡는 값이며
   /// 재생에는 쓰지 않는다(이중 적용 방지).
+  ///
+  /// 재생 키는 여기 없다 — 다이얼로그에서 조절하는 즉시 콜백으로 반영되는
+  /// 실시간 값이라(설정 소관) 드래프트에 실을 것이 없다.
   final Map<int, int> trackBakedSemitones;
 
   const SongEditDraft({
@@ -55,6 +63,8 @@ class SongEditDraft {
     this.trackEndMs = const {},
     this.applyMusicalKey = false,
     this.musicalKey,
+    this.applyFolder = false,
+    this.folder = '',
     this.trackBakedSemitones = const {},
   });
 }

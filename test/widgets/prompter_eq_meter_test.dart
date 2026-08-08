@@ -4,8 +4,18 @@ import 'package:singpromfter_app/widgets/prompter_eq_meter.dart';
 // EQ 미터의 스무딩·피크홀드 순수 규칙.
 void main() {
   group('smoothLevel', () {
-    test('어택은 즉시 따라간다', () {
-      expect(smoothLevel(0.2, 0.9), 0.9);
+    test('어택은 빠르지만 즉시 점프하지 않는다 (v4.1.0 부드러움)', () {
+      final next = smoothLevel(0.2, 0.9);
+      expect(next, greaterThan(0.5), reason: '프레임당 절반 이상은 따라가야 반응성 유지');
+      expect(next, lessThan(0.9), reason: '한 번에 점프하면 계단이 보인다');
+    });
+
+    test('어택은 몇 프레임 안에 목표에 도달한다', () {
+      var level = 0.0;
+      for (var i = 0; i < 12; i++) {
+        level = smoothLevel(level, 0.9);
+      }
+      expect(level, 0.9);
     });
 
     test('릴리즈는 점진적으로 내려간다', () {

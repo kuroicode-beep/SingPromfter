@@ -6,23 +6,19 @@
 // 이 줄 오른쪽에 붙였다. 상단 스트립이 줄어든 만큼 목록·프롬프터가 넓어진다.
 import 'package:flutter/material.dart';
 
-import '../constants/app_constants.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
-import 'server_status_strip.dart';
 
 class HomeNowPlayingBar extends StatelessWidget {
   final Song? song;
   final int? selectedTrackSlot;
   final bool playing;
-  final VoidCallback? onStartPrompter;
 
   const HomeNowPlayingBar({
     super.key,
     required this.song,
     required this.selectedTrackSlot,
     required this.playing,
-    required this.onStartPrompter,
   });
 
   @override
@@ -58,21 +54,7 @@ class HomeNowPlayingBar extends StatelessWidget {
               style: AppTypography.body,
             ),
           ),
-          const SizedBox(width: 8),
-          const ServerStatusChip(),
-          const SizedBox(width: 4),
-          FilledButton(
-            onPressed: current == null ? null : onStartPrompter,
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.primaryContainer,
-              foregroundColor: AppColors.onPrimaryContainer,
-              disabledBackgroundColor: AppColors.elevated,
-              disabledForegroundColor: AppColors.onSurfaceVariant,
-              minimumSize: const Size(84, AppConstants.minTouchTarget),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-            child: Text(current == null ? '곡 선택 필요' : '곡 시작'),
-          ),
+          // 서버 상태·곡 시작은 v2.10.0에서 조작판(하단)으로 이동.
         ],
       ),
     );

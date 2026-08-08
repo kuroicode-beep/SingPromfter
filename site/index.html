@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<!-- SVIL 배포 페이지 — 자체 완결형 단일 파일. CDN 금지(폰트·스크립트·스타일 전부 인라인/로컬). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SingPromfter — Karaoke prompter built for low vision</title>
+<meta name="description" content="A Windows karaoke prompter designed for people with low vision: full-screen high-contrast lyrics, AI-separated backing tracks, synced lyrics from a single YouTube link.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%2316161d' stroke='%23b3ddff' stroke-width='3'/></svg>">
+<style>
+  :root {
+    --bg: #0d0d12;
+    --surface: #16161d;
+    --surface-2: #1f1f2a;
+    --border: #3a3a48;
+    --border-strong: #6b6b82;
+    --text: #f5f5f7;
+    --text-sub: #c9c9d4;
+    --accent: #7ec8ff;
+    --accent-strong: #b3ddff;
+    --accent-max: #d6ecff;
+    --positive: #7ee2a8;
+    --warning: #ffd479;
+    --focus: #ffd479;
+    --font-ui: "LINESeedKR", "Pretendard", "Malgun Gothic", "맑은 고딕",
+               system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "Consolas", "Cascadia Mono", ui-monospace, "Malgun Gothic", monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--font-ui); font-size: 18px; line-height: 1.8;
+    letter-spacing: 0.02em; word-break: keep-all; overflow-wrap: break-word;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-max); }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  code, .mono, .ver { font-family: var(--font-mono); }
+
+  header { border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 10; }
+  .bar { display: flex; align-items: center; gap: 16px; min-height: 68px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .brand svg { width: 30px; height: 30px; flex: none; }
+  .brand b { font-weight: normal; font-size: 1.25rem; }
+  .ver { color: var(--accent); font-size: 0.85rem; }
+
+  .langs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .langs button {
+    min-height: 40px; padding: 6px 12px; background: transparent; color: var(--text-sub);
+    border: 1.5px solid transparent; border-radius: 999px; font-family: inherit; font-size: 0.92rem;
+    cursor: pointer; border-bottom: 3px solid transparent;
+  }
+  .langs button:hover { color: var(--accent-strong); border-color: var(--border-strong); }
+  .langs button[aria-current="true"] { color: var(--accent-strong); border-bottom-color: var(--accent); background: var(--surface-2); }
+
+  /* 히어로 배경 — Stitch 일러스트 위에 짙은 오버레이(대비 확보, 저시력 원칙 유지) */
+  .hero-bg {
+    background-image:
+      linear-gradient(rgba(13, 13, 18, 0.82), rgba(13, 13, 18, 0.97)),
+      url("assets/hero.jpg");
+    background-size: cover;
+    background-position: center 30%;
+  }
+  .hero { padding: 64px 0 48px; text-align: center; }
+  .hero h1 { font-size: 2.2rem; margin: 0 0 12px; font-weight: normal; }
+  .hero .mission {
+    display: inline-block; margin: 0 0 18px; padding: 6px 18px; border-radius: 999px;
+    background: var(--surface-2); border: 1.5px solid var(--accent);
+    color: var(--accent-strong); font-size: 1.02rem;
+  }
+  .tagline { font-size: 1.3rem; color: var(--text-sub); margin: 0 auto 34px; max-width: 36em; }
+  .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    min-height: 56px; padding: 12px 28px; border-radius: 12px; border: 2px solid var(--border-strong);
+    background: var(--surface-2); color: var(--text); font-family: inherit; font-size: 1.05rem; text-decoration: none;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .btn-primary { background: var(--accent-strong); color: #000; border-color: var(--accent-strong); }
+  .btn-primary:hover { background: var(--accent-max); color: #000; border-color: var(--accent-max); }
+  .meta { margin-top: 18px; color: var(--text-sub); font-size: 0.95rem; }
+
+  .shot { margin: 40px auto 0; max-width: 880px; }
+  .shot img {
+    width: 100%; height: auto; display: block; border-radius: 14px;
+    border: 1.5px solid var(--border-strong);
+  }
+  .shot figcaption { color: var(--text-sub); font-size: 0.92rem; margin-top: 10px; }
+
+  section { padding: 44px 0; border-top: 1px solid var(--border); }
+  h2 { font-size: 1.7rem; font-weight: normal; margin: 0 0 8px; color: var(--accent-strong); }
+  .sub { color: var(--text-sub); margin: 0 0 28px; }
+
+  .grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px 24px; }
+  .card h3 { font-size: 1.3rem; font-weight: normal; margin: 0 0 6px; }
+  .card p { margin: 0; color: var(--text-sub); font-size: 0.97rem; }
+
+  /* 최소 사양 표 — 색만이 아니라 라벨로 구분 */
+  .spec { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 16px; overflow: hidden; }
+  .spec th, .spec td { text-align: left; padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: 0.97rem; vertical-align: top; }
+  .spec th { width: 11em; color: var(--accent-strong); font-weight: normal; white-space: nowrap; }
+  .spec td { color: var(--text-sub); }
+  .spec tr:last-child th, .spec tr:last-child td { border-bottom: none; }
+
+  .steps { counter-reset: step; display: flex; flex-direction: column; gap: 14px; padding: 0; margin: 0; list-style: none; }
+  .steps li {
+    counter-increment: step; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px 18px 64px; position: relative; color: var(--text-sub); font-size: 0.98rem;
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 18px; top: 16px;
+    width: 32px; height: 32px; border-radius: 50%; background: var(--surface-2);
+    border: 1.5px solid var(--accent); color: var(--accent-strong);
+    display: flex; align-items: center; justify-content: center; font-size: 1rem;
+  }
+  .steps b { color: var(--text); font-weight: normal; }
+  pre.cmd {
+    margin: 10px 0 0; padding: 12px 16px; background: #0a0a0f; border: 1px solid var(--border);
+    border-radius: 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.9rem;
+    color: var(--accent-max); line-height: 1.6;
+  }
+
+  .links { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .link-card {
+    display: flex; flex-direction: column; gap: 4px; min-height: 56px; padding: 20px 22px;
+    background: var(--surface); border: 2px solid var(--border-strong); border-radius: 12px;
+    text-decoration: none; color: var(--text);
+  }
+  .link-card:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .link-card span { color: var(--text-sub); font-size: 0.9rem; overflow-wrap: anywhere; }
+
+  .support-card {
+    display: flex; gap: 26px; align-items: center; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px;
+  }
+  .qr-frame { background: #fff; border-radius: 12px; padding: 14px; flex: none; line-height: 0; }
+  .qr-frame img { display: block; width: 216px; height: 216px; }
+  .qr-meta { display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1; }
+  .qr-meta b { font-weight: normal; font-size: 1.25rem; color: var(--accent-strong); }
+  .qr-meta span { color: var(--text-sub); font-size: 0.97rem; }
+  @media (max-width: 560px) { .support-card { justify-content: center; text-align: center; } .qr-meta { align-items: center; } }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--text-sub); font-size: 0.9rem; text-align: center; }
+  .foot-rows { display: flex; flex-direction: column; gap: 8px; align-items: center; margin: 0 0 20px; }
+  .foot-rows .row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; justify-content: center; }
+  .foot-rows .k { color: var(--text-sub); font-size: 0.85rem; min-width: 84px; text-align: right; }
+  @media (max-width: 560px) { .foot-rows .k { min-width: 0; text-align: center; } }
+  .svil-mission { margin: 0 0 18px; }
+
+  @media (max-width: 640px) {
+    body { font-size: 17px; }
+    .hero { padding: 44px 0 36px; }
+    .hero h1 { font-size: 1.8rem; }
+    .tagline { font-size: 1.12rem; }
+    .btn { width: 100%; }
+    .spec th { width: auto; white-space: normal; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28" fill="#16161d" stroke="#b3ddff" stroke-width="3"/><path d="M24 44V22l18-4v22" fill="none" stroke="#b3ddff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="21" cy="44" r="4" fill="#b3ddff"/><circle cx="39" cy="40" r="4" fill="#b3ddff"/></svg>
+      <b>SingPromfter</b>
+      <span class="ver">v5.0.0</span>
+    </div>
+    <nav class="langs" aria-label="Language">
+      <button type="button" data-lang="en" lang="en">English</button>
+      <button type="button" data-lang="ko" lang="ko">한국어</button>
+      <button type="button" data-lang="ja" lang="ja">日本語</button>
+      <button type="button" data-lang="zh" lang="zh">中文</button>
+      <button type="button" data-lang="vi" lang="vi">Tiếng Việt</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero-bg">
+  <div class="wrap hero">
+    <p class="mission" data-i18n="hero_mission"></p>
+    <h1 data-i18n="hero_title"></h1>
+    <p class="tagline" data-i18n="hero_tagline"></p>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/kuroicode-beep/SingPromfter/releases/latest"><span data-i18n="cta_download"></span></a>
+      <a class="btn" href="features.html"><span data-i18n="cta_primary"></span></a>
+      <a class="btn" href="https://github.com/kuroicode-beep/SingPromfter"><span data-i18n="cta_secondary"></span></a>
+    </div>
+    <p class="meta"><span data-i18n="meta_a"></span> · <span data-i18n="meta_b"></span></p>
+    <figure class="shot">
+      <img src="assets/stage.png" alt="SingPromfter full-screen prompter — large high-contrast lyrics with the current line highlighted" loading="lazy">
+      <figcaption data-i18n="hero_shot_cap"></figcaption>
+    </figure>
+  </div>
+  </div>
+
+  <section id="why">
+    <div class="wrap">
+      <h2 data-i18n="why_title"></h2>
+      <p class="sub" data-i18n="why_sub"></p>
+      <div class="grid">
+        <div class="card"><h3 data-i18n="w1_t"></h3><p data-i18n="w1_d"></p></div>
+        <div class="card"><h3 data-i18n="w2_t"></h3><p data-i18n="w2_d"></p></div>
+        <div class="card"><h3 data-i18n="w3_t"></h3><p data-i18n="w3_d"></p></div>
+        <div class="card"><h3 data-i18n="w4_t"></h3><p data-i18n="w4_d"></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2 data-i18n="features_title"></h2>
+      <p class="sub" data-i18n="features_sub"></p>
+      <div class="grid">
+        <div class="card"><h3 data-i18n="f1_t"></h3><p data-i18n="f1_d"></p></div>
+        <div class="card"><h3 data-i18n="f2_t"></h3><p data-i18n="f2_d"></p></div>
+        <div class="card"><h3 data-i18n="f3_t"></h3><p data-i18n="f3_d"></p></div>
+        <div class="card"><h3 data-i18n="f4_t"></h3><p data-i18n="f4_d"></p></div>
+        <div class="card"><h3 data-i18n="f5_t"></h3><p data-i18n="f5_d"></p></div>
+        <div class="card"><h3 data-i18n="f6_t"></h3><p data-i18n="f6_d"></p></div>
+        <div class="card"><h3 data-i18n="f7_t"></h3><p data-i18n="f7_d"></p></div>
+        <div class="card"><h3 data-i18n="f8_t"></h3><p data-i18n="f8_d"></p></div>
+        <div class="card"><h3 data-i18n="f9_t"></h3><p data-i18n="f9_d"></p></div>
+      </div>
+      <p style="margin-top:24px; text-align:center;">
+        <a class="btn" href="features.html"><span data-i18n="features_more"></span></a>
+      </p>
+    </div>
+  </section>
+
+  <section id="requirements">
+    <div class="wrap">
+      <h2 data-i18n="req_title"></h2>
+      <p class="sub" data-i18n="req_sub"></p>
+      <table class="spec">
+        <tr><th data-i18n="req_os_k"></th><td data-i18n="req_os_v"></td></tr>
+        <tr><th data-i18n="req_cpu_k"></th><td data-i18n="req_cpu_v"></td></tr>
+        <tr><th data-i18n="req_ram_k"></th><td data-i18n="req_ram_v"></td></tr>
+        <tr><th data-i18n="req_disk_k"></th><td data-i18n="req_disk_v"></td></tr>
+        <tr><th data-i18n="req_tools_k"></th><td data-i18n="req_tools_v"></td></tr>
+        <tr><th data-i18n="req_ai_k"></th><td data-i18n="req_ai_v"></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <h2 data-i18n="inst_title"></h2>
+      <p class="sub" data-i18n="inst_sub"></p>
+      <ol class="steps">
+        <li>
+          <b data-i18n="inst0_t"></b><br><span data-i18n="inst0_d"></span>
+          <pre class="cmd">https://github.com/kuroicode-beep/SingPromfter/releases/latest</pre>
+        </li>
+        <li>
+          <b data-i18n="inst1_t"></b><br><span data-i18n="inst1_d"></span>
+          <pre class="cmd">git clone https://github.com/kuroicode-beep/SingPromfter.git</pre>
+        </li>
+        <li>
+          <b data-i18n="inst2_t"></b><br><span data-i18n="inst2_d"></span>
+          <pre class="cmd">cd SingPromfter
+flutter build windows --release</pre>
+        </li>
+        <li>
+          <b data-i18n="inst3_t"></b><br><span data-i18n="inst3_d"></span>
+          <pre class="cmd">winget install Gyan.FFmpeg
+winget install yt-dlp.yt-dlp</pre>
+        </li>
+        <li>
+          <b data-i18n="inst4_t"></b><br><span data-i18n="inst4_d"></span>
+        </li>
+        <li>
+          <b data-i18n="inst5_t"></b><br><span data-i18n="inst5_d"></span>
+          <pre class="cmd">build\windows\x64\runner\Release\singpromfter_app.exe</pre>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="links">
+    <div class="wrap">
+      <h2 data-i18n="links_title"></h2>
+      <p class="sub" data-i18n="links_sub"></p>
+      <div class="links">
+        <a class="link-card" href="https://github.com/kuroicode-beep/SingPromfter"><b data-i18n="link_gh"></b><span class="mono">kuroicode-beep/SingPromfter</span></a>
+        <a class="link-card" href="mailto:kuroicode@gmail.com"><b data-i18n="link_contact"></b><span class="mono">kuroicode@gmail.com</span></a>
+      </div>
+    </div>
+  </section>
+
+  <section id="support">
+    <div class="wrap">
+      <h2 data-i18n="support_title"></h2>
+      <p class="sub" data-i18n="support_sub"></p>
+      <div class="support-card">
+        <div class="qr-frame">
+          <img src="assets/toss-qr.png" alt="토스 후원 QR — Toss donation QR" width="216" height="216" loading="lazy">
+        </div>
+        <div class="qr-meta">
+          <b data-i18n="support_toss_label"></b>
+          <span data-i18n="support_toss_hint"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="svil-mission" data-i18n="svil_mission"></p>
+    <div class="foot-rows">
+      <div class="row"><span class="k" data-i18n="foot_contact"></span><a href="mailto:kuroicode@gmail.com">kuroicode@gmail.com</a></div>
+      <div class="row"><span class="k" data-i18n="foot_blog"></span><a href="https://ghost-production-0ec2.up.railway.app/" target="_blank" rel="noopener">인블루의 로그 보관소</a></div>
+      <div class="row"><span class="k" data-i18n="foot_home"></span><a href="https://kuroicode-beep.github.io/svil-homepage/" target="_blank" rel="noopener">SVIL</a></div>
+      <div class="row"><span class="k" data-i18n="foot_youtube"></span><a href="https://www.youtube.com/@SVIL-LAB" target="_blank" rel="noopener">@SVIL-LAB</a></div>
+      <div class="row"><span class="k" data-i18n="foot_github"></span><a href="https://github.com/kuroicode-beep" target="_blank" rel="noopener">kuroicode-beep</a></div>
+    </div>
+    <p class="copyright">© <span id="svil-year">2026</span> SVIL Singularity Visual Intelligence Lab.</p>
+  </div>
+</footer>
+<script>
+  document.getElementById('svil-year').textContent = new Date().getFullYear();
+</script>
+
+<script>
+const I18N = {
+  en: {
+    _title: "SingPromfter — Karaoke prompter built for low vision",
+    hero_mission: "Built for singers with low vision",
+    hero_title: "The whole screen is your lyrics.",
+    hero_tagline: "SingPromfter is a Windows karaoke prompter designed around low-vision accessibility: huge high-contrast lyrics that follow the song, backing tracks and synced lyrics prepared automatically from a single YouTube link.",
+    cta_download: "Download for Windows",
+    cta_primary: "See it in action",
+    cta_secondary: "Source code",
+    meta_a: "Windows 10 / 11",
+    meta_b: "Free · Build from source",
+    hero_shot_cap: "Actual screenshot — the full-screen prompter highlights the current line as you sing.",
+    why_title: "Why this exists",
+    why_sub: "Ordinary karaoke apps assume you can read small, moving text. This one doesn't.",
+    w1_t: "Large text, high contrast",
+    w1_d: "Dark background, bright text, adjustable font size with no upper limit. The current line glows and sweeps syllable by syllable.",
+    w2_t: "Labels, not just colors",
+    w2_d: "Every state — recording, sync lock, server status — is shown as text and icons, never color alone.",
+    w3_t: "Big targets, few steps",
+    w3_d: "50px+ touch targets, one-key shortcuts for everything you do mid-song, and a borderless full-screen layout with zero clutter.",
+    w4_t: "Automation over menus",
+    w4_d: "Paste one YouTube link and the app downloads, separates vocals, builds key-shifted backing tracks and synced lyrics by itself.",
+    features_title: "What it does",
+    features_sub: "A full practice room, not just a lyric screen.",
+    f1_t: "One link → ready to sing",
+    f1_d: "From a YouTube link it prepares the original, an AI-separated MR, and a key-shifted MR — each on its own slot.",
+    f2_t: "AI synced lyrics",
+    f2_d: "Lyrics come from LRCLIB or YouTube subtitles; if none exist, AI transcription with hallucination cleanup builds timed lyrics from the vocal stem.",
+    f3_t: "Key & tempo per track",
+    f3_d: "Shift the key in semitones and the tempo in steps per backing track — pitch stays true, and your settings are remembered per song.",
+    f4_t: "Folders & three queues",
+    f4_d: "Organize songs into folders by drag & drop, and keep three independent reservation queues you can switch with tabs.",
+    f5_t: "Recording, duet, coaching",
+    f5_d: "Record takes with any microphone, mix them with the backing track, merge a male and female part into one duet, and get AI pitch analysis.",
+    f6_t: "Vocal training course",
+    f6_d: "A 4-week routine (breathing → pitch → diction → song) with daily checklists, weekly goals and streak tracking.",
+    f7_t: "Voice-guided training",
+    f7_d: "A calm voice walks you through breathing, scales and diction in real time — piano runs matched to male or female range, finished steps checked off automatically.",
+    f8_t: "Karaoke-style stage effects",
+    f8_d: "A full-width spectrum meter that pulses with the beat, plus five space backgrounds — starry night to cosmic storm — cycled with the B key.",
+    f9_t: "AI studio — compose & record",
+    f9_d: "Generate vocal songs (ACE-Step) or BGM (MusicGen) with local AI, and record with a 3-track mixing studio — reverb, noise cleanup, and AI vocal separation.",
+    features_more: "Feature tour with real screenshots",
+    req_title: "Minimum requirements",
+    req_sub: "The prompter itself is light. The optional AI features are what need muscle.",
+    req_os_k: "OS",
+    req_os_v: "Windows 10 / 11, 64-bit",
+    req_cpu_k: "CPU / RAM",
+    req_cpu_v: "Any modern 4-core CPU · 8 GB RAM (16 GB recommended)",
+    req_ram_k: "Display",
+    req_ram_v: "1280×720 or larger. Runs borderless full-screen by default (F11 toggles).",
+    req_disk_k: "Storage",
+    req_disk_v: "About 500 MB for the app and tools, plus roughly 30–60 MB per imported song (original + MRs + lyrics).",
+    req_tools_k: "Required tools",
+    req_tools_v: "ffmpeg and yt-dlp on PATH — used for downloading, converting, key/tempo shifting and recording.",
+    req_ai_k: "AI features (optional)",
+    req_ai_v: "Vocal separation, AI transcription and pitch correction run on a local AI server. Recommended: NVIDIA GPU with 8 GB+ VRAM (tested on RTX 5060 Ti 16 GB) and Python 3.11+. Without a GPU these features are slow or can simply be skipped — the prompter works fine without them.",
+    inst_title: "Install",
+    inst_sub: "Download the ready-made build, or build from source in about ten minutes.",
+    inst0_t: "Just download (no build needed)",
+    inst0_d: "Grab the latest Windows build from GitHub Releases, unzip, and run singpromfter_app.exe. Steps 2–3 below are only for building from source.",
+    inst1_t: "Clone the repository",
+    inst1_d: "Get the code from the public GitHub repository.",
+    inst2_t: "Build with Flutter",
+    inst2_d: "Install the Flutter SDK (3.35 or newer, Windows desktop enabled), then build a release binary.",
+    inst3_t: "Install ffmpeg & yt-dlp",
+    inst3_d: "Both must be reachable on PATH. Any install method works; winget is the simplest.",
+    inst4_t: "Optional: local AI server",
+    inst4_d: "For vocal separation, AI lyrics and pitch coaching, run the companion AI workstation (Demucs + faster-whisper based). The app auto-starts and monitors it when configured; everything else works without it.",
+    inst5_t: "Run",
+    inst5_d: "Launch the built executable. Paste a YouTube link into [Add song] and you are ready to sing.",
+    links_title: "Links",
+    links_sub: "Questions, bugs, or just want to say hello.",
+    link_gh: "GitHub repository",
+    link_contact: "Contact",
+    support_title: "Support",
+    support_sub: "If this helped you, you can leave a small tip. Entirely optional — it stays free either way.",
+    support_toss_label: "Tip via Toss",
+    support_toss_hint: "Scan the QR with the Toss app (Korea) to send a tip.",
+    svil_mission: "Singularity Visual Intelligence Lab: research and development to improve AI accessibility for people with low vision.",
+    foot_contact: "Contact", foot_blog: "Blog", foot_home: "Homepage",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  },
+  ko: {
+    _title: "SingPromfter — 저시력을 위한 노래방 프롬프터",
+    hero_mission: "저시력 가수를 위해 만들었습니다",
+    hero_title: "화면 전체가 가사입니다.",
+    hero_tagline: "SingPromfter는 저시력 접근성을 중심에 두고 설계한 Windows 노래방 프롬프터예요. 노래를 따라가는 큰 고대비 가사, 유튜브 링크 하나면 반주와 싱크 가사까지 자동으로 준비됩니다.",
+    cta_download: "Windows용 다운로드",
+    cta_primary: "실제 화면 보기",
+    cta_secondary: "소스 코드",
+    meta_a: "Windows 10 / 11",
+    meta_b: "무료 · 소스 빌드",
+    hero_shot_cap: "실제 스크린샷 — 전체화면 프롬프터가 부르는 줄을 크게 강조합니다.",
+    why_title: "왜 만들었나요",
+    why_sub: "보통 노래방 앱은 작고 빠르게 움직이는 글씨를 읽을 수 있다고 가정합니다. 이 앱은 그 가정을 버렸습니다.",
+    w1_t: "큰 글씨, 높은 대비",
+    w1_d: "어두운 배경에 밝은 글자, 상한 없는 글자 크기. 지금 부르는 줄은 밝게 빛나며 글자 단위로 따라갑니다.",
+    w2_t: "색이 아니라 글자로",
+    w2_d: "녹음 중, 싱크 잠금, 서버 상태 — 모든 상태를 색만이 아니라 텍스트와 아이콘으로 함께 알립니다.",
+    w3_t: "큰 버튼, 적은 단계",
+    w3_d: "50px 이상의 터치 타겟, 노래 중 조작은 전부 단축키 하나, 군더더기 없는 보더리스 풀스크린.",
+    w4_t: "메뉴 대신 자동화",
+    w4_d: "유튜브 링크 하나를 붙여넣으면 내려받기, 보컬 분리, 키조절 반주, 싱크 가사까지 앱이 알아서 만듭니다.",
+    features_title: "무엇을 하나요",
+    features_sub: "가사 화면이 아니라 연습실 하나를 통째로.",
+    f1_t: "링크 하나 → 바로 노래",
+    f1_d: "유튜브 링크에서 원곡, AI 분리 MR, 키조절 MR을 각각의 슬롯으로 준비합니다.",
+    f2_t: "AI 싱크 가사",
+    f2_d: "LRCLIB·유튜브 자막에서 가사를 가져오고, 없으면 보컬 스템 받아쓰기 + 환청 정리로 타이밍 있는 가사를 만듭니다.",
+    f3_t: "반주별 키·템포",
+    f3_d: "반주마다 반음 단위 키, 단계별 템포를 바꿉니다. 음정은 유지되고 곡마다 설정이 기억됩니다.",
+    f4_t: "폴더와 예약 큐 3개",
+    f4_d: "드래그 앤 드롭으로 곡을 폴더에 정리하고, 탭으로 전환하는 독립된 예약 큐 3개를 씁니다.",
+    f5_t: "녹음·듀엣·코칭",
+    f5_d: "원하는 마이크로 테이크를 녹음해 반주와 합치고, 남·여 파트를 듀엣 한 곡으로 합성하고, AI 음정 분석을 받습니다.",
+    f6_t: "보컬 트레이닝 코스",
+    f6_d: "호흡 → 음정 → 딕션 → 곡 완성의 4주 루틴. 데일리 체크리스트, 주간 목표, 연속 달성 기록.",
+    f7_t: "음성 안내 따라하기",
+    f7_d: "차분한 음성이 호흡·스케일·딕션을 실시간으로 이끌어요. 남/녀 음역에 맞춘 피아노 반주, 끝난 단계는 자동으로 체크됩니다.",
+    f8_t: "노래방 스타일 무대 연출",
+    f8_d: "비트에 반응하는 풀와이드 EQ 스펙트럼, 그리고 성야부터 코스믹 스톰까지 5가지 우주 배경을 B 키 하나로 순환합니다.",
+    f9_t: "AI 스튜디오 — 작곡·녹음",
+    f9_d: "로컬 AI로 보컬곡(ACE-Step)·BGM(MusicGen)을 만들고, 보컬·반주·믹스 3트랙 녹음과 리버브·노이즈 제거·AI 보컬 분리 믹싱까지.",
+    features_more: "실제 스크린샷으로 기능 보기",
+    req_title: "최소 사양",
+    req_sub: "프롬프터 자체는 가볍습니다. 힘이 필요한 건 선택 사항인 AI 기능이에요.",
+    req_os_k: "운영체제",
+    req_os_v: "Windows 10 / 11, 64비트",
+    req_cpu_k: "CPU / 메모리",
+    req_cpu_v: "일반적인 4코어 이상 CPU · RAM 8GB (16GB 권장)",
+    req_ram_k: "화면",
+    req_ram_v: "1280×720 이상. 기본이 보더리스 풀스크린입니다(F11로 창 모드 전환).",
+    req_disk_k: "저장 공간",
+    req_disk_v: "앱·도구 약 500MB + 곡당 약 30~60MB(원곡·MR·가사).",
+    req_tools_k: "필수 도구",
+    req_tools_v: "PATH에 ffmpeg와 yt-dlp — 내려받기·변환·키/템포 조절·녹음에 사용합니다.",
+    req_ai_k: "AI 기능(선택)",
+    req_ai_v: "보컬 분리, AI 받아쓰기, 음정 보정은 로컬 AI 서버에서 돕니다. 권장: VRAM 8GB 이상 NVIDIA GPU(RTX 5060 Ti 16GB에서 검증)와 Python 3.11+. GPU가 없으면 느려지거나 해당 기능만 건너뛰면 됩니다 — 프롬프터는 AI 없이도 잘 돌아갑니다.",
+    inst_title: "설치법",
+    inst_sub: "완성된 빌드를 내려받거나, 소스에서 직접 빌드할 수 있어요(약 10분).",
+    inst0_t: "빌드 없이 바로 받기 (권장)",
+    inst0_d: "GitHub 릴리스에서 최신 Windows 빌드 zip을 받아 압축을 풀고 singpromfter_app.exe를 실행하세요. 아래 2~3단계는 소스 빌드용입니다.",
+    inst1_t: "저장소 클론",
+    inst1_d: "공개 GitHub 저장소에서 코드를 받습니다.",
+    inst2_t: "Flutter로 빌드",
+    inst2_d: "Flutter SDK(3.35 이상, Windows 데스크톱 활성)를 설치한 뒤 릴리스 빌드를 만듭니다.",
+    inst3_t: "ffmpeg·yt-dlp 설치",
+    inst3_d: "둘 다 PATH에서 실행 가능해야 합니다. 설치 방법은 자유이고 winget이 가장 간단해요.",
+    inst4_t: "선택: 로컬 AI 서버",
+    inst4_d: "보컬 분리·AI 가사·음정 코치를 쓰려면 동반 AI 워크스테이션(Demucs + faster-whisper 기반)을 구성합니다. 설정해 두면 앱이 자동으로 켜고 관리하며, 없어도 나머지 기능은 전부 동작합니다.",
+    inst5_t: "실행",
+    inst5_d: "빌드된 실행 파일을 켜고 [곡 추가]에 유튜브 링크를 붙여넣으면 바로 부를 수 있습니다.",
+    links_title: "링크",
+    links_sub: "문의, 버그 제보, 그냥 인사도 좋습니다.",
+    link_gh: "GitHub 저장소",
+    link_contact: "문의하기",
+    support_title: "후원",
+    support_sub: "이 앱이 도움이 되셨다면 작은 후원으로 응원해 주세요. 전적으로 선택이고, 후원과 무관하게 앱은 계속 무료예요.",
+    support_toss_label: "토스로 후원",
+    support_toss_hint: "토스 앱으로 QR을 스캔하면 바로 후원할 수 있어요.",
+    svil_mission: "Singularity Visual Intelligence Lab: 저시력 시각장애인의 AI 접근성을 높이기 위한 연구와 개발을 합니다.",
+    foot_contact: "협업 문의", foot_blog: "블로그", foot_home: "홈페이지",
+    foot_youtube: "유튜브", foot_github: "GitHub",
+  },
+  ja: {
+    _title: "SingPromfter — ロービジョンのためのカラオケプロンプター",
+    hero_mission: "ロービジョンの歌い手のために",
+    hero_title: "画面全体が、歌詞になる。",
+    hero_tagline: "SingPromfter はロービジョンのアクセシビリティを中心に設計した Windows 用カラオケプロンプターです。曲に合わせて進む大きな高コントラスト歌詞、YouTube リンク一つで伴奏と同期歌詞まで自動で準備します。",
+    cta_primary: "実際の画面を見る",
+    cta_download: "Windows版をダウンロード",
+    cta_secondary: "ソースコード",
+    meta_a: "Windows 10 / 11",
+    meta_b: "無料・ソースからビルド",
+    hero_shot_cap: "実際のスクリーンショット — 全画面プロンプターが今歌う行を大きく強調します。",
+    why_title: "なぜ作ったのか",
+    why_sub: "普通のカラオケアプリは、小さく速く動く文字が読める前提です。このアプリはその前提を捨てました。",
+    w1_t: "大きな文字、高コントラスト",
+    w1_d: "暗い背景に明るい文字、上限のない文字サイズ。今の行は明るく光り、文字単位で追従します。",
+    w2_t: "色ではなく文字で",
+    w2_d: "録音中・同期ロック・サーバー状態 — すべての状態を色だけでなくテキストとアイコンで伝えます。",
+    w3_t: "大きなボタン、少ない手順",
+    w3_d: "50px 以上のタッチターゲット、歌唱中の操作はすべてワンキー、余計なもののないボーダーレス全画面。",
+    w4_t: "メニューより自動化",
+    w4_d: "YouTube リンクを貼るだけで、ダウンロード、ボーカル分離、キー変更伴奏、同期歌詞まで自動で作ります。",
+    features_title: "できること",
+    features_sub: "歌詞画面ではなく、練習室まるごと。",
+    f1_t: "リンク一つ → すぐ歌える",
+    f1_d: "YouTube リンクから原曲、AI 分離 MR、キー変更 MR をそれぞれのスロットに準備します。",
+    f2_t: "AI 同期歌詞",
+    f2_d: "LRCLIB・YouTube 字幕から歌詞を取得し、なければボーカルステムの文字起こし+幻聴除去でタイミング付き歌詞を作ります。",
+    f3_t: "伴奏ごとのキー・テンポ",
+    f3_d: "伴奏ごとに半音単位のキーと段階テンポを変更。音程は保たれ、曲ごとに設定を記憶します。",
+    f4_t: "フォルダと3つの予約キュー",
+    f4_d: "ドラッグ&ドロップで曲をフォルダに整理し、タブで切り替える独立した予約キューを3つ使えます。",
+    f5_t: "録音・デュエット・コーチング",
+    f5_d: "好きなマイクでテイクを録音して伴奏とミックス、男女パートをデュエット一曲に合成、AI 音程分析も。",
+    f6_t: "ボーカルトレーニングコース",
+    f6_d: "呼吸 → 音程 → 発音 → 曲完成の4週間ルーティン。デイリーチェックリスト、週間目標、連続記録。",
+    f7_t: "音声ガイド付きトレーニング",
+    f7_d: "落ち着いた音声が呼吸・スケール・滑舌をリアルタイムで案内。男女の音域に合わせたピアノ伴奏、完了ステップは自動チェック。",
+    f8_t: "カラオケ風ステージ演出",
+    f8_d: "ビートに反応する全幅EQスペクトラムと、星夜からコズミックストームまで5種類の宇宙背景をBキーで切替。",
+    f9_t: "AIスタジオ — 作曲・録音",
+    f9_d: "ローカルAIでボーカル曲(ACE-Step)やBGM(MusicGen)を生成。3トラック録音とリバーブ・ノイズ除去・AIボーカル分離のミキシングも。",
+    features_more: "実際のスクリーンショットで機能を見る",
+    req_title: "最小要件",
+    req_sub: "プロンプター自体は軽量です。力が要るのは任意の AI 機能だけ。",
+    req_os_k: "OS",
+    req_os_v: "Windows 10 / 11、64ビット",
+    req_cpu_k: "CPU / メモリ",
+    req_cpu_v: "一般的な4コア以上の CPU · RAM 8GB(16GB 推奨)",
+    req_ram_k: "画面",
+    req_ram_v: "1280×720 以上。既定でボーダーレス全画面(F11 で切替)。",
+    req_disk_k: "ストレージ",
+    req_disk_v: "アプリ・ツール約 500MB + 1曲あたり約 30〜60MB(原曲・MR・歌詞)。",
+    req_tools_k: "必須ツール",
+    req_tools_v: "PATH 上の ffmpeg と yt-dlp — ダウンロード・変換・キー/テンポ変更・録音に使用。",
+    req_ai_k: "AI 機能(任意)",
+    req_ai_v: "ボーカル分離、AI 文字起こし、音程補正はローカル AI サーバーで動きます。推奨: VRAM 8GB 以上の NVIDIA GPU(RTX 5060 Ti 16GB で検証)と Python 3.11+。GPU がなければ遅くなるか、その機能だけスキップすれば OK — プロンプターは AI なしでも快適です。",
+    inst_title: "インストール",
+    inst_sub: "完成済みビルドをダウンロードするか、ソースからビルド(約10分)。",
+    inst0_t: "ビルド不要でダウンロード(推奨)",
+    inst0_d: "GitHubリリースから最新のWindowsビルドを取得し、解凍してsingpromfter_app.exeを実行。下の2〜3はソースビルド用です。",
+    inst1_t: "リポジトリをクローン",
+    inst1_d: "公開 GitHub リポジトリからコードを取得します。",
+    inst2_t: "Flutter でビルド",
+    inst2_d: "Flutter SDK(3.35 以上、Windows デスクトップ有効)をインストールし、リリースビルドを作ります。",
+    inst3_t: "ffmpeg・yt-dlp をインストール",
+    inst3_d: "どちらも PATH から実行できる必要があります。winget が最も簡単です。",
+    inst4_t: "任意: ローカル AI サーバー",
+    inst4_d: "ボーカル分離・AI 歌詞・音程コーチには併設の AI ワークステーション(Demucs + faster-whisper ベース)を構成します。設定すればアプリが自動起動・管理し、なくても他の機能はすべて動きます。",
+    inst5_t: "実行",
+    inst5_d: "ビルドした実行ファイルを起動し、[曲を追加]に YouTube リンクを貼ればすぐ歌えます。",
+    links_title: "リンク",
+    links_sub: "お問い合わせ、バグ報告、ご挨拶もお気軽に。",
+    link_gh: "GitHub リポジトリ",
+    link_contact: "お問い合わせ",
+    support_title: "支援",
+    support_sub: "このアプリが役に立ったら、少額のチップで応援できます。もちろん任意で、支援に関係なく無料のままです。",
+    support_toss_label: "Toss で支援",
+    support_toss_hint: "Toss アプリ(韓国)で QR をスキャンして支援できます。",
+    svil_mission: "Singularity Visual Intelligence Lab: ロービジョンの方のAIアクセシビリティを高めるための研究と開発をしています。",
+    foot_contact: "お問い合わせ", foot_blog: "ブログ", foot_home: "ホームページ",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  },
+  zh: {
+    _title: "SingPromfter — 为低视力用户打造的卡拉OK提词器",
+    hero_mission: "为低视力歌者而生",
+    hero_title: "整个屏幕，都是歌词。",
+    hero_tagline: "SingPromfter 是一款以低视力无障碍为核心设计的 Windows 卡拉OK提词器:跟随歌曲滚动的高对比大字歌词,只需一个 YouTube 链接即可自动准备伴奏与同步歌词。",
+    cta_primary: "查看实际界面",
+    cta_download: "下载 Windows 版",
+    cta_secondary: "源代码",
+    meta_a: "Windows 10 / 11",
+    meta_b: "免费 · 源码构建",
+    hero_shot_cap: "真实截图 — 全屏提词器放大突出当前演唱的歌词行。",
+    why_title: "为什么做这个",
+    why_sub: "普通的卡拉OK应用默认你能读小而快速移动的文字。这个应用抛弃了这种假设。",
+    w1_t: "大字号,高对比",
+    w1_d: "深色背景配亮色文字,字号无上限。当前行高亮发光,逐字跟随。",
+    w2_t: "用文字,不只用颜色",
+    w2_d: "录音中、同步锁定、服务器状态 — 所有状态都用文字和图标表示,绝不只靠颜色。",
+    w3_t: "大按钮,少步骤",
+    w3_d: "50px 以上的触控目标,演唱中的操作全部一键完成,无边框全屏毫无干扰。",
+    w4_t: "自动化优先",
+    w4_d: "粘贴一个 YouTube 链接,应用自动完成下载、人声分离、变调伴奏和同步歌词。",
+    features_title: "功能一览",
+    features_sub: "不只是歌词屏幕,而是一整间练习室。",
+    f1_t: "一个链接 → 开口就唱",
+    f1_d: "从 YouTube 链接准备原曲、AI 分离伴奏、变调伴奏,各占一个槽位。",
+    f2_t: "AI 同步歌词",
+    f2_d: "从 LRCLIB、YouTube 字幕获取歌词;没有时用人声轨转写+幻听清理生成带时间轴的歌词。",
+    f3_t: "每条伴奏独立键位·速度",
+    f3_d: "按半音调键、分档调速,音高不变,每首歌的设置都会记住。",
+    f4_t: "文件夹与三条预约队列",
+    f4_d: "拖放整理歌曲到文件夹,三条独立预约队列用标签页切换。",
+    f5_t: "录音·对唱·教练",
+    f5_d: "用任意麦克风录音并与伴奏混音,把男女声部合成一首对唱,还有 AI 音准分析。",
+    f6_t: "声乐训练课程",
+    f6_d: "呼吸 → 音准 → 咬字 → 成曲的四周课程,每日清单、每周目标、连续打卡。",
+    f7_t: "语音引导训练",
+    f7_d: "沉稳的语音实时引导呼吸、音阶与咬字练习——钢琴伴奏匹配男/女音域,完成的步骤自动打勾。",
+    f8_t: "卡拉OK风格舞台特效",
+    f8_d: "随节拍律动的全宽频谱表,以及从星夜到宇宙风暴的5种宇宙背景,按B键循环切换。",
+    f9_t: "AI工作室 — 作曲与录音",
+    f9_d: "用本地AI生成人声歌曲(ACE-Step)或BGM(MusicGen);3轨录音配合混响、降噪与AI人声分离混音。",
+    features_more: "查看真实截图功能导览",
+    req_title: "最低配置",
+    req_sub: "提词器本身很轻量,吃性能的只是可选的 AI 功能。",
+    req_os_k: "操作系统",
+    req_os_v: "Windows 10 / 11,64位",
+    req_cpu_k: "CPU / 内存",
+    req_cpu_v: "常见4核以上 CPU · 内存 8GB(推荐 16GB)",
+    req_ram_k: "屏幕",
+    req_ram_v: "1280×720 以上。默认无边框全屏(F11 切换窗口模式)。",
+    req_disk_k: "存储空间",
+    req_disk_v: "应用与工具约 500MB + 每首歌约 30~60MB(原曲·伴奏·歌词)。",
+    req_tools_k: "必需工具",
+    req_tools_v: "PATH 中的 ffmpeg 与 yt-dlp — 用于下载、转换、变调变速与录音。",
+    req_ai_k: "AI 功能(可选)",
+    req_ai_v: "人声分离、AI 转写、音准修正在本地 AI 服务器上运行。推荐:显存 8GB 以上的 NVIDIA GPU(在 RTX 5060 Ti 16GB 上验证)与 Python 3.11+。没有 GPU 时会变慢,或直接跳过这些功能 — 提词器本身不依赖 AI。",
+    inst_title: "安装方法",
+    inst_sub: "直接下载现成构建,或从源码构建(约十分钟)。",
+    inst0_t: "免编译直接下载(推荐)",
+    inst0_d: "从 GitHub Releases 获取最新 Windows 构建,解压后运行 singpromfter_app.exe。下面第 2~3 步仅用于源码构建。",
+    inst1_t: "克隆仓库",
+    inst1_d: "从公开的 GitHub 仓库获取代码。",
+    inst2_t: "用 Flutter 构建",
+    inst2_d: "安装 Flutter SDK(3.35 以上,启用 Windows 桌面),然后构建发布版。",
+    inst3_t: "安装 ffmpeg 与 yt-dlp",
+    inst3_d: "两者都需能从 PATH 运行。安装方式不限,winget 最简单。",
+    inst4_t: "可选:本地 AI 服务器",
+    inst4_d: "要使用人声分离、AI 歌词、音准教练,请配置配套 AI 工作站(基于 Demucs + faster-whisper)。配置后应用会自动启动并管理;没有它其他功能照常可用。",
+    inst5_t: "运行",
+    inst5_d: "启动构建好的程序,在[添加歌曲]粘贴 YouTube 链接即可开唱。",
+    links_title: "链接",
+    links_sub: "咨询、报告问题,或只是打个招呼。",
+    link_gh: "GitHub 仓库",
+    link_contact: "联系我们",
+    support_title: "赞助",
+    support_sub: "如果这个应用帮到了你,可以留个小费支持一下。完全自愿,无论是否赞助都会一直免费。",
+    support_toss_label: "用 Toss 赞助",
+    support_toss_hint: "用 Toss 应用(韩国)扫描二维码即可赞助。",
+    svil_mission: "Singularity Visual Intelligence Lab:致力于提升低视力人群 AI 无障碍体验的研究与开发。",
+    foot_contact: "合作咨询", foot_blog: "博客", foot_home: "主页",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  },
+  vi: {
+    _title: "SingPromfter — Máy nhắc lời karaoke cho người thị lực kém",
+    hero_mission: "Dành cho ca sĩ có thị lực kém",
+    hero_title: "Cả màn hình là lời bài hát.",
+    hero_tagline: "SingPromfter là máy nhắc lời karaoke trên Windows được thiết kế quanh khả năng tiếp cận cho người thị lực kém: lời bài hát cỡ lớn, tương phản cao chạy theo bài hát; chỉ cần một liên kết YouTube là có nhạc nền và lời đồng bộ tự động.",
+    cta_primary: "Xem màn hình thực tế",
+    cta_download: "Tải cho Windows",
+    cta_secondary: "Mã nguồn",
+    meta_a: "Windows 10 / 11",
+    meta_b: "Miễn phí · Build từ mã nguồn",
+    hero_shot_cap: "Ảnh chụp thật — trình nhắc lời toàn màn hình làm nổi bật dòng đang hát.",
+    why_title: "Vì sao ứng dụng này ra đời",
+    why_sub: "Ứng dụng karaoke thông thường mặc định bạn đọc được chữ nhỏ chuyển động nhanh. Ứng dụng này bỏ giả định đó.",
+    w1_t: "Chữ to, tương phản cao",
+    w1_d: "Nền tối, chữ sáng, cỡ chữ không giới hạn. Dòng đang hát phát sáng và chạy theo từng âm tiết.",
+    w2_t: "Nhãn chữ, không chỉ màu sắc",
+    w2_d: "Đang ghi âm, khóa đồng bộ, trạng thái máy chủ — mọi trạng thái đều hiển thị bằng chữ và biểu tượng, không bao giờ chỉ bằng màu.",
+    w3_t: "Nút to, ít thao tác",
+    w3_d: "Vùng chạm trên 50px, thao tác giữa bài chỉ một phím tắt, toàn màn hình không viền, không rối mắt.",
+    w4_t: "Tự động hóa thay cho menu",
+    w4_d: "Dán một liên kết YouTube — ứng dụng tự tải, tách giọng, tạo nhạc nền đổi tông và lời đồng bộ.",
+    features_title: "Tính năng",
+    features_sub: "Không chỉ là màn hình lời — cả một phòng tập.",
+    f1_t: "Một liên kết → hát ngay",
+    f1_d: "Từ liên kết YouTube: bản gốc, MR tách giọng bằng AI, MR đổi tông — mỗi bản một khe riêng.",
+    f2_t: "Lời đồng bộ bằng AI",
+    f2_d: "Lấy lời từ LRCLIB, phụ đề YouTube; nếu không có thì AI chép lời từ giọng hát kèm lọc ảo giác để tạo lời có mốc thời gian.",
+    f3_t: "Tông & nhịp cho từng bản nền",
+    f3_d: "Đổi tông theo nửa cung, đổi nhịp theo bậc cho từng bản nhạc nền — cao độ giữ nguyên, thiết lập được nhớ theo bài.",
+    f4_t: "Thư mục & 3 hàng chờ",
+    f4_d: "Kéo thả để xếp bài vào thư mục, ba hàng chờ đặt bài độc lập chuyển bằng tab.",
+    f5_t: "Ghi âm, song ca, huấn luyện",
+    f5_d: "Ghi âm bằng micro tùy chọn, trộn với nhạc nền, ghép phần nam và nữ thành một bản song ca, phân tích cao độ bằng AI.",
+    f6_t: "Khóa luyện thanh nhạc",
+    f6_d: "Lộ trình 4 tuần (hơi thở → cao độ → phát âm → hoàn thiện bài) với danh sách hằng ngày, mục tiêu tuần và chuỗi ngày liên tục.",
+    f7_t: "Luyện tập có giọng hướng dẫn",
+    f7_d: "Giọng nói êm dịu dẫn dắt hơi thở, luyện thanh và phát âm theo thời gian thực — đàn piano theo quãng giọng nam/nữ, bước hoàn thành tự động được đánh dấu.",
+    f8_t: "Hiệu ứng sân khấu kiểu karaoke",
+    f8_d: "Thanh phổ EQ toàn chiều rộng nhún theo nhịp, cùng 5 nền vũ trụ từ đêm sao đến bão vũ trụ, chuyển bằng phím B.",
+    f9_t: "Studio AI — sáng tác & thu âm",
+    f9_d: "Tạo bài hát (ACE-Step) hoặc nhạc nền (MusicGen) bằng AI cục bộ; thu âm 3 track với vang, khử ồn và tách giọng AI.",
+    features_more: "Xem tour tính năng với ảnh chụp thật",
+    req_title: "Cấu hình tối thiểu",
+    req_sub: "Trình nhắc lời rất nhẹ. Chỉ các tính năng AI tùy chọn mới cần máy mạnh.",
+    req_os_k: "Hệ điều hành",
+    req_os_v: "Windows 10 / 11, 64-bit",
+    req_cpu_k: "CPU / RAM",
+    req_cpu_v: "CPU 4 nhân trở lên · RAM 8GB (khuyến nghị 16GB)",
+    req_ram_k: "Màn hình",
+    req_ram_v: "1280×720 trở lên. Mặc định chạy toàn màn hình không viền (F11 để chuyển).",
+    req_disk_k: "Dung lượng",
+    req_disk_v: "Khoảng 500MB cho ứng dụng và công cụ + khoảng 30–60MB mỗi bài (bản gốc · MR · lời).",
+    req_tools_k: "Công cụ bắt buộc",
+    req_tools_v: "ffmpeg và yt-dlp trong PATH — dùng để tải, chuyển đổi, đổi tông/nhịp và ghi âm.",
+    req_ai_k: "Tính năng AI (tùy chọn)",
+    req_ai_v: "Tách giọng, chép lời AI, sửa cao độ chạy trên máy chủ AI cục bộ. Khuyến nghị: GPU NVIDIA VRAM 8GB+ (đã kiểm chứng trên RTX 5060 Ti 16GB) và Python 3.11+. Không có GPU thì chậm hơn hoặc bỏ qua các tính năng này — trình nhắc lời vẫn chạy tốt.",
+    inst_title: "Cài đặt",
+    inst_sub: "Tải bản build sẵn, hoặc tự build từ mã nguồn (khoảng mười phút).",
+    inst0_t: "Tải trực tiếp, không cần build (khuyên dùng)",
+    inst0_d: "Tải bản Windows mới nhất từ GitHub Releases, giải nén và chạy singpromfter_app.exe. Bước 2–3 bên dưới chỉ dành cho build từ nguồn.",
+    inst1_t: "Clone kho mã",
+    inst1_d: "Tải mã từ kho GitHub công khai.",
+    inst2_t: "Build bằng Flutter",
+    inst2_d: "Cài Flutter SDK (3.35 trở lên, bật Windows desktop) rồi build bản phát hành.",
+    inst3_t: "Cài ffmpeg & yt-dlp",
+    inst3_d: "Cả hai phải chạy được từ PATH. Cách cài tùy ý; winget là đơn giản nhất.",
+    inst4_t: "Tùy chọn: máy chủ AI cục bộ",
+    inst4_d: "Để dùng tách giọng, lời AI và huấn luyện cao độ, hãy cấu hình trạm AI đi kèm (dựa trên Demucs + faster-whisper). Khi đã cấu hình, ứng dụng tự khởi động và quản lý; không có nó mọi tính năng khác vẫn hoạt động.",
+    inst5_t: "Chạy",
+    inst5_d: "Mở tệp thực thi đã build, dán liên kết YouTube vào [Thêm bài] là hát được ngay.",
+    links_title: "Liên kết",
+    links_sub: "Câu hỏi, báo lỗi, hoặc chỉ để chào một tiếng.",
+    link_gh: "Kho GitHub",
+    link_contact: "Liên hệ",
+    support_title: "Ủng hộ",
+    support_sub: "Nếu ứng dụng này giúp ích cho bạn, bạn có thể gửi một khoản tip nhỏ. Hoàn toàn tùy ý — vẫn miễn phí dù có ủng hộ hay không.",
+    support_toss_label: "Ủng hộ qua Toss",
+    support_toss_hint: "Quét mã QR bằng ứng dụng Toss (Hàn Quốc) để gửi ủng hộ.",
+    svil_mission: "Singularity Visual Intelligence Lab: nghiên cứu và phát triển nhằm cải thiện khả năng tiếp cận AI cho người thị lực kém.",
+    foot_contact: "Liên hệ", foot_blog: "Blog", foot_home: "Trang chủ",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  }
+};
+
+const LANGS = ["en", "ko", "ja", "zh", "vi"];
+
+function applyLang(code) {
+  const dict = I18N[code] || I18N.en;
+  document.documentElement.lang = code;
+  document.title = dict._title || I18N.en._title;
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const val = dict[el.dataset.i18n] ?? I18N.en[el.dataset.i18n];
+    if (val) el.textContent = val;
+  });
+  document.querySelectorAll(".langs button").forEach(b => {
+    b.setAttribute("aria-current", String(b.dataset.lang === code));
+  });
+  try { localStorage.setItem("site-lang", code); } catch (e) {}
+}
+
+function initialLang() {
+  try { const s = localStorage.getItem("site-lang"); if (s && LANGS.includes(s)) return s; } catch (e) {}
+  for (const pref of navigator.languages || [navigator.language || "en"]) {
+    const base = String(pref).toLowerCase().split("-")[0];
+    if (LANGS.includes(base)) return base;
+  }
+  return "en";
+}
+
+document.querySelectorAll(".langs button").forEach(b => b.addEventListener("click", () => applyLang(b.dataset.lang)));
+applyLang(initialLang());
+</script>
+</body>
+</html>

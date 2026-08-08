@@ -161,6 +161,11 @@ void main() {
       expect(outcome.ok, isFalse);
       expect(outcome.failure, LyricsAlignFailure.inconsistent);
       expect(outcome.spreadMs, greaterThan(maxAlignSpreadMs));
+      // 어긋남이 직선이므로 재타이밍 보정안이 함께 온다.
+      expect(outcome.drift, isNotNull);
+      expect(outcome.drift!.scale, greaterThan(1.0));
+      expect(outcome.drift!.scale, lessThan(1.1));
+      expect(outcome.drift!.r2, greaterThan(0.95));
     });
 
     test('신호가 없으면 판정하지 않는다', () {

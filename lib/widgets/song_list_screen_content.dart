@@ -29,10 +29,14 @@ import 'queue_panel.dart';
 import 'settings_panel.dart';
 import 'song_list_panel.dart';
 import 'song_list_screen_view.dart';
+import 'prompter_line_list_view.dart' show LineEditRequest;
+import 'help_panel.dart';
 import 'song_search_panel.dart';
+import 'youtube_search_panel.dart';
 import 'import_progress_strip.dart';
 import 'recordings_panel.dart';
 import 'training_panel.dart';
+import 'training_session_card.dart';
 import 'youtube_import_panel.dart';
 
 class SongListScreenContent extends StatelessWidget {
@@ -62,12 +66,27 @@ class SongListScreenContent extends StatelessWidget {
   final String separatorStatusLabel;
   final VoidCallback onImportLrcFile;
   final ValueChanged<RecordingTake> onMixTake;
+  final ValueChanged<RecordingTake> onAnalyzeTake;
+  final ValueChanged<RecordingTake> onCorrectTake;
   final ValueChanged<RecordingTake> onPlayTakeMix;
+
+  /// 녹음 플레이어 — 재생 중 테이크의 위치/길이와 시크.
+  final Duration takePosition;
+  final Duration takeDuration;
+  final ValueChanged<Duration>? onSeekTake;
   final VoidCallback onFetchSyncedLyrics;
   final ValueChanged<int> onAdjustLyricsOffset;
 
   /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다.
   final VoidCallback? onAutoAlignLyrics;
+
+  /// AI 받아쓰기(STT)로 싱크 가사 생성 + 프롬프터 인라인 가사 수정.
+  final VoidCallback? onSttLyrics;
+  final void Function(int index, String text)? onEditLyricsLine;
+  final LineEditRequest? lineEditRequest;
+
+  /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
+  final VoidCallback? onAnchorFirstLine;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -77,6 +96,9 @@ class SongListScreenContent extends StatelessWidget {
 
   /// Alt+휠 경로 — 굴리는 동안은 표시만, 렌더는 손을 멈춘 뒤.
   final void Function(int delta)? onStepPitch;
+
+  /// 분리 서버가 꺼져 있을 때 홈 상태 칩으로 켠다.
+  final Future<bool> Function()? onStartSeparator;
   final ValueListenable<int?>? pendingPitch;
   final ValueListenable<double?>? pendingTempo;
 
@@ -142,8 +164,19 @@ class SongListScreenContent extends StatelessWidget {
   final DailyGoalLog todayGoal;
   final int trainingStreak;
   final int trainingCompletedThisWeek;
+  final Map<String, DailyGoalLog> goalLogs;
+  final String? trainingCourseStart;
+  final VoidCallback onStartCourse;
   final ValueChanged<String> onRoutineChanged;
   final ValueChanged<String> onToggleRoutineStep;
+
+  /// 따라하기 세션(음성 안내 자동 진행) 상태와 제어.
+  final TrainingSessionView trainingSession;
+  final VoidCallback onStartTrainingSession;
+  final VoidCallback onTogglePauseTrainingSession;
+  final VoidCallback onRestartTrainingStep;
+  final VoidCallback onSkipTrainingStep;
+  final VoidCallback onStopTrainingSession;
   final ScrollController lyricsScrollController;
   final int highlightLineIndex;
   final String searchQuery;
@@ -153,10 +186,44 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<SongListFilterMode> onListFilterModeChanged;
   final SongSortMode listSortMode;
   final ValueChanged<SongSortMode> onListSortModeChanged;
+
+  /// 곡 목록 드래그 재정렬 — 보이는 id 순서와 출발/도착(보정) 인덱스.
+  final void Function(List<String> visibleIds, int oldIndex, int newIndex)
+  onReorderSongs;
   final SongListFilterMode searchFilterMode;
   final ValueChanged<String> onSearchQueryChanged;
   final ValueChanged<SongListFilterMode> onSearchFilterModeChanged;
+
+  /// 유튜브 탭의 검색·차트 상태(화면 State 소유).
+  final YoutubeSearchViewState youtubeSearch;
+  final ValueChanged<String> onYoutubeSearch;
+  final ValueChanged<YoutubeChartKind> onYoutubeChartChanged;
+  final ValueChanged<YoutubeVideo> onYoutubeImport;
+  final VoidCallback? onCancelKaraokeTarget;
+  final ValueChanged<int>? onYoutubeDecadeChanged;
+  final ValueChanged<String>? onYoutubeGenreChanged;
+  final VoidCallback? onLoadYoutubeDecadeChart;
+  final ValueChanged<YoutubeVideo>? onYoutubePreview;
   final VoidCallback onAddSong;
+  final VoidCallback? onExportTrack;
+  final List<int> queueLengths;
+  final int activeQueueSlot;
+  final ValueChanged<int> onSelectQueueSlot;
+  final List<String> folderOrder;
+  final Set<String> expandedFolders;
+  final ValueChanged<String>? onToggleFolder;
+  final VoidCallback? onCreateFolder;
+  final void Function(List<String> displayOrder, String name, int delta)?
+  onMoveFolder;
+  final void Function(String songId, String folder)? onMoveSongToFolder;
+  final void Function(
+    String draggedId,
+    String targetId,
+    List<String> visibleIds,
+    int oldIndex,
+    int newIndex,
+  )? onDropSongOnSong;
+  final VoidCallback? onDuetMix;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -211,15 +278,25 @@ class SongListScreenContent extends StatelessWidget {
     required this.separatorStatusLabel,
     required this.onImportLrcFile,
     required this.onMixTake,
+    required this.onAnalyzeTake,
+    required this.onCorrectTake,
     required this.onPlayTakeMix,
+    this.takePosition = Duration.zero,
+    this.takeDuration = Duration.zero,
+    this.onSeekTake,
     required this.onFetchSyncedLyrics,
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
+    this.onSttLyrics,
+    this.onEditLyricsLine,
+    this.lineEditRequest,
+    this.onAnchorFirstLine,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.tempoScale = 1,
     required this.onAdjustTempo,
     this.onStepPitch,
+    this.onStartSeparator,
     this.pendingPitch,
     this.pendingTempo,
     this.soundingKey,
@@ -275,9 +352,18 @@ class SongListScreenContent extends StatelessWidget {
     required this.onCheckOllamaModels,
     required this.todayGoal,
     required this.trainingStreak,
+    this.goalLogs = const {},
+    this.trainingCourseStart,
+    required this.onStartCourse,
     required this.trainingCompletedThisWeek,
     required this.onRoutineChanged,
     required this.onToggleRoutineStep,
+    this.trainingSession = TrainingSessionView.idle,
+    required this.onStartTrainingSession,
+    required this.onTogglePauseTrainingSession,
+    required this.onRestartTrainingStep,
+    required this.onSkipTrainingStep,
+    required this.onStopTrainingSession,
     required this.lyricsScrollController,
     required this.highlightLineIndex,
     required this.searchQuery,
@@ -287,10 +373,32 @@ class SongListScreenContent extends StatelessWidget {
     required this.onListFilterModeChanged,
     required this.listSortMode,
     required this.onListSortModeChanged,
+    required this.onReorderSongs,
     required this.searchFilterMode,
     required this.onSearchQueryChanged,
     required this.onSearchFilterModeChanged,
+    required this.youtubeSearch,
+    required this.onYoutubeSearch,
+    required this.onYoutubeChartChanged,
+    required this.onYoutubeImport,
+    this.onCancelKaraokeTarget,
+    this.onYoutubeDecadeChanged,
+    this.onYoutubeGenreChanged,
+    this.onLoadYoutubeDecadeChart,
+    this.onYoutubePreview,
     required this.onAddSong,
+    this.onExportTrack,
+    this.queueLengths = const [0, 0, 0],
+    this.activeQueueSlot = 0,
+    required this.onSelectQueueSlot,
+    this.folderOrder = const [],
+    this.expandedFolders = const {},
+    this.onToggleFolder,
+    this.onCreateFolder,
+    this.onMoveFolder,
+    this.onMoveSongToFolder,
+    this.onDropSongOnSong,
+    this.onDuetMix,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -363,11 +471,22 @@ class SongListScreenContent extends StatelessWidget {
       onEdit: onEditSong,
       onDelete: onDeleteSong,
       onToggleFavorite: onToggleFavorite,
+      onReorder: onReorderSongs,
+      folderOrder: folderOrder,
+      expandedFolders: expandedFolders,
+      onToggleFolder: onToggleFolder,
+      onCreateFolder: onCreateFolder,
+      onMoveFolder: onMoveFolder,
+      onMoveSongToFolder: onMoveSongToFolder,
+      onDropSongOnSong: onDropSongOnSong,
     );
   }
 
   PrompterPanel _buildPrompterPanel({required bool showQueue}) {
     return PrompterPanel(
+      onAddSong: onAddSong,
+      onStartSeparator: onStartSeparator,
+      onExportTrack: onExportTrack,
       song: selectedSong,
       songs: songs,
       queue: queue,
@@ -386,6 +505,10 @@ class SongListScreenContent extends StatelessWidget {
       onImportLrcFile: onImportLrcFile,
       onAdjustLyricsOffset: onAdjustLyricsOffset,
       onAutoAlignLyrics: onAutoAlignLyrics,
+      onAnchorFirstLine: onAnchorFirstLine,
+      onSttLyrics: onSttLyrics,
+      onEditLyricsLine: onEditLyricsLine,
+      lineEditRequest: lineEditRequest,
       pitchSemitones: pitchSemitones,
       onAdjustPitch: onAdjustPitch,
       onStepPitch: onStepPitch,
@@ -419,43 +542,58 @@ class SongListScreenContent extends StatelessWidget {
   }
 
   Widget _buildQueuePanel() {
-    if (queue.isEmpty) {
-      return Center(
-        child: Text(
-          '예약된 곡이 없습니다',
-          style: AppTypography.bodyMuted,
-        ),
-      );
-    }
-
-    return SingleChildScrollView(
+    // 탭은 큐가 비어도 항상 보인다 — 다른 큐로 갈아탈 입구이기 때문.
+    return Padding(
       padding: const EdgeInsets.all(6),
-      child: QueuePanel(
-        queue: queue,
-        songs: songs,
-        playingSongId: selectedSong?.id,
-        playing: playing,
-        onClear: onClearQueue,
-        onReorder: onReorderQueue,
-        onRemove: onRemoveQueueItem,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          QueueSlotTabs(
+            queueLengths: queueLengths,
+            activeSlot: activeQueueSlot,
+            onSelectSlot: onSelectQueueSlot,
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: queue.isEmpty
+                ? Center(
+                    child: Text(
+                      '큐${activeQueueSlot + 1}에 예약된 곡이 없습니다\n'
+                      '곡의 [예약]을 누르면 이 큐에 담깁니다',
+                      style: AppTypography.bodyMuted,
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                // 사이드바에 상단 고정으로 꽉 차게 — 스크롤은 패널 안 목록이 맡는다.
+                : QueuePanel(
+                    queue: queue,
+                    songs: songs,
+                    playingSongId: selectedSong?.id,
+                    playing: playing,
+                    onClear: onClearQueue,
+                    onReorder: onReorderQueue,
+                    onRemove: onRemoveQueueItem,
+                    expand: true,
+                  ),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final selected = selectedSong;
     return SongListScreenView(
       loading: loading,
       destination: destination,
       onDestinationChanged: onDestinationChanged,
-      onAddSong: onAddSong,
       selectedSong: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
-      queueIsEmpty: queue.isEmpty,
-      onStartPrompter:
-          selected == null ? null : () => onOpenPrompter(selected),
+      queueLength: queue.length,
+      queueSidebarOpen: settings.queueSidebarOpen,
+      onQueueSidebarChanged: (open) =>
+          onSettingsChanged(settings.copyWith(queueSidebarOpen: open)),
       homeSongListPanel: _buildSongListPanel(
         // 홈에서는 사용자가 고른 필터를 그대로 쓴다.
         filterMode: listFilterMode,
@@ -485,6 +623,18 @@ class SongListScreenContent extends StatelessWidget {
           onReserveAllSongs(results);
         },
       ),
+      youtubePanel: YoutubeSearchPanel(
+        state: youtubeSearch,
+        onSearch: onYoutubeSearch,
+        onChartChanged: onYoutubeChartChanged,
+        onImport: onYoutubeImport,
+        onCancelKaraokeTarget: onCancelKaraokeTarget,
+        onDecadeChanged: onYoutubeDecadeChanged,
+        onGenreChanged: onYoutubeGenreChanged,
+        onLoadDecadeChart: onLoadYoutubeDecadeChart,
+        onPreview: onYoutubePreview,
+      ),
+      helpPanel: const HelpPanel(),
       trainingPanel: TrainingPanel(
         todayLog: todayGoal,
         streak: trainingStreak,
@@ -492,6 +642,15 @@ class SongListScreenContent extends StatelessWidget {
         summaries: practiceSummaries,
         onRoutineChanged: onRoutineChanged,
         onToggleStep: onToggleRoutineStep,
+        goalLogs: goalLogs,
+        courseStart: trainingCourseStart,
+        onStartCourse: onStartCourse,
+        session: trainingSession,
+        onStartSession: onStartTrainingSession,
+        onTogglePauseSession: onTogglePauseTrainingSession,
+        onRestartSessionStep: onRestartTrainingStep,
+        onSkipSessionStep: onSkipTrainingStep,
+        onStopSession: onStopTrainingSession,
       ),
       recordingsPanel: RecordingsPanel(
         takes: recordingTakes,
@@ -507,7 +666,13 @@ class SongListScreenContent extends StatelessWidget {
         onToggleKeep: onToggleTakeKeep,
         onDelete: onDeleteTake,
         onMix: onMixTake,
+        onAnalyze: onAnalyzeTake,
+        onCorrect: onCorrectTake,
         onPlayMix: onPlayTakeMix,
+        playingPosition: takePosition,
+        playingDuration: takeDuration,
+        onSeek: onSeekTake,
+        onDuetMix: onDuetMix,
         onPlayAccompaniment: onPlayTakeAccompaniment,
         onCutAccompaniment: onCutTakeAccompaniment,
         onMixSettings: onTakeMixSettings,
@@ -570,7 +735,7 @@ class SongListScreenContent extends StatelessWidget {
         onCustomFontSize: onCustomFontSize,
         onAccessibilityPreset: onAccessibilityPreset,
         recordingDevices: recordingDevices,
-        onRefreshDevices: onRefreshRecordingDevices,
+        onRefreshRecordingDevices: onRefreshRecordingDevices,
         micTesting: micTesting,
         micLevel: micLevel,
         micLevelLabel: micLevelLabel,

@@ -21,10 +21,19 @@ class SongListShortcutService {
   static const Duration seekStep = Duration(seconds: 5);
   static const Duration seekStepLarge = Duration(seconds: 30);
 
+  /// PageUp/PageDown 전용 이동 폭(v4.0.0) — 5초와 30초 사이의 중간 걸음.
+  static const Duration seekStepMedium = Duration(seconds: 10);
+
   static bool isTextInputFocused() {
     final primaryFocus = FocusManager.instance.primaryFocus;
-    if (primaryFocus == null) return false;
-    return primaryFocus.context?.widget is EditableText;
+    final context = primaryFocus?.context;
+    if (context == null) return false;
+    // 예전에는 포커스 노드의 context가 EditableText 자신이었지만, 지금
+    // Flutter는 EditableText **내부의 Focus 위젯**에 노드를 붙인다 —
+    // 자신만 보면 항상 false가 나와 "입력 중 단축키 차단"이 통째로 꺼진다
+    // (검색창에 타이핑하다 R 녹음이 시작되는 사고). 조상까지 확인한다.
+    if (context.widget is EditableText) return true;
+    return context.findAncestorStateOfType<EditableTextState>() != null;
   }
 
   static bool handle({

@@ -1,4 +1,4 @@
-﻿name: singpromfter_app
+name: singpromfter_app
 description: "SingPromfter - 저시력 친화 가사 프롬프터"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.0.0+1
+version: 5.0.0+1
 
 environment:
   sdk: ^3.10.4
@@ -39,6 +39,8 @@ dependencies:
   uuid: ^4.5.1
   archive: ^4.0.9
   http: ^1.6.0
+  url_launcher: ^6.3.1
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
@@ -67,10 +69,11 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  # 사전 생성 음성 안내(TTS female_calm)와 스케일 피아노 런.
+  # 생성: dart run tool/gen_audio/generate_tts.dart / generate_piano.dart
+  assets:
+    - assets/audio/tts/
+    - assets/audio/piano/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -99,6 +102,9 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
   fonts:
+    - family: LINESeedKR
+      fonts:
+        - asset: assets/fonts/LINESeedKR-Rg.ttf
     - family: KyoboHandwriting2019
       fonts:
         - asset: assets/fonts/KyoboHandwriting2019.ttf

@@ -37,7 +37,6 @@ class TimedLyrics {
       lines.map((l) => l.text).toList(growable: false);
 
   /// 주어진 시각에 표시할 줄 번호를 찾는다. (이진 탐색)
-  ///
   /// 첫 줄 시간보다 이르면 0을 반환한다.
   int indexAt(Duration position) {
     if (lines.isEmpty) return 0;
@@ -65,7 +64,9 @@ class LrcParser {
   LrcParser._();
 
   // [mm:ss.xx] / [mm:ss.xxx] / [mm:ss] — 한 줄에 여러 개 올 수 있다.
-  static final RegExp _timeTag = RegExp(r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]');
+  static final RegExp _timeTag = RegExp(
+    r'\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]',
+  );
   static final RegExp _metaTag = RegExp(r'^\[(ti|ar|al|by|offset):(.*)\]$');
 
   static TimedLyrics parse(String raw) {

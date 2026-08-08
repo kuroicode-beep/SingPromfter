@@ -28,7 +28,6 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: PrompterWheelScope(
-              onStepLine: lineSteps.add,
               onStepFontSize: sizeSteps.add,
               onStepPitch: withPitch ? pitchSteps.add : null,
               child: const SizedBox.expand(
@@ -53,8 +52,8 @@ void main() {
   }
 
   group('wheelModeFor (순수 판정)', () {
-    test('수식키가 없으면 줄 이동', () {
-      expect(wheelModeFor(ctrl: false, alt: false), WheelMode.line);
+    test('수식키가 없으면 휠은 쉰다 — Alt 상태가 새는 이벤트를 무시하기 위해', () {
+      expect(wheelModeFor(ctrl: false, alt: false), isNull);
     });
 
     test('Ctrl이면 글자 크기', () {
@@ -70,11 +69,13 @@ void main() {
     });
   });
 
-  testWidgets('휠 한 칸 = 한 줄', (tester) async {
+  testWidgets('맨휠은 아무 일도 하지 않는다 — Alt 상태가 새도 줄이 안 밀리게', (
+    tester,
+  ) async {
     await pump(tester);
     await scroll(tester, 53); // 윈도우 노치 크기
 
-    expect(lineSteps, [1]);
+    expect(lineSteps, isEmpty);
     expect(sizeSteps, isEmpty);
     expect(pitchSteps, isEmpty);
   });
@@ -101,38 +102,23 @@ void main() {
     expect(sizeSteps, isEmpty);
   });
 
-  testWidgets('Ctrl을 떼도 잔여 델타가 줄을 밀지 않는다 (요구 1 회귀)', (tester) async {
-    await pump(tester);
-
-    // 트랙패드처럼 작은 델타로 줄 누적을 만들어 둔다.
-    await scroll(tester, 15);
-    expect(lineSteps, isEmpty);
-
-    // Ctrl을 누르고 크기를 바꾼다 → 줄 누적은 버려져야 한다.
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await scroll(tester, -53);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    expect(sizeSteps, [1]);
-    expect(lineSteps, isEmpty);
-
-    // Ctrl을 뗀 뒤 작은 델타 하나로는 줄이 움직이면 안 된다.
-    await scroll(tester, 15);
-    expect(lineSteps, isEmpty, reason: '이전 모드의 잔여가 새면 안 된다');
-  });
-
   testWidgets('모드를 오가도 서로의 진행을 삼키지 않는다', (tester) async {
     await pump(tester);
-
-    await scroll(tester, 53);
-    expect(lineSteps, [1]);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await scroll(tester, 53);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     expect(sizeSteps, [-1]);
 
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await scroll(tester, -53);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    expect(pitchSteps, [1]);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await scroll(tester, 53);
-    expect(lineSteps, [1, 1], reason: '모드별 레이트 리밋이 따로 돌아야 한다');
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    expect(sizeSteps, [-1, -1], reason: '모드별 레이트 리밋이 따로 돌아야 한다');
   });
 
   testWidgets('onStepPitch가 없으면 Alt+휠은 아무 일도 하지 않는다', (tester) async {
@@ -148,8 +134,8 @@ void main() {
 
   // Shift+휠 = 템포 (v2.8.0). 네 모드는 배타적이어야 한다.
   group('wheelModeFor 우선순위', () {
-    test('아무것도 안 누르면 줄 이동', () {
-      expect(wheelModeFor(ctrl: false, alt: false), WheelMode.line);
+    test('아무것도 안 누르면 null — 휠은 쉰다', () {
+      expect(wheelModeFor(ctrl: false, alt: false), isNull);
     });
 
     test('Shift는 템포', () {

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<!-- SingPromfter 기능 소개 — 실제 스크린샷 투어. index.html과 같은 자체 완결형 규격(CDN 금지). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SingPromfter — Feature tour with real screenshots</title>
+<meta name="description" content="Real screenshots of SingPromfter: full-screen high-contrast prompter, folder library, vocal training course, recording locker.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%2316161d' stroke='%23b3ddff' stroke-width='3'/></svg>">
+<style>
+  :root {
+    --bg: #0d0d12;
+    --surface: #16161d;
+    --surface-2: #1f1f2a;
+    --border: #3a3a48;
+    --border-strong: #6b6b82;
+    --text: #f5f5f7;
+    --text-sub: #c9c9d4;
+    --accent: #7ec8ff;
+    --accent-strong: #b3ddff;
+    --accent-max: #d6ecff;
+    --focus: #ffd479;
+    --font-ui: "LINESeedKR", "Pretendard", "Malgun Gothic", "맑은 고딕",
+               system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "Consolas", "Cascadia Mono", ui-monospace, "Malgun Gothic", monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--font-ui); font-size: 18px; line-height: 1.8;
+    letter-spacing: 0.02em; word-break: keep-all; overflow-wrap: break-word;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-max); }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  .mono { font-family: var(--font-mono); }
+
+  header { border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 10; }
+  .bar { display: flex; align-items: center; gap: 16px; min-height: 68px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .brand svg { width: 30px; height: 30px; flex: none; }
+  .brand b { font-weight: normal; font-size: 1.25rem; }
+  .ver { color: var(--accent); font-size: 0.85rem; }
+  .langs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .langs button {
+    min-height: 40px; padding: 6px 12px; background: transparent; color: var(--text-sub);
+    border: 1.5px solid transparent; border-radius: 999px; font-family: inherit; font-size: 0.92rem;
+    cursor: pointer; border-bottom: 3px solid transparent;
+  }
+  .langs button:hover { color: var(--accent-strong); border-color: var(--border-strong); }
+  .langs button[aria-current="true"] { color: var(--accent-strong); border-bottom-color: var(--accent); background: var(--surface-2); }
+
+  .top { padding: 52px 0 8px; text-align: center; }
+  .top h1 { font-size: 2rem; margin: 0 0 10px; font-weight: normal; }
+  .top p { color: var(--text-sub); margin: 0 auto; max-width: 36em; }
+  .back { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; margin-top: 18px; text-decoration: none; }
+
+  section { padding: 44px 0; border-top: 1px solid var(--border); }
+  section:first-of-type { border-top: none; }
+  h2 { font-size: 1.55rem; font-weight: normal; margin: 0 0 8px; color: var(--accent-strong); }
+  .sub { color: var(--text-sub); margin: 0 0 24px; }
+  figure { margin: 0; }
+  figure img {
+    width: 100%; height: auto; display: block; border-radius: 14px;
+    border: 1.5px solid var(--border-strong);
+  }
+  figure figcaption { color: var(--text-sub); font-size: 0.92rem; margin-top: 10px; }
+  ul.points { margin: 20px 0 0; padding-left: 1.2em; color: var(--text-sub); font-size: 0.98rem; }
+  ul.points li { margin-bottom: 6px; }
+
+  footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--text-sub); font-size: 0.9rem; text-align: center; }
+  .foot-rows { display: flex; flex-direction: column; gap: 8px; align-items: center; margin: 0 0 20px; }
+  .foot-rows .row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; justify-content: center; }
+  .foot-rows .k { color: var(--text-sub); font-size: 0.85rem; min-width: 84px; text-align: right; }
+  @media (max-width: 560px) { .foot-rows .k { min-width: 0; text-align: center; } }
+  .svil-mission { margin: 0 0 18px; }
+
+  @media (max-width: 640px) {
+    body { font-size: 17px; }
+    .top h1 { font-size: 1.6rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <div class="brand">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28" fill="#16161d" stroke="#b3ddff" stroke-width="3"/><path d="M24 44V22l18-4v22" fill="none" stroke="#b3ddff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="21" cy="44" r="4" fill="#b3ddff"/><circle cx="39" cy="40" r="4" fill="#b3ddff"/></svg>
+      <b>SingPromfter</b>
+      <span class="ver">v5.0.0</span>
+    </div>
+    <nav class="langs" aria-label="Language">
+      <button type="button" data-lang="en" lang="en">English</button>
+      <button type="button" data-lang="ko" lang="ko">한국어</button>
+      <button type="button" data-lang="ja" lang="ja">日本語</button>
+      <button type="button" data-lang="zh" lang="zh">中文</button>
+      <button type="button" data-lang="vi" lang="vi">Tiếng Việt</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap top">
+    <h1 data-i18n="top_title"></h1>
+    <p data-i18n="top_sub"></p>
+    <a class="back" href="index.html"><span aria-hidden="true">←</span> <span data-i18n="back_home"></span></a>
+  </div>
+
+  <section id="stage">
+    <div class="wrap">
+      <h2 data-i18n="s1_t"></h2>
+      <p class="sub" data-i18n="s1_d"></p>
+      <figure>
+        <img src="assets/stage.png" alt="Full-screen prompter: large high-contrast lyrics, current line highlighted with syllable sweep, EQ meter at the bottom" loading="lazy">
+        <figcaption data-i18n="s1_cap"></figcaption>
+      </figure>
+      <ul class="points">
+        <li data-i18n="s1_p1"></li>
+        <li data-i18n="s1_p2"></li>
+        <li data-i18n="s1_p3"></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="home">
+    <div class="wrap">
+      <h2 data-i18n="s2_t"></h2>
+      <p class="sub" data-i18n="s2_d"></p>
+      <figure>
+        <img src="assets/home.png" alt="Home screen: folder tree song library on the left, live lyrics in the middle, reservation queue on the right" loading="lazy">
+        <figcaption data-i18n="s2_cap"></figcaption>
+      </figure>
+      <ul class="points">
+        <li data-i18n="s2_p1"></li>
+        <li data-i18n="s2_p2"></li>
+        <li data-i18n="s2_p3"></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="training">
+    <div class="wrap">
+      <h2 data-i18n="s3_t"></h2>
+      <p class="sub" data-i18n="s3_d"></p>
+      <figure>
+        <img src="assets/training.png" alt="Training tab: 4-week vocal course card, progress rates for today/week/month, daily routine checklist with step cards" loading="lazy">
+        <figcaption data-i18n="s3_cap"></figcaption>
+      </figure>
+      <ul class="points">
+        <li data-i18n="s3_p1"></li>
+        <li data-i18n="s3_p2"></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="recordings">
+    <div class="wrap">
+      <h2 data-i18n="s4_t"></h2>
+      <p class="sub" data-i18n="s4_d"></p>
+      <figure>
+        <img src="assets/recordings.png" alt="Recording locker: take list with ratings, comments, player with seek bar, duet mix button" loading="lazy">
+        <figcaption data-i18n="s4_cap"></figcaption>
+      </figure>
+      <ul class="points">
+        <li data-i18n="s4_p1"></li>
+        <li data-i18n="s4_p2"></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="settings">
+    <div class="wrap">
+      <h2 data-i18n="s5_t"></h2>
+      <p class="sub" data-i18n="s5_d"></p>
+      <figure>
+        <img src="assets/settings.png" alt="Settings: data management, recording input device selection, stage display options and accessibility presets" loading="lazy">
+        <figcaption data-i18n="s5_cap"></figcaption>
+      </figure>
+      <ul class="points">
+        <li data-i18n="s5_p1"></li>
+        <li data-i18n="s5_p2"></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="svil-mission" data-i18n="svil_mission"></p>
+    <div class="foot-rows">
+      <div class="row"><span class="k" data-i18n="foot_contact"></span><a href="mailto:kuroicode@gmail.com">kuroicode@gmail.com</a></div>
+      <div class="row"><span class="k" data-i18n="foot_blog"></span><a href="https://ghost-production-0ec2.up.railway.app/" target="_blank" rel="noopener">인블루의 로그 보관소</a></div>
+      <div class="row"><span class="k" data-i18n="foot_home"></span><a href="https://kuroicode-beep.github.io/svil-homepage/" target="_blank" rel="noopener">SVIL</a></div>
+      <div class="row"><span class="k" data-i18n="foot_youtube"></span><a href="https://www.youtube.com/@SVIL-LAB" target="_blank" rel="noopener">@SVIL-LAB</a></div>
+      <div class="row"><span class="k" data-i18n="foot_github"></span><a href="https://github.com/kuroicode-beep" target="_blank" rel="noopener">kuroicode-beep</a></div>
+    </div>
+    <p class="copyright">© <span id="svil-year">2026</span> SVIL Singularity Visual Intelligence Lab.</p>
+  </div>
+</footer>
+<script>
+  document.getElementById('svil-year').textContent = new Date().getFullYear();
+</script>
+
+<script>
+const I18N = {
+  en: {
+    _title: "SingPromfter — Feature tour with real screenshots",
+    top_title: "Feature tour",
+    top_sub: "Every image below is a real, unedited screenshot of the running app.",
+    back_home: "Back to overview",
+    s1_t: "Full-screen prompter",
+    s1_d: "Press one button and the whole screen becomes lyrics — nothing else.",
+    s1_cap: "The current line glows and sweeps syllable by syllable; upcoming lines wait in soft white.",
+    s1_p1: "Font size has no upper limit — one line can fill the screen if that's what you need.",
+    s1_p2: "Sync adjustments, line delete, undo and restore are all single keys, usable mid-song without looking away.",
+    s1_p3: "A sync lock (L) freezes finished timing so a stray key can't ruin it; the state is shown as a labeled badge.",
+    s2_t: "Home — library, lyrics and queues in one view",
+    s2_d: "Songs organized in folders, the playing song's lyrics in the center, reservation queues on the right.",
+    s2_cap: "Folders open and close with one tap and remember their state; the queue sidebar has three tabs.",
+    s2_p1: "Drag a song by its handle onto a folder to move it; drop it on another song to reorder.",
+    s2_p2: "Three independent reservation queues — [Reserve] always adds to the queue you're looking at.",
+    s2_p3: "Per-track key badges show what key each backing track actually sounds in.",
+    s3_t: "Vocal training",
+    s3_d: "A 4-week course and daily routines built from standard vocal pedagogy.",
+    s3_cap: "Today / this week / this month progress bars with a streak counter, and card-style routine steps.",
+    s3_p1: "Three routines — 10-minute daily, 30-minute standard, 60-minute deep — each step with plain-language guidance.",
+    s3_p2: "Weekly themes progress from breathing and support to finishing a whole song.",
+    s4_t: "Recording locker",
+    s4_d: "Every take in one place: play with a seek bar, rate, comment, keep.",
+    s4_cap: "Takes can be mixed with their backing track, AI pitch-analyzed, or merged into a duet.",
+    s4_p1: "Record the male part and the female part separately, then [Duet mix] combines both voices with the backing track.",
+    s4_p2: "The input device is selectable in Settings, so a USB microphone is a two-click switch.",
+    s5_t: "Settings & accessibility",
+    s5_d: "Backups, library maintenance, export folder, recording device — and the display options that matter for low vision.",
+    s5_cap: "Stage display settings include font, size presets, line height and motion toggles (EQ, syllable sweep).",
+    s5_p1: "Accessibility presets set size and contrast in one tap; every animation can be turned off.",
+    s5_p2: "An update history inside the app records what changed in every version.",
+    svil_mission: "Singularity Visual Intelligence Lab: research and development to improve AI accessibility for people with low vision.",
+    foot_contact: "Contact", foot_blog: "Blog", foot_home: "Homepage",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  },
+  ko: {
+    _title: "SingPromfter — 실제 스크린샷 기능 소개",
+    top_title: "기능 소개",
+    top_sub: "아래 이미지는 전부 실행 중인 앱을 그대로 찍은 무보정 스크린샷입니다.",
+    back_home: "소개로 돌아가기",
+    s1_t: "전체화면 프롬프터",
+    s1_d: "버튼 하나면 화면 전체가 가사가 됩니다 — 다른 건 아무것도 없습니다.",
+    s1_cap: "지금 부르는 줄은 빛나며 글자 단위로 따라가고, 다음 줄들은 부드러운 흰색으로 기다립니다.",
+    s1_p1: "글자 크기에 상한이 없습니다 — 필요하면 한 줄이 화면을 가득 채웁니다.",
+    s1_p2: "싱크 조절·줄 삭제·실행취소·복구가 전부 단축키 하나라 노래 중에 시선을 떼지 않고 조작합니다.",
+    s1_p3: "싱크 잠금(L)이 완성된 타이밍을 얼려 오타로 망가지지 않게 하고, 상태는 글자 배지로 보입니다.",
+    s2_t: "홈 — 곡·가사·큐를 한 화면에",
+    s2_d: "폴더로 정리된 곡 목록, 가운데엔 재생 중인 곡의 가사, 오른쪽엔 예약 큐.",
+    s2_cap: "폴더는 한 번 눌러 여닫고 상태를 기억합니다. 큐 사이드바에는 탭이 3개.",
+    s2_p1: "곡을 손잡이로 끌어 폴더에 놓으면 이동, 다른 곡 위에 놓으면 순서 변경.",
+    s2_p2: "독립된 예약 큐 3개 — [예약]은 항상 지금 보고 있는 큐로 들어갑니다.",
+    s2_p3: "반주별 키 배지가 각 반주가 실제로 들리는 조성을 보여 줍니다.",
+    s3_t: "보컬 트레이닝",
+    s3_d: "표준 발성 교수법으로 짠 4주 코스와 데일리 루틴.",
+    s3_cap: "오늘/이번 주/이번 달 진행 바와 연속 달성, 카드형 루틴 단계.",
+    s3_p1: "10분 데일리·30분 기본·60분 집중 루틴 — 단계마다 쉬운 말로 된 안내가 붙습니다.",
+    s3_p2: "주차 테마가 호흡과 지지에서 곡 완성까지 이어집니다.",
+    s4_t: "녹음 보관함",
+    s4_d: "모든 테이크를 한곳에서: 시크바로 듣고, 별점 매기고, 코멘트 남기고, 보관합니다.",
+    s4_cap: "테이크는 반주와 합치거나, AI 음정 분석을 받거나, 듀엣으로 합성할 수 있습니다.",
+    s4_p1: "남자 파트와 여자 파트를 따로 녹음한 뒤 [듀엣 합성]이 두 목소리를 반주와 한 곡으로 합칩니다.",
+    s4_p2: "설정에서 입력 장치를 고를 수 있어 USB 마이크 전환이 클릭 두 번입니다.",
+    s5_t: "설정과 접근성",
+    s5_d: "백업, 라이브러리 정리, 내보내기 폴더, 녹음 장치 — 그리고 저시력에 중요한 표시 옵션들.",
+    s5_cap: "무대 표시 설정에 글꼴·크기 프리셋·줄 간격·움직임 토글(EQ, 글자 스윕)이 있습니다.",
+    s5_p1: "접근성 프리셋이 크기·대비를 한 번에 맞추고, 모든 애니메이션은 끌 수 있습니다.",
+    s5_p2: "앱 안의 업데이트 히스토리가 버전마다 무엇이 바뀌었는지 기록합니다.",
+    svil_mission: "Singularity Visual Intelligence Lab: 저시력 시각장애인의 AI 접근성을 높이기 위한 연구와 개발을 합니다.",
+    foot_contact: "협업 문의", foot_blog: "블로그", foot_home: "홈페이지",
+    foot_youtube: "유튜브", foot_github: "GitHub",
+  },
+  ja: {
+    _title: "SingPromfter — 実際のスクリーンショットで見る機能",
+    top_title: "機能ツアー",
+    top_sub: "以下の画像はすべて、実行中のアプリをそのまま撮った無加工スクリーンショットです。",
+    back_home: "概要に戻る",
+    s1_t: "全画面プロンプター",
+    s1_d: "ボタン一つで画面全体が歌詞になります — それ以外は何もありません。",
+    s1_cap: "今歌う行は光って文字単位で追従し、次の行は柔らかい白で待ちます。",
+    s1_p1: "文字サイズに上限なし — 必要なら一行が画面いっぱいに。",
+    s1_p2: "同期調整・行削除・取り消し・復元がすべてワンキー。歌いながら視線を外さず操作できます。",
+    s1_p3: "同期ロック(L)が完成したタイミングを固定し、誤入力から守ります。状態は文字バッジで表示。",
+    s2_t: "ホーム — 曲・歌詞・キューを一画面に",
+    s2_d: "フォルダで整理された曲リスト、中央に再生中の歌詞、右に予約キュー。",
+    s2_cap: "フォルダはワンタップで開閉し状態を記憶。キューサイドバーにはタブが3つ。",
+    s2_p1: "曲をハンドルでドラッグしてフォルダへ移動、他の曲の上に置けば並び替え。",
+    s2_p2: "独立した予約キュー3本 — [予約]は常に今見ているキューへ。",
+    s2_p3: "伴奏ごとのキーバッジが実際に聞こえる調を表示します。",
+    s3_t: "ボーカルトレーニング",
+    s3_d: "標準的な発声教授法に基づく4週間コースとデイリールーティン。",
+    s3_cap: "今日/今週/今月の進捗バーと連続記録、カード型のルーティンステップ。",
+    s3_p1: "10分デイリー・30分標準・60分集中 — 各ステップに平易な説明付き。",
+    s3_p2: "週テーマが呼吸と支えから曲の完成まで続きます。",
+    s4_t: "録音ロッカー",
+    s4_d: "すべてのテイクを一箇所で:シークバーで聴き、評価し、コメントし、保管。",
+    s4_cap: "テイクは伴奏とミックス、AI 音程分析、デュエット合成ができます。",
+    s4_p1: "男性パートと女性パートを別々に録音し、[デュエット合成]が両方の声を伴奏と一曲に。",
+    s4_p2: "設定で入力デバイスを選べるので、USB マイクへの切替はクリック2回。",
+    s5_t: "設定とアクセシビリティ",
+    s5_d: "バックアップ、ライブラリ整理、エクスポート先、録音デバイス — そしてロービジョンに重要な表示オプション。",
+    s5_cap: "ステージ表示設定にフォント・サイズプリセット・行間・モーション切替(EQ、文字スイープ)。",
+    s5_p1: "アクセシビリティプリセットがサイズとコントラストを一発設定。すべてのアニメーションはオフにできます。",
+    s5_p2: "アプリ内の更新履歴が各バージョンの変更を記録します。",
+    svil_mission: "Singularity Visual Intelligence Lab: ロービジョンの方のAIアクセシビリティを高めるための研究と開発をしています。",
+    foot_contact: "お問い合わせ", foot_blog: "ブログ", foot_home: "ホームページ",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  },
+  zh: {
+    _title: "SingPromfter — 真实截图功能导览",
+    top_title: "功能导览",
+    top_sub: "以下所有图片都是运行中应用的真实无修饰截图。",
+    back_home: "返回概览",
+    s1_t: "全屏提词器",
+    s1_d: "一个按钮,整个屏幕都是歌词 — 别无其他。",
+    s1_cap: "当前行发光并逐字跟随,后面的行以柔和的白色等待。",
+    s1_p1: "字号没有上限 — 需要的话一行歌词可以占满整个屏幕。",
+    s1_p2: "同步微调、删行、撤销、恢复全是单键操作,唱歌时无需移开视线。",
+    s1_p3: "同步锁定(L)冻结调好的时间轴,防止误触;状态以文字徽章显示。",
+    s2_t: "主页 — 歌库、歌词、队列同屏",
+    s2_d: "左侧是文件夹整理的歌曲列表,中间是播放中的歌词,右侧是预约队列。",
+    s2_cap: "文件夹一键开合并记住状态;队列侧栏有三个标签页。",
+    s2_p1: "拖动歌曲手柄放到文件夹即移动,放到另一首歌上即调整顺序。",
+    s2_p2: "三条独立预约队列 — [预约]总是加入当前所见的队列。",
+    s2_p3: "每条伴奏的调性徽章显示它实际听起来的调。",
+    s3_t: "声乐训练",
+    s3_d: "基于标准声乐教学法的四周课程和每日例行。",
+    s3_cap: "今日/本周/本月进度条与连续打卡,卡片式训练步骤。",
+    s3_p1: "10分钟每日、30分钟标准、60分钟深度三套例行 — 每步都有通俗指导。",
+    s3_p2: "每周主题从呼吸与支撑一路到完整唱好一首歌。",
+    s4_t: "录音柜",
+    s4_d: "所有录音集中一处:拖动进度条试听、打分、写评论、收藏。",
+    s4_cap: "录音可与伴奏混音、做 AI 音准分析,或合成对唱。",
+    s4_p1: "分别录制男声部与女声部,[对唱合成]把两个声音与伴奏合为一曲。",
+    s4_p2: "设置里可选输入设备,切换 USB 麦克风只需两下点击。",
+    s5_t: "设置与无障碍",
+    s5_d: "备份、曲库整理、导出文件夹、录音设备 — 以及对低视力至关重要的显示选项。",
+    s5_cap: "舞台显示设置包含字体、字号预设、行距与动效开关(EQ、逐字扫过)。",
+    s5_p1: "无障碍预设一键设定字号与对比度;所有动画均可关闭。",
+    s5_p2: "应用内的更新历史记录每个版本的变化。",
+    svil_mission: "Singularity Visual Intelligence Lab:致力于提升低视力人群 AI 无障碍体验的研究与开发。",
+    foot_contact: "合作咨询", foot_blog: "博客", foot_home: "主页",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  },
+  vi: {
+    _title: "SingPromfter — Tour tính năng bằng ảnh chụp thật",
+    top_title: "Tour tính năng",
+    top_sub: "Mọi hình bên dưới đều là ảnh chụp thật, không chỉnh sửa, của ứng dụng đang chạy.",
+    back_home: "Về trang giới thiệu",
+    s1_t: "Trình nhắc lời toàn màn hình",
+    s1_d: "Một nút bấm — cả màn hình là lời bài hát, không gì khác.",
+    s1_cap: "Dòng đang hát phát sáng, chạy theo từng âm tiết; các dòng sau chờ ở màu trắng dịu.",
+    s1_p1: "Cỡ chữ không giới hạn — một dòng có thể chiếm cả màn hình nếu bạn cần.",
+    s1_p2: "Chỉnh đồng bộ, xóa dòng, hoàn tác, khôi phục đều là một phím — thao tác giữa bài không cần rời mắt.",
+    s1_p3: "Khóa đồng bộ (L) đóng băng phần đã chỉnh xong; trạng thái hiển thị bằng huy hiệu chữ.",
+    s2_t: "Trang chủ — thư viện, lời, hàng chờ trong một màn hình",
+    s2_d: "Danh sách bài theo thư mục bên trái, lời bài đang phát ở giữa, hàng chờ bên phải.",
+    s2_cap: "Thư mục mở/đóng một chạm và nhớ trạng thái; thanh bên hàng chờ có ba tab.",
+    s2_p1: "Kéo bài bằng tay nắm thả vào thư mục để chuyển, thả lên bài khác để đổi thứ tự.",
+    s2_p2: "Ba hàng chờ độc lập — [Đặt bài] luôn thêm vào hàng chờ đang xem.",
+    s2_p3: "Huy hiệu tông của từng bản nền cho biết tông thực tế khi phát.",
+    s3_t: "Luyện thanh",
+    s3_d: "Khóa 4 tuần và thói quen hằng ngày dựa trên sư phạm thanh nhạc chuẩn.",
+    s3_cap: "Thanh tiến độ hôm nay/tuần/tháng với chuỗi ngày liên tục, các bước dạng thẻ.",
+    s3_p1: "Ba thói quen — 10 phút, 30 phút, 60 phút — mỗi bước có hướng dẫn dễ hiểu.",
+    s3_p2: "Chủ đề tuần đi từ hơi thở đến hoàn thiện cả bài hát.",
+    s4_t: "Tủ ghi âm",
+    s4_d: "Mọi bản thu ở một nơi: nghe với thanh tua, chấm sao, ghi chú, lưu giữ.",
+    s4_cap: "Bản thu có thể trộn với nhạc nền, phân tích cao độ AI, hoặc ghép song ca.",
+    s4_p1: "Thu phần nam và phần nữ riêng, rồi [Ghép song ca] hợp nhất hai giọng với nhạc nền.",
+    s4_p2: "Chọn thiết bị thu trong Cài đặt — đổi sang micro USB chỉ hai cú nhấp.",
+    s5_t: "Cài đặt & khả năng tiếp cận",
+    s5_d: "Sao lưu, dọn thư viện, thư mục xuất, thiết bị thu — và các tùy chọn hiển thị quan trọng cho thị lực kém.",
+    s5_cap: "Cài đặt hiển thị sân khấu gồm phông chữ, cỡ chữ, giãn dòng và công tắc chuyển động (EQ, quét âm tiết).",
+    s5_p1: "Preset trợ năng đặt cỡ chữ và tương phản trong một chạm; mọi hoạt ảnh đều tắt được.",
+    s5_p2: "Lịch sử cập nhật trong ứng dụng ghi lại thay đổi của từng phiên bản.",
+    svil_mission: "Singularity Visual Intelligence Lab: nghiên cứu và phát triển nhằm cải thiện khả năng tiếp cận AI cho người thị lực kém.",
+    foot_contact: "Liên hệ", foot_blog: "Blog", foot_home: "Trang chủ",
+    foot_youtube: "YouTube", foot_github: "GitHub",
+  }
+};
+
+const LANGS = ["en", "ko", "ja", "zh", "vi"];
+
+function applyLang(code) {
+  const dict = I18N[code] || I18N.en;
+  document.documentElement.lang = code;
+  document.title = dict._title || I18N.en._title;
+  document.querySelectorAll("[data-i18n]").forEach(el => {
+    const val = dict[el.dataset.i18n] ?? I18N.en[el.dataset.i18n];
+    if (val) el.textContent = val;
+  });
+  document.querySelectorAll(".langs button").forEach(b => {
+    b.setAttribute("aria-current", String(b.dataset.lang === code));
+  });
+  try { localStorage.setItem("site-lang", code); } catch (e) {}
+}
+
+function initialLang() {
+  try { const s = localStorage.getItem("site-lang"); if (s && LANGS.includes(s)) return s; } catch (e) {}
+  for (const pref of navigator.languages || [navigator.language || "en"]) {
+    const base = String(pref).toLowerCase().split("-")[0];
+    if (LANGS.includes(base)) return base;
+  }
+  return "en";
+}
+
+document.querySelectorAll(".langs button").forEach(b => b.addEventListener("click", () => applyLang(b.dataset.lang)));
+applyLang(initialLang());
+</script>
+</body>
+</html>

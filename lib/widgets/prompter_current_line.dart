@@ -14,8 +14,10 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 /// 현재 줄이 아닌 줄의 축소 배율. 모드마다 다르다.
-const double listMutedScale = 0.72;
-const double windowMutedScale = 0.82;
+/// v2.10.1: "싱크가 어긋날 때 위·아래 줄을 봐야 한다"는 피드백으로
+/// 한 단계 키움(기준 크기 56pt에서 약 +2pt).
+const double listMutedScale = 0.76;
+const double windowMutedScale = 0.86;
 
 /// 무대 가사 한 줄의 글자 모양.
 /// 스윕 페인터도 이 함수가 준 스타일을 그대로 써야 위치가 어긋나지 않는다.
@@ -52,9 +54,9 @@ TextStyle prompterLineStyle({
 /// 밝은 쪽이 아니라 어두운 쪽을 파생시키는 이유: 스윕이 없는 곡(싱크 가사가
 /// 없거나 끝 시각을 모르는 줄)에서 현재 줄이 v2.7.0과 똑같이 보여야 한다.
 /// 아직 부르지 않은 부분의 불투명도.
-/// 0.45로 시작했다가 "조금 더 밝게" 피드백을 받아 올렸다. 이보다 높이면
-/// 부른 부분과의 대비가 약해져 스윕 경계가 눈에 안 띈다.
-const double unsungOpacity = 0.62;
+/// 0.45 → 0.62 → 0.70 — "조금 더 밝게" 피드백을 두 번 받아 올렸다.
+/// 더 올리면 부른 부분과의 대비가 약해져 스윕 경계가 눈에 안 띈다.
+const double unsungOpacity = 0.70;
 
 TextStyle prompterUnsungStyle(TextStyle base) {
   return base.copyWith(
@@ -84,6 +86,9 @@ class PrompterCurrentLine extends StatelessWidget {
 
   final VoidCallback? onTap;
 
+  /// 길게 눌렀을 때 — 프롬프터 인라인 가사 수정의 입구.
+  final VoidCallback? onLongPress;
+
   /// 현재 줄을 스윕으로 그릴 때 쓰는 대체 렌더러.
   /// null이면 평범한 Text. 스타일 인자는 [prompterLineStyle] 결과 그대로다.
   final Widget Function(TextStyle style)? sweepBuilder;
@@ -101,6 +106,7 @@ class PrompterCurrentLine extends StatelessWidget {
     this.margin = EdgeInsets.zero,
     this.fillWidth = true,
     this.onTap,
+    this.onLongPress,
     this.sweepBuilder,
   });
 
@@ -160,7 +166,7 @@ class PrompterCurrentLine extends StatelessWidget {
       selected: isCurrent,
       button: onTap != null,
       label: isCurrent ? '현재 줄: $text' : text,
-      child: InkWell(onTap: onTap, child: content),
+      child: InkWell(onTap: onTap, onLongPress: onLongPress, child: content),
     );
   }
 }

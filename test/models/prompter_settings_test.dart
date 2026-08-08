@@ -52,9 +52,9 @@ void main() {
       expect(PrompterSettings.fromJson(const {}).showEqMeter, isTrue);
     });
 
-    test('v3.0.0 녹음·AI 필드가 왕복 보존된다', () {
+    test('v5.0.0 녹음·AI 필드가 왕복 보존된다', () {
       const original = PrompterSettings(
-        recordingDeviceName: '마이크(RØDE NT-USB Mini)',
+        recordingDevice: '마이크(RØDE NT-USB Mini)',
         recordingGain: 1.5,
         localAiEnabled: true,
         cloudAiEnabled: true,
@@ -63,16 +63,16 @@ void main() {
       final restored = PrompterSettings.decode(
         PrompterSettings.encode(original),
       );
-      expect(restored.recordingDeviceName, '마이크(RØDE NT-USB Mini)');
+      expect(restored.recordingDevice, '마이크(RØDE NT-USB Mini)');
       expect(restored.recordingGain, 1.5);
       expect(restored.localAiEnabled, isTrue);
       expect(restored.cloudAiEnabled, isTrue);
       expect(restored.ollamaModel, 'gemma4:12b');
     });
 
-    test('v3.0.0 필드의 기본값 — AI는 꺼짐, 게인 1.0', () {
+    test('v5.0.0 필드의 기본값 — AI는 꺼짐, 게인 1.0', () {
       final defaults = PrompterSettings.fromJson(const {});
-      expect(defaults.recordingDeviceName, isNull);
+      expect(defaults.recordingDevice, isNull);
       expect(defaults.recordingGain, 1.0);
       expect(defaults.localAiEnabled, isFalse);
       expect(defaults.cloudAiEnabled, isFalse);
@@ -91,9 +91,16 @@ void main() {
     });
 
     test('clearRecordingDevice로 자동 선택으로 되돌린다', () {
-      const original = PrompterSettings(recordingDeviceName: 'mic');
+      const original = PrompterSettings(recordingDevice: 'mic');
       final cleared = original.copyWith(clearRecordingDevice: true);
-      expect(cleared.recordingDeviceName, isNull);
+      expect(cleared.recordingDevice, isNull);
+    });
+
+    test('구 recordingDeviceName 키는 recordingDevice로 흡수된다', () {
+      final migrated = PrompterSettings.fromJson(
+        const {'recordingDeviceName': 'old-mic'},
+      );
+      expect(migrated.recordingDevice, 'old-mic');
     });
   });
 }

@@ -11,7 +11,7 @@ import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
 import 'song_tile.dart';
 
-class SongListPanel extends StatelessWidget {
+class SongListPanel extends StatefulWidget {
   final List<Song> songs;
   final Song? selectedSong;
   final int? selectedTrackSlot;
@@ -42,6 +42,43 @@ class SongListPanel extends StatelessWidget {
   final ValueChanged<Song> onDelete;
   final ValueChanged<Song> onToggleFavorite;
 
+  /// 드래그로 순서를 바꿨을 때. 보이는 목록의 id 순서와 출발/도착(보정)
+  /// 인덱스를 넘긴다 — 필터 중에도 호출부가 전체 순서에 반영할 수 있게.
+  /// null이면 손잡이를 그리지 않는다.
+  final void Function(List<String> visibleIds, int oldIndex, int newIndex)?
+  onReorder;
+
+  /// 폴더 표시 순서(설정). 여기 있는 이름은 곡이 없어도 폴더로 보인다.
+  final List<String> folderOrder;
+
+  /// 펼쳐 둔 폴더(설정). [onToggleFolder]가 있을 때만 쓰이는 제어형 값 —
+  /// 없으면 패널이 스스로 상태를 든다(즐겨찾기 화면 등).
+  final Set<String> expandedFolders;
+  final ValueChanged<String>? onToggleFolder;
+
+  /// 제목줄 [새 폴더] 버튼. null이면 그리지 않는다.
+  final VoidCallback? onCreateFolder;
+
+  /// 폴더를 위(-1)/아래(+1)로 옮긴다. 현재 표시 순서 전체를 함께 넘겨
+  /// 호출부가 그대로 저장할 수 있게 한다. null이면 ▲▼을 그리지 않는다.
+  final void Function(List<String> displayOrder, String name, int delta)?
+  onMoveFolder;
+
+  /// 곡을 드래그해 폴더에 떨어뜨렸을 때. folder가 ''이면 폴더에서 꺼낸다.
+  /// null이면 드래그 손잡이를 그리지 않는다.
+  final void Function(String songId, String folder)? onMoveSongToFolder;
+
+  /// 곡을 다른 곡 위에 떨어뜨렸을 때(트리 모드의 순서 바꾸기).
+  /// visibleIds는 화면에 보이는 순서, 인덱스 규약은 [onReorder]와 같다
+  /// (newIndex는 끌린 곡을 뺀 목록 기준의 보정값).
+  final void Function(
+    String draggedId,
+    String targetId,
+    List<String> visibleIds,
+    int oldIndex,
+    int newIndex,
+  )? onDropSongOnSong;
+
   const SongListPanel({
     super.key,
     required this.songs,
@@ -66,7 +103,44 @@ class SongListPanel extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onToggleFavorite,
+    this.onReorder,
+    this.folderOrder = const [],
+    this.expandedFolders = const {},
+    this.onToggleFolder,
+    this.onCreateFolder,
+    this.onMoveFolder,
+    this.onMoveSongToFolder,
+    this.onDropSongOnSong,
   });
+
+  @override
+  State<SongListPanel> createState() => _SongListPanelState();
+}
+
+class _SongListPanelState extends State<SongListPanel> {
+  /// 펼쳐진 폴더 이름들(비제어형 폴백). 기본은 전부 닫힘.
+  final Set<String> _localExpanded = {};
+
+  /// 드래그 중인 곡. 폴더 헤더가 받을 준비를 하고, 폴더 소속 곡이면
+  /// 맨 위에 '폴더에서 꺼내기' 놓기 자리가 나타난다.
+  Song? _draggingSong;
+
+  /// 제어형이면 설정값을, 아니면 로컬 상태를 쓴다.
+  Set<String> get _expanded =>
+      widget.onToggleFolder != null ? widget.expandedFolders : _localExpanded;
+
+  void _toggleFolder(String name) {
+    final external = widget.onToggleFolder;
+    if (external != null) {
+      external(name);
+      return;
+    }
+    setState(() {
+      _localExpanded.contains(name)
+          ? _localExpanded.remove(name)
+          : _localExpanded.add(name);
+    });
+  }
 
   static const _chips = <(String, SongListFilterMode)>[
     ('전체', SongListFilterMode.all),
@@ -74,6 +148,11 @@ class SongListPanel extends StatelessWidget {
     ('반주 있음', SongListFilterMode.withBackingTrack),
     ('최근 등록', SongListFilterMode.recent),
   ];
+
+  List<Song> get songs => widget.songs;
+  String get query => widget.query;
+  SongListFilterMode get filterMode => widget.filterMode;
+  bool get showSearchControls => widget.showSearchControls;
 
   @override
   Widget build(BuildContext context) {
@@ -108,33 +187,43 @@ class SongListPanel extends StatelessWidget {
         query: showSearchControls ? query : '',
         mode: filterMode,
       ),
-      mode: sortMode,
-      practiceCounts: practiceCounts,
+      mode: widget.sortMode,
+      practiceCounts: widget.practiceCounts,
     );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (listTitle != null)
+        if (widget.listTitle != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 4, 2),
             child: Row(
               children: [
-                Text(listTitle!, style: AppTypography.listTitle),
+                Text(widget.listTitle!, style: AppTypography.listTitle),
                 const SizedBox(width: 8),
                 // 정렬은 전용 줄을 쓰지 않고 제목줄에 얹는다 — 목록을 한 줄 더 번다.
-                if (showSearchControls && onSortModeChanged != null)
+                if (showSearchControls && widget.onSortModeChanged != null)
                   Expanded(child: _buildSortDropdown()),
                 const Spacer(),
                 Text(
                   '${filteredSongs.length}/${songs.length}곡',
                   style: AppTypography.monoMuted,
                 ),
+                if (widget.onCreateFolder != null)
+                  IconButton(
+                    onPressed: widget.onCreateFolder,
+                    icon: const Icon(Icons.create_new_folder_outlined, size: 22),
+                    tooltip: '새 폴더',
+                    constraints: const BoxConstraints(
+                      minWidth: AppConstants.minTouchTarget,
+                      minHeight: AppConstants.denseTouchTarget,
+                    ),
+                  ),
               ],
             ),
           ),
         if (showSearchControls) _buildSearchField(),
-        if (showSearchControls && showFilterChips) _buildFilterChips(),
+        if (showSearchControls && widget.showFilterChips) _buildFilterChips(),
         Expanded(
           child: filteredSongs.isEmpty
               ? Center(
@@ -144,35 +233,339 @@ class SongListPanel extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                 )
-              : ListView.separated(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  itemCount: filteredSongs.length,
-                  separatorBuilder: (_, index) =>
-                      const Divider(height: 1, thickness: 1),
-                  itemBuilder: (_, i) {
-                    final song = filteredSongs[i];
-                    final selected = selectedSong?.id == song.id;
-                    return SongTile(
-                      song: song,
-                      selected: selected,
-                      selectedTrackSlot: selected ? selectedTrackSlot : null,
-                      pitchSemitones: pitchBySongId[song.id] ?? 0,
-                      practiceCount: practiceCounts[song.id] ?? 0,
-                      onSelectTrack: (slot) => onSelectTrack(song, slot),
-                      onAddTrack: onAddTrack == null
-                          ? null
-                          : () => onAddTrack!(song),
-                      onSelect: () => onSelect(song),
-                      onStart: () => onStart(song),
-                      onReserve: () => onReserve(song),
-                      onEdit: () => onEdit(song),
-                      onDelete: () => onDelete(song),
-                      onToggleFavorite: () => onToggleFavorite(song),
-                    );
-                  },
-                ),
+              : _buildList(filteredSongs),
         ),
       ],
+    );
+  }
+
+  Widget _tileFor(Song song) {
+    final selected = widget.selectedSong?.id == song.id;
+    return SongTile(
+      song: song,
+      selected: selected,
+      selectedTrackSlot: selected ? widget.selectedTrackSlot : null,
+      pitchSemitones: widget.pitchBySongId[song.id] ?? 0,
+      practiceCount: widget.practiceCounts[song.id] ?? 0,
+      onSelectTrack: (slot) => widget.onSelectTrack(song, slot),
+      onAddTrack: widget.onAddTrack == null
+          ? null
+          : () => widget.onAddTrack!(song),
+      onSelect: () => widget.onSelect(song),
+      onStart: () => widget.onStart(song),
+      onReserve: () => widget.onReserve(song),
+      onEdit: () => widget.onEdit(song),
+      onDelete: () => widget.onDelete(song),
+      onToggleFavorite: () => widget.onToggleFavorite(song),
+    );
+  }
+
+  /// 예약 큐와 같은 드래그 재정렬 목록. onReorder가 없으면 평범한 목록.
+  /// 폴더가 하나라도 있으면 1단계 트리로 보여 준다(검색 중에는 평평하게 —
+  /// 닫힌 폴더에 결과가 숨지 않도록).
+  Widget _buildList(List<Song> filteredSongs) {
+    Widget tileFor(Song song) => _tileFor(song);
+
+    // 설정에 등록된 폴더(빈 폴더 포함)를 먼저, 곡에만 적힌 폴더를 뒤에.
+    final fromSongs = Song.folderNames(filteredSongs);
+    final folders = <String>[
+      ...widget.folderOrder,
+      ...fromSongs.where((f) => !widget.folderOrder.contains(f)),
+    ];
+    if (folders.isNotEmpty && query.trim().isEmpty) {
+      return _buildFolderTree(filteredSongs, folders);
+    }
+
+    final reorder = widget.onReorder;
+    if (reorder == null) {
+      return ListView.separated(
+        padding: const EdgeInsets.only(bottom: 8),
+        itemCount: filteredSongs.length,
+        separatorBuilder: (_, index) => const Divider(height: 1, thickness: 1),
+        itemBuilder: (_, i) => tileFor(filteredSongs[i]),
+      );
+    }
+
+    return ReorderableListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      buildDefaultDragHandles: false,
+      // onReorderItem은 항목 제거를 반영한 **보정된** newIndex를 준다 —
+      // applyVisibleReorder가 같은 규약을 쓰므로 그대로 넘긴다.
+      onReorderItem: (oldIndex, newIndex) => reorder(
+        filteredSongs.map((s) => s.id).toList(growable: false),
+        oldIndex,
+        newIndex,
+      ),
+      children: [
+        for (var i = 0; i < filteredSongs.length; i++)
+          Column(
+            key: ValueKey(filteredSongs[i].id),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // 예약 큐와 같은 손잡이. 저시력: 아이콘만으로도 위치가
+                  // 일정해 찾기 쉽도록 모든 줄의 왼쪽 고정.
+                  ReorderableDragStartListener(
+                    index: i,
+                    child: Semantics(
+                      label: '${filteredSongs[i].title} 순서 바꾸기 손잡이',
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(
+                          Icons.drag_handle,
+                          size: 22,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(child: tileFor(filteredSongs[i])),
+                ],
+              ),
+              if (i < filteredSongs.length - 1)
+                const Divider(height: 1, thickness: 1),
+            ],
+          ),
+      ],
+    );
+  }
+
+  /// 1단계 폴더 트리 — 폴더 없는 곡 먼저, 그 밑에 폴더들(기본 닫힘, 토글).
+  Widget _buildFolderTree(List<Song> filteredSongs, List<String> folders) {
+    final loose = filteredSongs
+        .where((s) => s.folder.isEmpty)
+        .toList(growable: false);
+    final byFolder = <String, List<Song>>{
+      for (final name in folders)
+        name: filteredSongs
+            .where((s) => s.folder == name)
+            .toList(growable: false),
+    };
+
+    // 화면에 실제로 보이는 순서 — 곡 위 드랍(순서 바꾸기)의 좌표계다.
+    final displayIds = <String>[
+      for (final s in loose) s.id,
+      for (final name in folders)
+        if (_expanded.contains(name))
+          for (final s in (byFolder[name] ?? const <Song>[])) s.id,
+    ];
+
+    final rows = <Widget>[];
+    // 폴더 소속 곡을 끌고 있으면 맨 위에 '꺼내기' 놓기 자리가 생긴다.
+    if (_draggingSong != null && _draggingSong!.folder.isNotEmpty) {
+      rows.add(_unfolderDropBar());
+    }
+    for (final song in loose) {
+      if (rows.isNotEmpty) {
+        rows.add(const Divider(height: 1, thickness: 1));
+      }
+      rows.add(_songDropTarget(song, displayIds));
+    }
+    final moveFolder = widget.onMoveFolder;
+    for (var f = 0; f < folders.length; f++) {
+      final name = folders[f];
+      final members = byFolder[name] ?? const <Song>[];
+      final open = _expanded.contains(name);
+      if (rows.isNotEmpty) {
+        rows.add(const Divider(height: 1, thickness: 1));
+      }
+      rows.add(
+        _folderDropTarget(
+          name,
+          _FolderHeader(
+            name: name,
+            count: members.length,
+            open: open,
+            onTap: () => _toggleFolder(name),
+            onMoveUp: moveFolder == null || f == 0
+                ? null
+                : () => moveFolder(folders, name, -1),
+            onMoveDown: moveFolder == null || f == folders.length - 1
+                ? null
+                : () => moveFolder(folders, name, 1),
+          ),
+        ),
+      );
+      if (open) {
+        if (members.isEmpty) {
+          rows.add(const Divider(height: 1, thickness: 1));
+          rows.add(
+            const Padding(
+              padding: EdgeInsets.fromLTRB(36, 10, 8, 10),
+              child: Text(
+                '비어 있는 폴더 — 곡을 끌어다 놓거나 곡 수정에서 지정해 담습니다',
+                style: AppTypography.bodyMuted,
+              ),
+            ),
+          );
+        }
+        for (final song in members) {
+          rows.add(const Divider(height: 1, thickness: 1));
+          // 폴더 소속임이 보이도록 들여쓴다.
+          rows.add(
+            Padding(
+              padding: const EdgeInsets.only(left: 14),
+              child: _songDropTarget(song, displayIds),
+            ),
+          );
+        }
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 8),
+      children: rows,
+    );
+  }
+
+  /// 곡 타일 + 왼쪽 드래그 손잡이. 손잡이만 드래그를 받아 타일의
+  /// 버튼·탭과 충돌하지 않는다(재정렬 손잡이와 같은 문법).
+  Widget _draggableTile(Song song) {
+    final move = widget.onMoveSongToFolder;
+    if (move == null) return _tileFor(song);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Draggable<String>(
+          data: song.id,
+          dragAnchorStrategy: pointerDragAnchorStrategy,
+          onDragStarted: () => setState(() => _draggingSong = song),
+          onDragEnd: (_) => setState(() => _draggingSong = null),
+          feedback: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                song.title,
+                style: AppTypography.body.copyWith(
+                  color: AppColors.onPrimaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          child: Semantics(
+            label: '${song.title} 폴더로 끌기 손잡이',
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Icon(
+                Icons.drag_indicator,
+                size: 22,
+                color: AppColors.textMuted,
+              ),
+            ),
+          ),
+        ),
+        Expanded(child: _tileFor(song)),
+      ],
+    );
+  }
+
+  /// 곡 타일도 놓기 자리다 — 다른 곡을 떨어뜨리면 그 자리로 순서가 바뀌고,
+  /// 폴더가 다르면 그 곡의 폴더로 함께 들어간다(호출부 소관).
+  Widget _songDropTarget(Song song, List<String> displayIds) {
+    final drop = widget.onDropSongOnSong;
+    final tile = _draggableTile(song);
+    if (drop == null) return tile;
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) => details.data != song.id,
+      onAcceptWithDetails: (details) {
+        final oldIndex = displayIds.indexOf(details.data);
+        final targetIndex = displayIds.indexOf(song.id);
+        setState(() => _draggingSong = null);
+        if (oldIndex < 0 || targetIndex < 0) return;
+        // 보정 규약(끌린 곡을 뺀 목록 기준)에서는 위/아래 어느 쪽이든
+        // targetIndex가 곧 도착 인덱스다.
+        drop(details.data, song.id, displayIds, oldIndex, targetIndex);
+      },
+      builder: (context, candidates, rejected) => Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: candidates.isNotEmpty
+                ? AppColors.primary
+                : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: tile,
+      ),
+    );
+  }
+
+  /// 폴더 헤더를 놓기 자리로 감싼다. 위에 곡이 올라와 있으면 테두리로 알린다.
+  Widget _folderDropTarget(String name, Widget header) {
+    return DragTarget<String>(
+      onWillAcceptWithDetails: (details) =>
+          _draggingSong != null && _draggingSong!.folder != name,
+      onAcceptWithDetails: (details) {
+        widget.onMoveSongToFolder?.call(details.data, name);
+        setState(() => _draggingSong = null);
+      },
+      builder: (context, candidates, rejected) => Container(
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: candidates.isNotEmpty
+                ? AppColors.primary
+                : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: header,
+      ),
+    );
+  }
+
+  /// 드래그 중에만 맨 위에 나타나는 '폴더에서 꺼내기' 놓기 자리.
+  Widget _unfolderDropBar() {
+    return DragTarget<String>(
+      onAcceptWithDetails: (details) {
+        widget.onMoveSongToFolder?.call(details.data, '');
+        setState(() => _draggingSong = null);
+      },
+      builder: (context, candidates, rejected) => Container(
+        height: AppConstants.minTouchTarget,
+        margin: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: candidates.isNotEmpty
+              ? AppColors.primaryContainer
+              : AppColors.elevated,
+          borderRadius: AppShapes.controlRadius,
+          border: Border.all(
+            color: candidates.isNotEmpty
+                ? AppColors.primary
+                : AppColors.borderStrong,
+            width: 2,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.folder_off_outlined,
+              size: 20,
+              color: candidates.isNotEmpty
+                  ? AppColors.onPrimaryContainer
+                  : AppColors.onSurface,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '여기에 놓으면 폴더에서 꺼냅니다',
+              style: AppTypography.body.copyWith(
+                color: candidates.isNotEmpty
+                    ? AppColors.onPrimaryContainer
+                    : AppColors.onSurface,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -187,7 +580,7 @@ class SongListPanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
       child: _SongSearchField(
         query: query,
-        onQueryChanged: onQueryChanged,
+        onQueryChanged: widget.onQueryChanged,
       ),
     );
   }
@@ -200,7 +593,7 @@ class SongListPanel extends StatelessWidget {
         isExpanded: true,
         isDense: true,
         underline: const SizedBox.shrink(),
-        value: sortMode,
+        value: widget.sortMode,
         dropdownColor: AppColors.surface,
         style: AppTypography.caption,
         iconSize: 16,
@@ -213,7 +606,7 @@ class SongListPanel extends StatelessWidget {
             )
             .toList(growable: false),
         onChanged: (mode) {
-          if (mode != null) onSortModeChanged?.call(mode);
+          if (mode != null) widget.onSortModeChanged?.call(mode);
         },
       ),
     );
@@ -229,9 +622,99 @@ class SongListPanel extends StatelessWidget {
           return _FilterChipSmall(
             label: entry.$1,
             selected: filterMode == entry.$2,
-            onTap: () => onFilterModeChanged?.call(entry.$2),
+            onTap: () => widget.onFilterModeChanged?.call(entry.$2),
           );
         }).toList(growable: false),
+      ),
+    );
+  }
+}
+
+/// 폴더 줄. 누르면 펼치고 다시 누르면 닫는다.
+/// 상태는 화살표 방향 + "펼침/닫힘" 시맨틱으로 알린다(색에만 의존하지 않음).
+class _FolderHeader extends StatelessWidget {
+  final String name;
+  final int count;
+  final bool open;
+  final VoidCallback onTap;
+
+  /// 순서 이동. 맨 위/맨 아래 폴더는 해당 방향이 null(흐리게)이다.
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
+
+  const _FolderHeader({
+    required this.name,
+    required this.count,
+    required this.open,
+    required this.onTap,
+    this.onMoveUp,
+    this.onMoveDown,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final showMove = onMoveUp != null || onMoveDown != null;
+    return Semantics(
+      button: true,
+      expanded: open,
+      label: '폴더 $name, $count곡',
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(
+            minHeight: AppConstants.minTouchTarget,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          color: AppColors.surface,
+          child: Row(
+            children: [
+              Icon(
+                open ? Icons.folder_open : Icons.folder,
+                size: 22,
+                color: AppColors.textPrimary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  name,
+                  style: AppTypography.body.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (showMove) ...[
+                IconButton(
+                  onPressed: onMoveUp,
+                  icon: const Icon(Icons.arrow_upward, size: 20),
+                  tooltip: '폴더 위로',
+                  constraints: const BoxConstraints(
+                    minWidth: AppConstants.denseTouchTarget,
+                    minHeight: AppConstants.denseTouchTarget,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  onPressed: onMoveDown,
+                  icon: const Icon(Icons.arrow_downward, size: 20),
+                  tooltip: '폴더 아래로',
+                  constraints: const BoxConstraints(
+                    minWidth: AppConstants.denseTouchTarget,
+                    minHeight: AppConstants.denseTouchTarget,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+              Text('$count곡', style: AppTypography.monoMuted),
+              const SizedBox(width: 4),
+              Icon(
+                open ? Icons.expand_less : Icons.expand_more,
+                size: 24,
+                color: AppColors.textMuted,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

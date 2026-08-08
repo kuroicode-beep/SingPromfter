@@ -119,6 +119,23 @@ void main() {
       expect(style.fontSize, closeTo(32 * listMutedScale, 0.001));
     });
 
+    // "싱크가 어긋날 때 위·아래 줄을 봐야 한다"는 요청으로 v2.11.0에서 한 단계
+    // 키웠다. 기준 56pt에서 약 +2pt — 그보다 작으면 요청을 되돌린 것이다.
+    test('축소 배율은 기준 56pt에서 최소 2pt를 벌어 준다', () {
+      const base = 56.0;
+      expect(base * listMutedScale, greaterThanOrEqualTo(base * 0.72 + 2));
+      expect(base * windowMutedScale, greaterThanOrEqualTo(base * 0.82 + 2));
+      // 현재 줄과 구분은 남아야 한다 — 같아지면 어느 줄인지 알 수 없다.
+      expect(windowMutedScale, lessThan(1.0));
+      expect(listMutedScale, lessThan(windowMutedScale));
+    });
+
+    // 아직 부르지 않은 부분의 밝기. 요청으로 0.62 → 0.70.
+    test('스윕 미도달 부분은 밝지만 경계는 남는다', () {
+      expect(unsungOpacity, greaterThanOrEqualTo(0.70));
+      expect(unsungOpacity, lessThan(0.85));
+    });
+
     testWidgets('누를 수 없어도 시맨틱은 붙는다 — 현재 줄임을 알려야 한다', (tester) async {
       await tester.pumpWidget(wrap());
       final semantics = tester.widget<Semantics>(

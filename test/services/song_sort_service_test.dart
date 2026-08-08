@@ -155,4 +155,98 @@ void main() {
       expect(SongSortModeInfo.fromStorage('bogus'), SongSortMode.title);
     });
   });
+
+  // 드래그 재정렬(v2.14.0) — 화면 인덱스를 저장 순서에 반영하는 순수 로직.
+  group('내 순서(manual)와 applyVisibleReorder', () {
+    List<Song> five() => [
+      for (final id in ['a', 'b', 'c', 'd', 'e']) song(id: id, title: id),
+    ];
+
+    List<String> ids(List<Song> list) =>
+        list.map((s) => s.id).toList(growable: false);
+
+    test('manual 정렬은 저장 순서를 그대로 둔다', () {
+      final all = five();
+      expect(
+        ids(SongSortService.sort(all, mode: SongSortMode.manual)),
+        ['a', 'b', 'c', 'd', 'e'],
+      );
+    });
+
+    test('전체가 보일 때 앞으로 끌기', () {
+      // d(3)를 b 자리(1)로 — 보정 인덱스 규약: 제거 후 목록 기준.
+      final next = SongSortService.applyVisibleReorder(
+        all: five(),
+        visibleIds: ['a', 'b', 'c', 'd', 'e'],
+        oldIndex: 3,
+        newIndex: 1,
+      );
+      expect(ids(next), ['a', 'd', 'b', 'c', 'e']);
+    });
+
+    test('전체가 보일 때 맨 끝으로 끌기', () {
+      final next = SongSortService.applyVisibleReorder(
+        all: five(),
+        visibleIds: ['a', 'b', 'c', 'd', 'e'],
+        oldIndex: 0,
+        newIndex: 4,
+      );
+      expect(ids(next), ['b', 'c', 'd', 'e', 'a']);
+    });
+
+    test('필터로 일부만 보일 때 — 안 보이는 곡의 상대 순서는 유지된다', () {
+      // 전체 a b c d e, 보이는 것은 a c e. c를 a 앞으로 끌면
+      // c는 전체에서 a 바로 앞으로 가고 b·d는 제자리 관계를 지킨다.
+      final next = SongSortService.applyVisibleReorder(
+        all: five(),
+        visibleIds: ['a', 'c', 'e'],
+        oldIndex: 1,
+        newIndex: 0,
+      );
+      expect(ids(next), ['c', 'a', 'b', 'd', 'e']);
+    });
+
+    test('필터 중 맨 끝으로 — 마지막으로 보이던 곡 바로 뒤', () {
+      // a를 보이는 목록(a c e)의 끝으로 → e 바로 뒤(= d와 e 사이가 아니라 e 다음).
+      final next = SongSortService.applyVisibleReorder(
+        all: five(),
+        visibleIds: ['a', 'c', 'e'],
+        oldIndex: 0,
+        newIndex: 2,
+      );
+      expect(ids(next), ['b', 'c', 'd', 'e', 'a']);
+    });
+
+    test('깨진 입력(없는 id·범위 밖)은 원본을 그대로 돌려준다', () {
+      final all = five();
+      expect(
+        SongSortService.applyVisibleReorder(
+          all: all,
+          visibleIds: ['x', 'y'],
+          oldIndex: 0,
+          newIndex: 1,
+        ),
+        same(all),
+      );
+      expect(
+        SongSortService.applyVisibleReorder(
+          all: all,
+          visibleIds: ['a', 'b'],
+          oldIndex: 9,
+          newIndex: 0,
+        ),
+        same(all),
+      );
+    });
+
+    test('제자리 드래그는 순서를 바꾸지 않는다', () {
+      final next = SongSortService.applyVisibleReorder(
+        all: five(),
+        visibleIds: ['a', 'b', 'c', 'd', 'e'],
+        oldIndex: 2,
+        newIndex: 2,
+      );
+      expect(ids(next), ['a', 'b', 'c', 'd', 'e']);
+    });
+  });
 }

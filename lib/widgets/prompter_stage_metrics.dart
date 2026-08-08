@@ -20,15 +20,19 @@ class PrompterStageMetrics {
   static const double meterInsetLeft = 16;
   static const double meterInsetVertical = 8;
 
+  /// v4.3.0: 노래방 연출 강화로 미터가 무대 폭 전체를 쓴다(여백 제외).
   static const double meterMinWidth = 180;
-  static const double meterMaxWidth = 520;
-  static const double meterWidthRatio = 0.30;
+  static const double meterMaxWidth = 3840;
+  static const double meterWidthRatio = 1.0;
 
   /// 무대 조작판(드로어 본체)의 고정 높이.
   ///
   /// 내용을 우리가 통제하므로 재는 대신 못박는다. 진행바 + 버튼 한 줄 +
   /// 여백 기준이며, 줄이 추가되면 위젯 테스트가 먼저 깨지도록 되어 있다.
-  static const double stageDrawerHeight = 132;
+  /// 132였을 때 진행바+버튼 줄이 24px 넘쳐 하단이 잘렸다 — 위젯 테스트가
+  /// 생기자마자 잡은 값이다. v3.0.2에서 싱크 줄(여기가 첫 줄·오프셋 ±)이
+  /// 추가되며 한 줄만큼 키웠다.
+  static const double stageDrawerHeight = 216;
 
   /// 드로어가 여닫히는 동안 밴드·가사 뷰포트가 리사이즈되지 않도록,
   /// **드로어가 완전히 열린 상태**의 무대 크기를 기준으로 계산한다.

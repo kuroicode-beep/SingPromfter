@@ -15,7 +15,9 @@ import '../utils/music_key.dart';
 import 'compact_btn.dart';
 import 'mini_slider.dart';
 import 'prompter_drawer.dart';
+import 'prompter_keyboard_scope.dart' show lyricsNudgeStepMs;
 import 'prompter_progress_bar.dart';
+import 'server_status_strip.dart';
 
 class PrompterBottomBar extends StatefulWidget {
   final Song song;
@@ -30,6 +32,10 @@ class PrompterBottomBar extends StatefulWidget {
   /// 닫힌 채로도 일시정지는 눌러야 한다.
   final bool drawerOpen;
   final ValueChanged<bool> onDrawerChanged;
+
+  /// 펼친 조작판이 넘지 못하는 높이. 부모(패널)가 자기 높이의 몫으로 준다 —
+  /// 없으면 조작판이 가사 뷰를 통째로 밀어낸다. [PrompterDrawer.maxBodyHeight]
+  final double? maxDrawerBodyHeight;
   final VoidCallback onStop;
   final VoidCallback onTogglePlayPause;
   final VoidCallback onRestart;
@@ -46,6 +52,12 @@ class PrompterBottomBar extends StatefulWidget {
 
   /// 원곡·MR 비교로 가사 싱크를 자동으로 맞춘다. 조건이 안 되면 null.
   final VoidCallback? onAutoAlignLyrics;
+
+  /// 재생 중에 "지금이 첫 줄"을 지정한다(단축키 T).
+  final VoidCallback? onAnchorFirstLine;
+
+  /// AI 받아쓰기(STT) — LRCLIB에 없는 곡의 싱크 가사를 만든다.
+  final VoidCallback? onSttLyrics;
   final int pitchSemitones;
   final ValueChanged<int> onAdjustPitch;
 
@@ -62,6 +74,14 @@ class PrompterBottomBar extends StatefulWidget {
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
 
+  /// v2.10.0: 우상단에 있던 곡 추가·서버 상태를 조작판으로 옮겼다 —
+  /// 시선이 아래(조작판)에 머무는 앱이라 위로 손을 뻗을 일을 없앤다.
+  final VoidCallback? onAddSong;
+  final Future<bool> Function()? onStartSeparator;
+
+  /// 지금 선택된 반주 mp3를 다운로드 폴더로 복사한다(외부 기기 반출용).
+  final VoidCallback? onExportTrack;
+
   const PrompterBottomBar({
     super.key,
     required this.song,
@@ -73,6 +93,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.settings,
     this.drawerOpen = false,
     required this.onDrawerChanged,
+    this.maxDrawerBodyHeight,
     required this.onStop,
     required this.onTogglePlayPause,
     required this.onRestart,
@@ -87,6 +108,8 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onImportLrcFile,
     required this.onAdjustLyricsOffset,
     this.onAutoAlignLyrics,
+    this.onAnchorFirstLine,
+    this.onSttLyrics,
     required this.pitchSemitones,
     required this.onAdjustPitch,
     this.soundingKey,
@@ -96,6 +119,9 @@ class PrompterBottomBar extends StatefulWidget {
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
+    this.onAddSong,
+    this.onStartSeparator,
+    this.onExportTrack,
   });
 
   @override
@@ -113,14 +139,64 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 손잡이 두 개(재생바·조작판)를 **한 줄에 나란히** 둔다.
+          // 세로로 쌓으면 다 접어도 100px 넘게 남아, 드로어를 숨겨도
+          // 가사 창이 커진 게 티가 안 났다(실사용 불만). 이제 접힌 상태의
+          // 상시 크롬은 한 줄(50px+여백)뿐이다.
           Row(
+            children: [
+              Expanded(
+                child: PrompterDrawerHandle(
+                  open: widget.settings.playbackBarOpen,
+                  label: '재생바',
+                  palette: PrompterDrawerPalette.main,
+                  margin: const EdgeInsets.fromLTRB(0, 4, 4, 0),
+                  onTap: () => widget.onSettingsChanged(
+                    widget.settings.copyWith(
+                      playbackBarOpen: !widget.settings.playbackBarOpen,
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: PrompterDrawerHandle(
+                  open: widget.drawerOpen,
+                  label: '조작판',
+                  palette: PrompterDrawerPalette.main,
+                  margin: const EdgeInsets.fromLTRB(4, 4, 0, 0),
+                  onTap: () => widget.onDrawerChanged(!widget.drawerOpen),
+                ),
+              ),
+            ],
+          ),
+          // 재생바(재생 버튼 줄+진행바)도 조작판처럼 드로어다 — 기본 숨김.
+          PrompterDrawer(
+            open: widget.settings.playbackBarOpen,
+            onOpenChanged: (open) => widget.onSettingsChanged(
+              widget.settings.copyWith(playbackBarOpen: open),
+            ),
+            label: '재생바',
+            externalHandle: true,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+          // Row가 아니라 Wrap이다. v2.10.0에서 [곡 시작]·[곡 추가]·서버 상태를
+          // 이 줄로 옮기며 고정 폭 합계가 700px 가까이 늘었는데, 홈은 3열이라
+          // 조작판이 받는 폭은 창 폭의 일부뿐이다(1280 창 + 큐 열림 = 738).
+          // Row에서는 좁아지는 순간 오른쪽이 통째로 잘려 나갔다 — 저시력
+          // 사용자에게 "화면 밖으로 나간 버튼"은 없는 버튼이다. 이제 두 줄로
+          // 접힌다. spacing이 예전 SizedBox(width: 6) 자리를 대신한다.
+          Wrap(
+            spacing: 6,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               CompactBtn(
                 icon: Icons.stop,
                 semanticsLabel: '정지',
                 onTap: widget.onStop,
               ),
-              const SizedBox(width: 6),
               CompactBtn(
                 icon: widget.playing ? Icons.pause : Icons.play_arrow,
                 semanticsLabel: widget.playing ? '일시정지' : '재생',
@@ -128,13 +204,11 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 onTap: widget.onTogglePlayPause,
                 highlighted: true,
               ),
-              const SizedBox(width: 6),
               CompactBtn(
                 icon: Icons.replay,
                 semanticsLabel: '처음부터 재생',
                 onTap: widget.onRestart,
               ),
-              const SizedBox(width: 6),
               CompactBtn(
                 icon: Icons.skip_next,
                 semanticsLabel: '다음 예약곡',
@@ -146,34 +220,68 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   widget.onSkipNext();
                 },
               ),
-              const SizedBox(width: 6),
-              CompactBtn(
-                icon: Icons.fullscreen,
-                semanticsLabel: '전체화면 프롬프터 열기',
-                onTap: widget.onOpenPrompter,
+              // 우상단에서 옮겨 온 '곡 시작' — 아이콘 전용이던 전체화면 버튼을
+              // 라벨 있는 버튼으로 바꿨다(저시력: 텍스트 라벨 원칙).
+              FilledButton.icon(
+                onPressed: widget.onOpenPrompter,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryContainer,
+                  foregroundColor: AppColors.onPrimaryContainer,
+                  minimumSize: const Size(96, AppConstants.minTouchTarget),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+                icon: const Icon(Icons.fullscreen, size: 20),
+                label: const Text('곡 시작'),
               ),
-              const SizedBox(width: 6),
               CompactBtn(
                 icon: widget.isRecording ? Icons.stop_circle : Icons.mic,
-                semanticsLabel: widget.isRecording ? '녹음 정지' : '녹음 시작',
+                semanticsLabel: widget.isRecording ? '녹음 정지 (R)' : '녹음 시작 (R)',
                 toggled: widget.isRecording,
                 onTap: widget.onToggleRecording,
               ),
-              if (widget.isRecording) ...[
-                const SizedBox(width: 10),
-                // 녹음 상태는 색이 아니라 글자로 알린다.
-                Text('● 녹음 중', style: AppTypography.emphasis),
-                const SizedBox(width: 8),
-                Text(
-                  _formatElapsed(widget.recordingElapsed),
-                  style: AppTypography.mono,
+              // 녹음 상태 세 조각은 한 덩어리로 접힌다 — 시간과 레벨이
+              // 서로 다른 줄로 갈라지면 읽을 수 없다.
+              if (widget.isRecording)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 녹음 상태는 색이 아니라 글자로 알린다.
+                    Text('● 녹음 중', style: AppTypography.emphasis),
+                    const SizedBox(width: 8),
+                    Text(
+                      _formatElapsed(widget.recordingElapsed),
+                      style: AppTypography.mono,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      widget.recordingLevelLabel,
+                      style: AppTypography.bodyMuted,
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  widget.recordingLevelLabel,
-                  style: AppTypography.bodyMuted,
+              // 우상단에서 옮겨 온 서버 상태·곡 추가.
+              if (widget.onStartSeparator != null)
+                ServerStatusChip(onStartServer: widget.onStartSeparator),
+              if (widget.onAddSong != null)
+                OutlinedButton.icon(
+                  onPressed: widget.onAddSong,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(96, AppConstants.minTouchTarget),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  icon: const Icon(Icons.library_add_outlined, size: 20),
+                  label: const Text('곡 추가'),
                 ),
-              ],
+              if (widget.onExportTrack != null)
+                OutlinedButton.icon(
+                  onPressed: widget.onExportTrack,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(120, AppConstants.minTouchTarget),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  icon: const Icon(Icons.download, size: 20),
+                  label: const Text('MR 내보내기'),
+                ),
             ],
           ),
           const SizedBox(height: 8),
@@ -187,9 +295,14 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               onSeek: widget.onSeek,
             ),
           ),
+              ],
+            ),
+          ),
           PrompterDrawer(
             open: widget.drawerOpen,
             onOpenChanged: widget.onDrawerChanged,
+            externalHandle: true,
+            maxBodyHeight: widget.maxDrawerBodyHeight,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -234,6 +347,8 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                   onImportFile: widget.onImportLrcFile,
                   onAdjust: widget.onAdjustLyricsOffset,
                   onAutoAlign: widget.onAutoAlignLyrics,
+                  onAnchorFirstLine: widget.onAnchorFirstLine,
+                  onSttLyrics: widget.onSttLyrics,
                 ),
               ],
             ),
@@ -256,6 +371,12 @@ class _SyncedLyricsRow extends StatelessWidget {
   /// 원곡과 MR을 비교해 오프셋을 자동으로 맞춘다. 조건이 안 되면 null.
   final VoidCallback? onAutoAlign;
 
+  /// 재생 중에 "지금이 첫 줄"을 지정한다. 사람이 직접 맞추는 입구.
+  final VoidCallback? onAnchorFirstLine;
+
+  /// AI 받아쓰기 — 가사를 아무 데서도 못 구했을 때의 마지막 수단.
+  final VoidCallback? onSttLyrics;
+
   const _SyncedLyricsRow({
     required this.hasSyncedLyrics,
     required this.offsetMs,
@@ -263,6 +384,8 @@ class _SyncedLyricsRow extends StatelessWidget {
     required this.onImportFile,
     required this.onAdjust,
     this.onAutoAlign,
+    this.onAnchorFirstLine,
+    this.onSttLyrics,
   });
 
   /// 음수는 가사를 먼저 띄운다는 뜻이라 사용자 표현도 '먼저'로 쓴다.
@@ -303,14 +426,35 @@ class _SyncedLyricsRow extends StatelessWidget {
               ),
               child: const Text('.lrc 파일'),
             ),
+            if (onSttLyrics != null) ...[
+              const SizedBox(width: 8),
+              // 정밀 파이프라인 입구 — 보컬 분리 받아쓰기 + 환청 정리 +
+              // (선택) 정답 가사 대조. 옵션은 다이얼로그에서 고른다.
+              OutlinedButton.icon(
+                onPressed: onSttLyrics,
+                icon: const Icon(Icons.auto_fix_high, size: 20),
+                label: const Text('가사 다시 생성'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(150, AppConstants.minTouchTarget),
+                  side: const BorderSide(
+                    color: AppColors.borderStrong,
+                    width: 2,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 8),
-        Row(
+        // 이 줄도 Wrap이다 — 자동 맞춤·앵커·오프셋이 다 들어가면 좁은 패널에서
+        // Row로는 오른쪽이 잘린다.
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text('가사 표시 시점', style: AppTypography.bodyMuted),
-            const SizedBox(width: 10),
-            if (onAutoAlign != null) ...[
+            if (onAutoAlign != null)
               OutlinedButton.icon(
                 // 싱크 가사가 없으면 맞출 대상이 없다.
                 onPressed: hasSyncedLyrics ? onAutoAlign : null,
@@ -324,20 +468,40 @@ class _SyncedLyricsRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
-            ],
-            _OffsetButton(
-              icon: Icons.remove,
-              semanticsLabel: '가사를 0.2초 더 먼저 띄우기',
-              onTap: () => onAdjust(-200),
-            ),
-            const SizedBox(width: 8),
-            Text(formatOffset(offsetMs), style: AppTypography.mono),
-            const SizedBox(width: 8),
-            _OffsetButton(
-              icon: Icons.add,
-              semanticsLabel: '가사를 0.2초 더 늦게 띄우기',
-              onTap: () => onAdjust(200),
+            // 사람이 직접 맞추는 입구. 자동 맞춤이 실패하거나 LRC가 아예 없는
+            // 곡(구간 배분)에서도 쓸 수 있어야 하므로 hasSyncedLyrics로 막지 않는다.
+            if (onAnchorFirstLine != null)
+              OutlinedButton.icon(
+                onPressed: onAnchorFirstLine,
+                icon: const Icon(Icons.my_location, size: 20),
+                label: const Text('여기가 첫 줄'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(160, AppConstants.minTouchTarget),
+                  side: const BorderSide(
+                    color: AppColors.borderStrong,
+                    width: 2,
+                  ),
+                ),
+              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 걸음은 . / 단축키와 같은 상수를 쓴다 — 걸음이 두 개면
+                // 키보드로 맞춘 값과 버튼으로 맞춘 값이 서로 안 맞는다.
+                _OffsetButton(
+                  icon: Icons.remove,
+                  semanticsLabel: '가사를 0.2초 앞당기기 (/ 또는 ])',
+                  onTap: () => onAdjust(-lyricsNudgeStepMs),
+                ),
+                const SizedBox(width: 8),
+                Text(formatOffset(offsetMs), style: AppTypography.mono),
+                const SizedBox(width: 8),
+                _OffsetButton(
+                  icon: Icons.add,
+                  semanticsLabel: '가사를 0.2초 늦추기 (. 또는 [)',
+                  onTap: () => onAdjust(lyricsNudgeStepMs),
+                ),
+              ],
             ),
           ],
         ),

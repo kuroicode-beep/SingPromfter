@@ -150,21 +150,51 @@ class SongRepository {
     await prefs.setString(_kSettingsKey, PrompterSettings.encode(settings));
   }
 
-  Future<List<QueueItem>> loadQueue() async {
+  /// 현재 활성 큐 슬롯(0~2). 저장/불러오기가 이 값을 따라간다 —
+  /// 큐 서비스들이 슬롯을 몰라도 되게 저장소가 기억한다.
+  int _activeQueueSlot = 0;
+
+  static const queueSlotCount = 3;
+
+  String _queueSlotKey(int slot) => slot == 0 ? _kQueueKey : '$_kQueueKey$slot';
+
+  Future<int> loadActiveQueueSlot() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kQueueKey);
+    _activeQueueSlot =
+        (prefs.getInt('${_kQueueKey}_active') ?? 0).clamp(0, queueSlotCount - 1);
+    return _activeQueueSlot;
+  }
+
+  Future<void> saveActiveQueueSlot(int slot) async {
+    _activeQueueSlot = slot.clamp(0, queueSlotCount - 1);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('${_kQueueKey}_active', _activeQueueSlot);
+  }
+
+  /// 슬롯 하나를 읽는다. 0번은 기존 단일 큐 키를 그대로 써 이전 데이터가
+  /// 자동으로 1번 큐가 된다(마이그레이션 없음).
+  Future<List<QueueItem>> loadQueueSlot(int slot) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_queueSlotKey(slot));
     if (raw == null || raw.isEmpty) return [];
     try {
       return QueueItem.decodeList(raw);
     } catch (e, stack) {
-      debugPrint('loadQueue 실패, 빈 큐 사용: $e\n$stack');
+      debugPrint('loadQueueSlot($slot) 실패, 빈 큐 사용: $e\n$stack');
       return [];
     }
   }
 
+  /// 활성 슬롯의 큐. (기존 API 호환)
+  Future<List<QueueItem>> loadQueue() => loadQueueSlot(_activeQueueSlot);
+
+  /// 활성 슬롯에 저장한다. (기존 API 호환 — 큐 서비스들이 그대로 쓴다)
   Future<void> saveQueue(List<QueueItem> items) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kQueueKey, QueueItem.encodeList(items));
+    await prefs.setString(
+      _queueSlotKey(_activeQueueSlot),
+      QueueItem.encodeList(items),
+    );
   }
 
   Future<String?> loadLastSongId() async {

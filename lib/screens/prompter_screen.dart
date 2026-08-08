@@ -15,7 +15,12 @@ import '../utils/pitch_math.dart';
 import '../widgets/pitch_hud.dart';
 import '../widgets/prompter_eq_meter.dart';
 import '../widgets/prompter_drawer.dart';
+import '../widgets/prompter_space_background.dart';
 import '../widgets/prompter_stage_metrics.dart';
+import '../widgets/snack_message.dart';
+import '../widgets/recording_badge.dart';
+import '../widgets/sync_lock_badge.dart';
+import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../widgets/prompter_lyrics_view.dart';
 import '../widgets/prompter_sweep_line.dart';
 import '../widgets/prompter_progress_bar.dart';
@@ -40,11 +45,22 @@ class PrompterScreen extends StatefulWidget {
   final PrompterDisplayMode displayMode;
   final bool showEqMeter;
 
+  /// 우주 배경 단계(0~5) — 무대에서 B로 순환하면 onSpaceBackgroundChanged로 알린다.
+  final int spaceBackgroundLevel;
+  final ValueChanged<int>? onSpaceBackgroundChanged;
+
   /// Shift+휠 — 템포. null이면 아무 일도 하지 않는다.
   final void Function(double delta)? onStepTempo;
 
   /// 하단 조작판을 펼쳐 둘지. 접혀도 손잡이는 항상 보인다.
   final bool controlsDrawerOpen;
+
+  /// 홈과 공유하는 동작 묶음 — 단축키·싱크·편집이 전부 여기서 온다.
+  /// 두 화면을 따로 배선하다 기능이 어긋나던 문제를 구조로 막는다.
+  final PrompterActions? actions;
+
+  /// . / — 가사 싱크 당기기·밀기(ms 델타). 곡별로 즉시 저장된다.
+  final ValueChanged<int>? onNudgeLyricsOffset;
   final ValueChanged<bool>? onControlsDrawerChanged;
 
   /// 현재 줄을 한 글자씩 밝힐지.
@@ -80,8 +96,12 @@ class PrompterScreen extends StatefulWidget {
     this.boldText = false,
     this.displayMode = PrompterDisplayMode.full,
     this.showEqMeter = true,
+    this.spaceBackgroundLevel = 1,
+    this.onSpaceBackgroundChanged,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
+    this.actions,
+    this.onNudgeLyricsOffset,
     this.onControlsDrawerChanged,
     this.onStepPitch,
     this.onStepTempo,
@@ -103,11 +123,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
 
   bool _controlsVisible = true;
 
-  /// 드로어 애니메이션 진행도(0=닫힘, 1=열림).
-  /// 무대 크기 계산에 쓴다 — 접히는 동안 밴드가 리사이즈되면 가사가 통째로
-  /// 재레이아웃되기 때문에, 언제나 "열린 상태" 크기를 기준으로 잡는다.
-  Animation<double>? _drawerAnim;
-
   /// 드로어 열림 상태의 **로컬 소유본**.
   ///
   /// widget.controlsDrawerOpen을 그대로 쓰면 안 된다 — 무대는
@@ -117,10 +132,38 @@ class _PrompterScreenState extends State<PrompterScreen> {
   /// 드로어가 꿈쩍하지 않았다(들어올 때 열려 있었으면 계속 열린 채).
   /// _displayMode·_fontSizeLevel과 같은 방식으로 여기서 소유하고 위로 알린다.
   late bool _drawerOpen;
+
+  /// 단축키 E의 인라인 편집 요청(메인창과 같은 규약).
+  LineEditRequest? _lineEditRequest;
+
+  void _editCurrentLine() {
+    if (widget.actions?.editLyricsLine == null) return;
+    setState(() {
+      _lineEditRequest = LineEditRequest(
+        seq: (_lineEditRequest?.seq ?? 0) + 1,
+        index: widget.playback.lineIndex.value,
+      );
+    });
+  }
   late double _fontSizeLevel;
   late double _lineHeightLevel;
   late double? _customFontSizePt;
   late PrompterDisplayMode _displayMode;
+
+  /// 우주 배경의 로컬 소유본 — 드로어와 같은 이유(무대 builder는 한 번만 돈다).
+  late int _spaceBackgroundLevel;
+
+  /// B — 1→2→…→5→끄기 순환. 어느 단계인지 스낵으로 알린다(조용한 변화 금지).
+  void _cycleSpaceBackground() {
+    setState(() {
+      _spaceBackgroundLevel = nextSpaceBackgroundLevel(_spaceBackgroundLevel);
+    });
+    widget.onSpaceBackgroundChanged?.call(_spaceBackgroundLevel);
+    SnackMessage.show(
+      context,
+      '우주 배경: ${spaceBackgroundLevelLabel(_spaceBackgroundLevel)}',
+    );
+  }
 
   @override
   void initState() {
@@ -131,6 +174,7 @@ class _PrompterScreenState extends State<PrompterScreen> {
     _customFontSizePt = widget.customFontSizePt;
     _displayMode = widget.displayMode;
     _drawerOpen = widget.controlsDrawerOpen;
+    _spaceBackgroundLevel = widget.spaceBackgroundLevel;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -208,6 +252,13 @@ class _PrompterScreenState extends State<PrompterScreen> {
   void _toggleControls() =>
       setState(() => _controlsVisible = !_controlsVisible);
 
+  /// 하단 싱크 줄의 오프셋 표기. 음수 = 가사가 먼저.
+  static String _formatOffset(int ms) {
+    if (ms == 0) return '동시';
+    final seconds = (ms.abs() / 1000).toStringAsFixed(1);
+    return ms < 0 ? '$seconds초 먼저' : '$seconds초 늦게';
+  }
+
   @override
   Widget build(BuildContext context) {
     // 무대 가사는 자체 글자 크기(레벨)를 쓰므로 앱 전역 배율을 초기화해
@@ -216,14 +267,16 @@ class _PrompterScreenState extends State<PrompterScreen> {
       data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
       child: PrompterKeyboardScope(
         settings: _keyboardSettings,
-        enablePlaybackShortcuts: false,
+        // Space(재생)는 메인창과 똑같이 먹어야 한다. F5는 이미 무대라
+        // onOpenPrompter를 안 넘겨 무시된다.
+        enablePlaybackShortcuts: true,
         onSettingsChanged: _applyKeyboardSettings,
+        actions: widget.actions,
+        onEditCurrentLine:
+            widget.actions?.editLyricsLine == null ? null : _editCurrentLine,
+        onToggleSpaceBackground: _cycleSpaceBackground,
         onClose: () => Navigator.pop(context),
-        onJumpToStart: widget.playback.jumpToStart,
-        onJumpToEnd: widget.playback.jumpToEnd,
-        onSeekRelative: widget.playback.seekRelative,
         child: PrompterWheelScope(
-          onStepLine: widget.playback.stepLine,
           onStepFontSize: _stepFontSize,
           onStepPitch: widget.onStepPitch,
           onStepTempo: widget.onStepTempo == null
@@ -281,15 +334,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final stage = Size(constraints.maxWidth, constraints.maxHeight);
-        // 드로어가 접힌 만큼 무대가 더 커져 있다. 그 몫을 빼 "열린 상태"
-        // 크기로 계산해야 애니메이션 내내 밴드·뷰포트가 상수로 남는다.
-        final hidden =
-            PrompterStageMetrics.stageDrawerHeight *
-            (1 - (_drawerAnim?.value ?? (_drawerOpen ? 1 : 0)));
-        final stable = PrompterStageMetrics.stableStage(
-          stage,
-          hiddenDrawerHeight: hidden,
-        );
+        // v3.0.2까지는 드로어가 접혀도 뷰포트를 "열린 상태" 크기로 고정했다
+        // (애니메이션 중 리레이아웃 방지). 실사용에서는 "숨겼는데 가사 창이
+        // 안 커진다"는 불만이 더 컸다 — 이제 실제 크기를 그대로 쓴다.
+        // 220ms 전환 동안의 리레이아웃은 감수한다.
+        final stable = stage;
         final band = PrompterStageMetrics.bandHeight(
           stable,
           showEq: widget.showEqMeter,
@@ -300,6 +349,10 @@ class _PrompterScreenState extends State<PrompterScreen> {
         );
         return Stack(
           children: [
+            // 우주 배경 — 가사 뒤 전체를 덮는다(설정·B 단계 순환).
+            Positioned.fill(
+              child: PrompterSpaceBackground(level: _spaceBackgroundLevel),
+            ),
             // Positioned.fill(bottom:)이 아니라 상단 고정 + 명시 높이.
             // 무대가 커지는 동안에도 가사 뷰포트가 흔들리지 않는다.
             Positioned(
@@ -333,6 +386,8 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   textColor: Colors.white,
                   mutedColor: Colors.white70,
                   onLineTap: widget.playback.seekToLine,
+                  onEditLine: widget.actions?.editLyricsLine,
+                  editRequest: _lineEditRequest,
                   autoFollow: !widget.playback.autoScrollPaused.value,
                   trackEnd: widget.playback.lyricsTrackEnd,
                   sweepBuilder: prompterSweepBuilder(
@@ -352,6 +407,19 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
+            // 싱크 잠금(L) 배지 — 우상단(좌상단은 가사와 겹쳐 거슬림),
+            // 상단 바가 열려 있으면 그 아래로 비킨다.
+            Positioned(
+              top: _controlsVisible ? 68 : 12,
+              right: 12,
+              child: SyncLockBadge(locked: widget.playback.syncLockedView),
+            ),
+            // 녹음 중(R) 배지 — 우하단, EQ 밴드 위로 비킨다.
+            Positioned(
+              bottom: band + 12,
+              right: 12,
+              child: RecordingBadge(recording: widget.playback.recordingView),
+            ),
             if (widget.pendingPitch != null)
               Positioned.fill(
                 child: ValueListenableBuilder<int?>(
@@ -485,12 +553,6 @@ class _PrompterScreenState extends State<PrompterScreen> {
       label: '조작판',
       palette: PrompterDrawerPalette.stage,
       fixedHeight: PrompterStageMetrics.stageDrawerHeight,
-      onAnimationReady: (anim) {
-        _drawerAnim = anim;
-        anim.addListener(() {
-          if (mounted) setState(() {});
-        });
-      },
       child: Container(
         margin: const EdgeInsets.fromLTRB(12, 4, 12, 10),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -584,6 +646,61 @@ class _PrompterScreenState extends State<PrompterScreen> {
                   ],
                 ),
               ),
+              // 싱크 줄 — 메인창 조작판과 같은 동작(v3.0.2 기능 동기화).
+              if (widget.actions?.nudgeLyricsOffset != null ||
+                  widget.actions?.anchorFirstLine != null)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Text('싱크', style: TextStyle(
+                        fontSize: 16, color: Colors.white70)),
+                      const SizedBox(width: 10),
+                      if (widget.actions?.anchorFirstLine != null) ...[
+                        OutlinedButton.icon(
+                          onPressed: widget.actions!.anchorFirstLine,
+                          icon: const Icon(Icons.my_location, size: 18),
+                          label: const Text('여기가 첫 줄'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white38),
+                            minimumSize: const Size(140, 44),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      if (widget.actions?.nudgeLyricsOffset != null) ...[
+                        _BarIconButton(
+                          icon: Icons.remove,
+                          semanticsLabel: '가사 0.2초 앞당기기 (/ 또는 ])',
+                          onTap: () =>
+                              widget.actions!.nudgeLyricsOffset!(-lyricsNudgeStepMs),
+                        ),
+                        ValueListenableBuilder<PlaybackSnapshot>(
+                          valueListenable: widget.playback.state,
+                          builder: (context, snapshot, _) => Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 6),
+                            child: Text(
+                              _formatOffset(snapshot.lyricsOffsetMs),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontFamily: AppFonts.mono,
+                              ),
+                            ),
+                          ),
+                        ),
+                        _BarIconButton(
+                          icon: Icons.add,
+                          semanticsLabel: '가사 0.2초 늦추기 (. 또는 [)',
+                          onTap: () =>
+                              widget.actions!.nudgeLyricsOffset!(lyricsNudgeStepMs),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
             ],
           ),
         ),

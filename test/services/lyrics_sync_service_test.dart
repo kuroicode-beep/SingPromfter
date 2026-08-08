@@ -104,25 +104,30 @@ void main() {
   });
 
   group('LyricsSyncService 후보 선택', () {
-    LyricsCandidate c(int id, int seconds, {bool synced = true}) =>
-        LyricsCandidate(
-          id: id,
-          trackName: 'T$id',
-          artistName: 'A',
-          duration: Duration(seconds: seconds),
-          syncedLyrics: synced ? _syncedBody : null,
-        );
+    LyricsCandidate c(
+      int id,
+      int seconds, {
+      bool synced = true,
+      String artist = 'A',
+    }) => LyricsCandidate(
+      id: id,
+      trackName: 'T$id',
+      artistName: artist,
+      duration: Duration(seconds: seconds),
+      syncedLyrics: synced ? _syncedBody : null,
+    );
 
     test('싱크 없는 결과는 제외한다', () {
-      final best = LyricsSyncService.pickBestForTest([
-        c(1, 200, synced: false),
-        c(2, 500),
-      ]);
+      final best = LyricsSyncService.pickLyricsCandidate(
+        [c(1, 200, synced: false), c(2, 500)],
+        duration: const Duration(seconds: 500),
+        artist: 'A',
+      );
       expect(best!.id, 2);
     });
 
     test('길이가 가장 가까운 것을 고른다', () {
-      final best = LyricsSyncService.pickBestForTest(
+      final best = LyricsSyncService.pickLyricsCandidate(
         [c(1, 100), c(2, 210), c(3, 400)],
         duration: const Duration(seconds: 213),
       );
@@ -130,18 +135,18 @@ void main() {
     });
 
     test('싱크 결과가 없으면 null', () {
-      final best = LyricsSyncService.pickBestForTest([
-        c(1, 100, synced: false),
-      ]);
-      expect(best, isNull);
+      expect(
+        LyricsSyncService.pickLyricsCandidate([c(1, 100, synced: false)]),
+        isNull,
+      );
     });
 
     test('빈 목록은 null', () {
-      expect(LyricsSyncService.pickBestForTest(const []), isNull);
+      expect(LyricsSyncService.pickLyricsCandidate(const []), isNull);
     });
 
     test('허용 오차(7초) 이내면 채택한다', () {
-      final best = LyricsSyncService.pickBestForTest(
+      final best = LyricsSyncService.pickLyricsCandidate(
         [c(1, 207)],
         duration: const Duration(seconds: 200),
       );
@@ -149,16 +154,58 @@ void main() {
     });
 
     test('허용 오차를 넘는 후보는 버린다 — 엉뚱한 가사보다 못 찾음이 낫다', () {
-      final best = LyricsSyncService.pickBestForTest(
+      final best = LyricsSyncService.pickLyricsCandidate(
         [c(1, 100), c(2, 300)],
         duration: const Duration(seconds: 200),
       );
       expect(best, isNull);
     });
 
-    test('duration이 없으면 오차 검사 없이 첫 후보', () {
-      final best = LyricsSyncService.pickBestForTest([c(1, 999)]);
-      expect(best!.id, 1);
+    // 실제 사고의 회귀: 「선물」(윤후)에 동명의 다른 곡 가사가 붙었다.
+    // 길이를 모르는 검색에서 첫 결과를 무조건 받았기 때문이다.
+    test('길이를 모르고 가수도 다르면 버린다 — 「선물」 회귀', () {
+      final best = LyricsSyncService.pickLyricsCandidate(
+        [c(1, 999, artist: '다른가수')],
+        artist: '윤후',
+      );
+      expect(best, isNull);
+    });
+
+    test('길이를 몰라도 가수가 겹치면 채택한다', () {
+      final best = LyricsSyncService.pickLyricsCandidate(
+        [c(1, 210, artist: '다른가수'), c(2, 220, artist: '윤후 (Yoon Hoo)')],
+        artist: '윤후',
+      );
+      expect(best!.id, 2);
+    });
+
+    test('길이가 같으면 가수 겹치는 쪽을 우선한다', () {
+      final best = LyricsSyncService.pickLyricsCandidate(
+        [c(1, 213, artist: '다른가수'), c(2, 214, artist: '윤후')],
+        duration: const Duration(seconds: 213),
+        artist: '윤후',
+      );
+      expect(best!.id, 2);
+    });
+
+    test('길이도 가수도 근거가 없으면 null', () {
+      expect(LyricsSyncService.pickLyricsCandidate([c(1, 999)]), isNull);
+    });
+  });
+
+  group('artistLooksSame', () {
+    test('장식을 걷어내고 포함 관계면 같다', () {
+      expect(LyricsSyncService.artistLooksSame('윤후', '윤후 (Yoon Hoo)'), isTrue);
+      expect(LyricsSyncService.artistLooksSame('IU', 'iu (아이유)'), isTrue);
+    });
+
+    test('다른 이름은 다르다', () {
+      expect(LyricsSyncService.artistLooksSame('윤후', '김윤아'), isFalse);
+    });
+
+    test('빈 이름은 근거가 될 수 없다', () {
+      expect(LyricsSyncService.artistLooksSame('', '윤후'), isFalse);
+      expect(LyricsSyncService.artistLooksSame('윤후', '  '), isFalse);
     });
   });
 }

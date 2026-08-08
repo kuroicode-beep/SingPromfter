@@ -3,9 +3,85 @@
 // 예약 큐 표시, 드래그 재정렬, 항목 삭제를 담당하는 패널 위젯.
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../models/queue_item.dart';
+import '../services/queue_logic.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
+
+/// 예약 큐 3슬롯 탭. [예약]은 항상 여기서 고른 큐로 들어간다.
+/// 선택은 색만이 아니라 체크 표시로도 알린다.
+class QueueSlotTabs extends StatelessWidget {
+  final List<int> queueLengths;
+  final int activeSlot;
+  final ValueChanged<int> onSelectSlot;
+
+  const QueueSlotTabs({
+    super.key,
+    required this.queueLengths,
+    required this.activeSlot,
+    required this.onSelectSlot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < queueLengths.length; i++) ...[
+          if (i > 0) const SizedBox(width: 4),
+          Expanded(
+            child: Semantics(
+              button: true,
+              selected: i == activeSlot,
+              label: '예약 큐 ${i + 1}, ${queueLengths[i]}곡',
+              child: InkWell(
+                borderRadius: AppShapes.controlRadius,
+                onTap: () => onSelectSlot(i),
+                child: Container(
+                  height: AppConstants.minTouchTarget,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: i == activeSlot
+                        ? AppColors.primaryContainer
+                        : AppColors.elevated,
+                    borderRadius: AppShapes.controlRadius,
+                    border: Border.all(
+                      color: i == activeSlot
+                          ? AppColors.primaryContainer
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (i == activeSlot)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 4),
+                          child: Icon(
+                            Icons.check,
+                            size: 16,
+                            color: AppColors.onPrimaryContainer,
+                          ),
+                        ),
+                      Text(
+                        '큐${i + 1} ${queueLengths[i]}곡',
+                        style: AppTypography.body.copyWith(
+                          color: i == activeSlot
+                              ? AppColors.onPrimaryContainer
+                              : AppColors.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
 
 class QueuePanel extends StatelessWidget {
   final List<QueueItem> queue;
@@ -16,6 +92,10 @@ class QueuePanel extends StatelessWidget {
   final ReorderCallback onReorder;
   final ValueChanged<int> onRemove;
 
+  /// true면 사이드바처럼 부모가 준 높이를 전부 쓴다(상단 고정 확장).
+  /// false면 예전처럼 곡 수에 맞는 높이만 차지한다(프롬프터 아래 배치용).
+  final bool expand;
+
   const QueuePanel({
     super.key,
     required this.queue,
@@ -25,6 +105,7 @@ class QueuePanel extends StatelessWidget {
     required this.onClear,
     required this.onReorder,
     required this.onRemove,
+    this.expand = false,
   });
 
   double get _height {
@@ -40,7 +121,7 @@ class QueuePanel extends StatelessWidget {
       decoration: AppShapes.panel(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -58,15 +139,16 @@ class QueuePanel extends StatelessWidget {
             ],
           ),
           const Divider(height: 1, thickness: 1),
-          SizedBox(
-            height: _height,
-            child: ReorderableListView(
+          _wrapList(
+            ReorderableListView(
               buildDefaultDragHandles: false,
-              // Flutter 3.41부터 onReorderItem으로 대체됐다(newIndex 보정 방식이
-              // 다르다). 로컬 SDK가 3.38이라 아직 없어 올리기 전까지 이대로 둔다.
-              // 바꿀 때 newIndex 계산이 달라지므로 큐 재정렬을 손으로 확인할 것.
-              // ignore: deprecated_member_use
-              onReorder: onReorder,
+              // onReorderItem은 항목 제거를 반영해 **보정된** newIndex를 준다.
+              // 아래 체인(QueueLogic·제어 API·MCP)은 예전 raw 인덱스 규약을
+              // 공유하므로 QueueLogic의 변환으로 되돌려 넘긴다.
+              onReorderItem: (oldIndex, newIndex) => onReorder(
+                oldIndex,
+                QueueLogic.rawIndexForAdjusted(oldIndex, newIndex),
+              ),
               children: [
                 for (var i = 0; i < queue.length; i++)
                   _QueueTile(
@@ -86,6 +168,12 @@ class QueuePanel extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// 확장 모드면 Expanded로 남는 높이를 전부, 아니면 예전 고정 높이.
+  Widget _wrapList(Widget list) {
+    if (expand) return Expanded(child: list);
+    return SizedBox(height: _height, child: list);
   }
 
   Song? _songFor(QueueItem item) {
