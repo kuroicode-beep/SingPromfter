@@ -269,6 +269,62 @@ def _job_retry(args):
     return _http("POST", f"/api/jobs/{job_id}/retry")
 
 
+# ── 작곡 (v3.0.0) — 로컬AI 스위치가 켜져 있어야 한다 (403 local_ai_disabled) ──
+
+def _compose(args):
+    prompt = str(args.get("prompt", "")).strip()
+    if not prompt:
+        raise McpError(JSONRPC_INVALID_PARAMS, "prompt(영문 스타일 프롬프트)가 필요합니다.")
+    body = {
+        "title": str(args.get("title", "")).strip(),
+        "mode": args.get("mode") or "bgm",
+        "prompt": prompt,
+        "lyrics": str(args.get("lyrics", "")),
+        "vocalType": str(args.get("vocal_type", "")),
+        "genre": str(args.get("genre", "")),
+        "durationSec": int(args.get("duration_sec") or 210),
+        "seed": int(args.get("seed") if args.get("seed") is not None else -1),
+    }
+    if args.get("bpm"):
+        body["bpm"] = int(args["bpm"])
+    return _http("POST", "/api/compose", body)
+
+
+def _compositions(args):
+    return _http("GET", "/api/compose")
+
+
+def _compose_jobs(args):
+    return _http("GET", "/api/compose/jobs")
+
+
+def _compose_cancel(args):
+    job_id = str(args.get("job_id", "")).strip()
+    if not job_id:
+        raise McpError(JSONRPC_INVALID_PARAMS, "job_id가 필요합니다.")
+    return _http("POST", f"/api/compose/jobs/{job_id}/cancel")
+
+
+def _compose_register(args):
+    comp_id = str(args.get("composition_id", "")).strip()
+    if not comp_id:
+        raise McpError(JSONRPC_INVALID_PARAMS, "composition_id가 필요합니다.")
+    return _http("POST", f"/api/compose/{comp_id}/register",
+                 {"karaokeSet": bool(args.get("karaoke_set", False))})
+
+
+def _compose_delete(args):
+    _require_confirm(args)
+    comp_id = str(args.get("composition_id", "")).strip()
+    if not comp_id:
+        raise McpError(JSONRPC_INVALID_PARAMS, "composition_id가 필요합니다.")
+    return _http("DELETE", f"/api/compose/{comp_id}")
+
+
+def _recordings(args):
+    return _http("GET", "/api/recordings")
+
+
 # ── 도구 명세 ────────────────────────────────────────────────────────────────
 
 def _schema(props: dict, required: list[str] | None = None) -> dict:
@@ -455,6 +511,65 @@ TOOLS = {
         "description": "실패한 가져오기 작업을 다시 시도한다.",
         "schema": _schema({"job_id": {"type": "string"}}, ["job_id"]),
         "handler": _job_retry,
+    },
+    # ── 작곡 (v3.0.0) — 설정에서 로컬AI가 켜져 있어야 한다 ──
+    "sp_compose": {
+        "description": (
+            "AI 작곡을 시작한다 — mode=bgm(MusicGen 반주, 10~300초) 또는 "
+            "mode=vocal(ACE-Step 1.5 터보 보컬곡, 180~600초·한국어 가사). "
+            "prompt는 영문 스타일 태그를 권장한다. 앱의 로컬AI 스위치가 꺼져 있으면 403."
+        ),
+        "schema": _schema({
+            "prompt": {"type": "string", "description": "영문 스타일 프롬프트 (장르·분위기·악기·템포)"},
+            "mode": {"type": "string", "enum": ["bgm", "vocal"], "description": "기본 bgm"},
+            "title": {"type": "string", "description": "제목(선택)"},
+            "lyrics": {"type": "string", "description": "mode=vocal 전용, 한국어 가사([verse]/[chorus] 태그 권장)"},
+            "vocal_type": {"type": "string", "enum": ["", "female", "male", "duet", "choir"]},
+            "genre": {"type": "string", "description": "추가 장르 태그(영문, 선택)"},
+            "bpm": {"type": "integer", "description": "선택"},
+            "duration_sec": {"type": "integer", "description": "bgm 10~300 / vocal 180~600 (기본 210)"},
+            "seed": {"type": "integer", "description": "-1=랜덤(기본)"},
+        }, ["prompt"]),
+        "handler": _compose,
+    },
+    "sp_compositions": {
+        "description": "AI 생성곡 목록.",
+        "schema": _schema({}),
+        "handler": _compositions,
+    },
+    "sp_compose_jobs": {
+        "description": "작곡 작업 큐 상태(대기·진행·완료·실패).",
+        "schema": _schema({}),
+        "handler": _compose_jobs,
+    },
+    "sp_compose_cancel": {
+        "description": "작곡 작업을 취소한다(서버 측 생성은 계속될 수 있다).",
+        "schema": _schema({"job_id": {"type": "string"}}, ["job_id"]),
+        "handler": _compose_cancel,
+    },
+    "sp_compose_register": {
+        "description": (
+            "생성곡을 곡 목록에 등록한다. karaoke_set=true면 AI 분리로 MR(슬롯2)을 "
+            "만들고 가사 싱크까지 붙인다(수십 초 추가)."
+        ),
+        "schema": _schema({
+            "composition_id": {"type": "string"},
+            "karaoke_set": {"type": "boolean", "description": "노래방 세트 생성(기본 false)"},
+        }, ["composition_id"]),
+        "handler": _compose_register,
+    },
+    "sp_compose_delete": {
+        "description": "생성곡을 삭제한다(오디오 파일 포함). confirm=true 필수.",
+        "schema": _schema({
+            "composition_id": {"type": "string"},
+            "confirm": {"type": "boolean", "description": "true여야 실행"},
+        }, ["composition_id", "confirm"]),
+        "handler": _compose_delete,
+    },
+    "sp_recordings": {
+        "description": "녹음 테이크 목록(메타) — 보컬/반주/믹스/분리 보유 여부 포함.",
+        "schema": _schema({}),
+        "handler": _recordings,
     },
 }
 

@@ -12,9 +12,19 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '4.3.0';
+  static const String current = '5.0.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.0.0',
+      '2026-08-08',
+      'AI 스튜디오 통합 — 두 개발 라인(v2.9~v4.3 무대·트레이닝 라인 + AI 작곡 '
+          '라인)을 하나로 합쳤습니다. 녹음 3트랙 분리(보컬·반주·믹스) 저장·'
+          '내보내기 · 믹싱 스튜디오(밸런스·리버브·노이즈 제거·테이크 보컬 분리) · '
+          '설정: 입력 장치/볼륨/마이크 테스트 · 작곡 탭(ACE-Step 1.5 터보 보컬곡·'
+          'MusicGen BGM, Ollama 프롬프트 다듬기, 변주·노래방 세트) · '
+          '로컬AI/클라우드AI 스위치(기본 꺼짐) · MCP 작곡 도구(sp_compose 계열)',
+    ),
     AppVersionEntry(
       '4.3.0',
       '2026-08-05',

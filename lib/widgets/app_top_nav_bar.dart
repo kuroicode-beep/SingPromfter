@@ -11,10 +11,17 @@ class AppTopNavBar extends StatelessWidget {
   final AppDestination destination;
   final ValueChanged<AppDestination> onDestinationChanged;
 
+  /// 비활성 탭 — 보이되 흐리게, 눌러도 이동하지 않는다(누르면 안내 콜백).
+  /// 로컬AI가 꺼졌을 때 작곡 탭이 여기에 들어간다.
+  final Set<AppDestination> disabled;
+  final ValueChanged<AppDestination>? onDisabledTap;
+
   const AppTopNavBar({
     super.key,
     required this.destination,
     required this.onDestinationChanged,
+    this.disabled = const {},
+    this.onDisabledTap,
   });
 
   @override
@@ -43,7 +50,10 @@ class AppTopNavBar extends StatelessWidget {
                         (d) => _TopNavTab(
                           label: d.label,
                           selected: destination == d,
-                          onTap: () => onDestinationChanged(d),
+                          enabled: !disabled.contains(d),
+                          onTap: disabled.contains(d)
+                              ? () => onDisabledTap?.call(d)
+                              : () => onDestinationChanged(d),
                         ),
                       )
                       .toList(growable: false),
@@ -62,39 +72,48 @@ class AppTopNavBar extends StatelessWidget {
 class _TopNavTab extends StatelessWidget {
   final String label;
   final bool selected;
+  final bool enabled;
   final VoidCallback onTap;
 
   const _TopNavTab({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    // 비활성은 흐림(0.4)으로 표시하되, 탭 자체는 눌러져 안내 스낵바가 뜬다 —
+    // "왜 안 되는지"를 색이 아니라 글자로도 알려주기 위해서다.
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: Semantics(
-        label: label,
+        label: enabled ? label : '$label (로컬AI 꺼짐 — 사용 불가)',
         button: true,
         selected: selected,
-        child: TextButton(
-          onPressed: onTap,
-          style: TextButton.styleFrom(
-            minimumSize: const Size(72, AppConstants.minTouchTarget),
-            backgroundColor:
-                selected ? AppColors.selectedSurface : Colors.transparent,
-            foregroundColor:
-                selected ? AppColors.primary : AppColors.onSurfaceVariant,
-            shape: RoundedRectangleBorder(borderRadius: AppShapes.controlRadius),
-            side: selected
-                ? const BorderSide(color: AppColors.primaryContainer, width: 2)
-                : BorderSide.none,
-          ),
-          child: Text(
-            label,
-            style: AppTypography.body.copyWith(
-              color: selected ? AppColors.primary : AppColors.onSurfaceVariant,
+        child: Opacity(
+          opacity: enabled ? 1.0 : 0.4,
+          child: TextButton(
+            onPressed: onTap,
+            style: TextButton.styleFrom(
+              minimumSize: const Size(72, AppConstants.minTouchTarget),
+              backgroundColor:
+                  selected ? AppColors.selectedSurface : Colors.transparent,
+              foregroundColor:
+                  selected ? AppColors.primary : AppColors.onSurfaceVariant,
+              shape:
+                  RoundedRectangleBorder(borderRadius: AppShapes.controlRadius),
+              side: selected
+                  ? const BorderSide(color: AppColors.primaryContainer, width: 2)
+                  : BorderSide.none,
+            ),
+            child: Text(
+              label,
+              style: AppTypography.body.copyWith(
+                color:
+                    selected ? AppColors.primary : AppColors.onSurfaceVariant,
+              ),
             ),
           ),
         ),

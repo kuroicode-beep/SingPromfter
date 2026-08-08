@@ -223,4 +223,61 @@ void main() {
     final data = res.body['song'] as Map<String, dynamic>;
     expect(data['tracks'], isA<List<dynamic>>());
   });
+
+  group('작곡 라우트 (v3.0.0)', () {
+    test('POST /api/compose — 로컬AI 꺼짐이면 403 local_ai_disabled', () async {
+      // 기본 설정은 localAiEnabled=false — 게이트가 API도 막는지 검증.
+      final res = await router.dispatch(
+        'POST',
+        '/api/compose',
+        body: {'prompt': 'calm ballad', 'mode': 'bgm', 'durationSec': 60},
+      );
+      expect(res.status, 403);
+      expect((res.body['error'] as Map)['code'], 'local_ai_disabled');
+    });
+
+    test('POST /api/compose — 프롬프트가 없으면 422 empty_prompt', () async {
+      app.settings = app.settings.copyWith(localAiEnabled: true);
+      final res = await router.dispatch(
+        'POST',
+        '/api/compose',
+        body: {'prompt': '', 'mode': 'bgm'},
+      );
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'empty_prompt');
+    });
+
+    test('GET /api/compose·/api/compose/jobs — 빈 목록도 200', () async {
+      final list = await router.dispatch('GET', '/api/compose');
+      expect(list.status, 200);
+      expect(list.body['compositions'], isA<List<dynamic>>());
+
+      final jobs = await router.dispatch('GET', '/api/compose/jobs');
+      expect(jobs.status, 200);
+      expect(jobs.body['jobs'], isA<List<dynamic>>());
+    });
+
+    test('DELETE /api/compose/<없는 id> — 404', () async {
+      final res = await router.dispatch('DELETE', '/api/compose/nope');
+      expect(res.status, 404);
+      expect((res.body['error'] as Map)['code'], 'composition_not_found');
+    });
+
+    test('POST register — 없는 생성곡이면 422', () async {
+      final res = await router.dispatch(
+        'POST',
+        '/api/compose/nope/register',
+      );
+      expect(res.status, 422);
+      expect((res.body['error'] as Map)['code'], 'register_failed');
+    });
+
+    test('/api/state에 작곡 상태가 들어간다', () async {
+      final res = await router.dispatch('GET', '/api/state');
+      expect(res.body['activeComposeJobs'], 0);
+      expect(res.body['localAiEnabled'], isFalse);
+      expect((res.body['tools'] as Map)['compose'], isA<Map<String, dynamic>>());
+      expect((res.body['tools'] as Map)['bgm'], isA<Map<String, dynamic>>());
+    });
+  });
 }
