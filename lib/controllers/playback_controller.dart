@@ -40,6 +40,10 @@ class PlaybackSnapshot {
   /// 비교하려면 이 값이 필요하다(lyrics_sync_math의 축 규약 참고).
   final double tempoScale;
 
+  /// 지금 재생에 물린 실제 파일 경로(키/템포 변형본 포함).
+  /// 녹음 시 이 파일에서 반주 구간을 잘라 테이크에 보관한다.
+  final String? activeAudioPath;
+
   const PlaybackSnapshot({
     this.song,
     this.trackSlot,
@@ -50,6 +54,7 @@ class PlaybackSnapshot {
     this.duration = Duration.zero,
     this.lyricsOffsetMs = 0,
     this.tempoScale = 1,
+    this.activeAudioPath,
   });
 
   PlaybackSnapshot copyWith({
@@ -62,8 +67,10 @@ class PlaybackSnapshot {
     Duration? duration,
     int? lyricsOffsetMs,
     double? tempoScale,
+    String? activeAudioPath,
     bool clearSong = false,
     bool clearTrack = false,
+    bool clearAudioPath = false,
   }) {
     return PlaybackSnapshot(
       song: clearSong ? null : (song ?? this.song),
@@ -75,6 +82,9 @@ class PlaybackSnapshot {
       duration: duration ?? this.duration,
       lyricsOffsetMs: clearTrack ? 0 : (lyricsOffsetMs ?? this.lyricsOffsetMs),
       tempoScale: clearTrack ? 1 : (tempoScale ?? this.tempoScale),
+      activeAudioPath: (clearTrack || clearAudioPath)
+          ? null
+          : (activeAudioPath ?? this.activeAudioPath),
     );
   }
 
@@ -607,7 +617,13 @@ class PlaybackController {
     _clock.anchor(start);
     position.value = start;
 
-    _update(state.value.copyWith(audioReady: result.ready));
+    _update(
+      state.value.copyWith(
+        audioReady: result.ready,
+        activeAudioPath: result.path,
+        clearAudioPath: result.path == null,
+      ),
+    );
 
     // 위치 유지 요청이면 원래 자리로 돌아가 이어 부른다.
     if (resumeAt != null && result.ready) {

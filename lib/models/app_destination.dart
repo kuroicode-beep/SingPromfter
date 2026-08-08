@@ -10,6 +10,7 @@ enum AppDestination {
   favorites,
   training,
   recordings,
+  compose,
   jobs,
   settings,
 }
@@ -21,6 +22,7 @@ extension AppDestinationInfo on AppDestination {
     AppDestination.favorites => '즐겨찾기',
     AppDestination.training => '트레이닝',
     AppDestination.recordings => '녹음',
+    AppDestination.compose => '작곡',
     AppDestination.jobs => '가져오기 기록',
     AppDestination.settings => '설정',
   };
@@ -31,6 +33,7 @@ extension AppDestinationInfo on AppDestination {
     AppDestination.favorites => Icons.star_border,
     AppDestination.training => Icons.fitness_center,
     AppDestination.recordings => Icons.mic_none,
+    AppDestination.compose => Icons.music_note_outlined,
     AppDestination.jobs => Icons.download_outlined,
     AppDestination.settings => Icons.settings_outlined,
   };

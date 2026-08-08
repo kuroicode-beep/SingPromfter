@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/playback_controller.dart';
+import '../controllers/compose_job_controller.dart';
 import '../controllers/import_job_controller.dart';
+import '../models/composition.dart';
 import '../models/mr_source_mode.dart';
 import '../models/practice_session.dart';
 import '../models/recording_take.dart';
@@ -15,11 +17,13 @@ import '../models/app_destination.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
+import '../services/bgm_compose_client.dart';
 import '../services/prompter_settings_service.dart';
 import '../utils/music_key.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
+import 'compose_panel.dart';
 import 'prompter_panel.dart';
 import 'queue_panel.dart';
 import 'settings_panel.dart';
@@ -97,6 +101,44 @@ class SongListScreenContent extends StatelessWidget {
   final void Function(RecordingTake take, int rating) onRateTake;
   final ValueChanged<RecordingTake> onToggleTakeKeep;
   final ValueChanged<RecordingTake> onDeleteTake;
+  // v3.0.0 — 반주 듣기·반주 만들기·믹스 설정·내보내기.
+  final ValueChanged<RecordingTake> onPlayTakeAccompaniment;
+  final ValueChanged<RecordingTake> onCutTakeAccompaniment;
+  final ValueChanged<RecordingTake> onTakeMixSettings;
+  final ValueChanged<RecordingTake> onExportTake;
+  // v3.0.0 — 설정 '녹음' 섹션.
+  final List<String> recordingDevices;
+  final VoidCallback onRefreshRecordingDevices;
+  final bool micTesting;
+  final double micLevel;
+  final String micLevelLabel;
+  final VoidCallback onToggleMicTest;
+  // v3.0.0 — 작곡 탭.
+  final List<ComposeJob> composeJobs;
+  final List<Composition> compositions;
+  final String composeStatusLabel;
+  final String bgmStatusLabel;
+  final String? playingCompositionId;
+  final Future<String?> Function(String koreanPrompt) onPolishPrompt;
+  final Future<String?> Function(String lyrics) onTagLyrics;
+  final void Function(ComposeRequest request) onCompose;
+  final void Function(ComposeRequest request, int count) onComposeVariations;
+  final ValueChanged<String> onCancelComposeJob;
+  final ValueChanged<String> onRetryComposeJob;
+  final VoidCallback onClearFinishedComposeJobs;
+  final ValueChanged<Composition> onPlayComposition;
+  final ValueChanged<Composition> onStopComposition;
+  final void Function(Composition item, String newTitle) onRenameComposition;
+  final void Function(Composition item, {bool karaokeSet}) onRegisterComposition;
+  final ValueChanged<Composition> onAttachCompositionToSong;
+  final ValueChanged<Composition> onExportComposition;
+  final ValueChanged<Composition> onDeleteComposition;
+  final Future<List<BgmPreset>> Function() bgmPresetsLoader;
+  // v3.0.0 — AI 게이트: 비활성 탭과 안내 콜백.
+  final Set<AppDestination> disabledDestinations;
+  final ValueChanged<AppDestination>? onDisabledDestinationTap;
+  // v3.0.0 — 설정 'AI 기능'·'작곡' 섹션.
+  final Future<List<String>?> Function() onCheckOllamaModels;
   final DailyGoalLog todayGoal;
   final int trainingStreak;
   final int trainingCompletedThisWeek;
@@ -198,6 +240,39 @@ class SongListScreenContent extends StatelessWidget {
     required this.onRateTake,
     required this.onToggleTakeKeep,
     required this.onDeleteTake,
+    required this.onPlayTakeAccompaniment,
+    required this.onCutTakeAccompaniment,
+    required this.onTakeMixSettings,
+    required this.onExportTake,
+    this.recordingDevices = const [],
+    required this.onRefreshRecordingDevices,
+    this.micTesting = false,
+    this.micLevel = 0,
+    this.micLevelLabel = '',
+    required this.onToggleMicTest,
+    this.composeJobs = const [],
+    this.compositions = const [],
+    this.composeStatusLabel = '',
+    this.bgmStatusLabel = '',
+    this.playingCompositionId,
+    required this.onPolishPrompt,
+    required this.onTagLyrics,
+    required this.onCompose,
+    required this.onComposeVariations,
+    required this.onCancelComposeJob,
+    required this.onRetryComposeJob,
+    required this.onClearFinishedComposeJobs,
+    required this.onPlayComposition,
+    required this.onStopComposition,
+    required this.onRenameComposition,
+    required this.onRegisterComposition,
+    required this.onAttachCompositionToSong,
+    required this.onExportComposition,
+    required this.onDeleteComposition,
+    required this.bgmPresetsLoader,
+    this.disabledDestinations = const {},
+    this.onDisabledDestinationTap,
+    required this.onCheckOllamaModels,
     required this.todayGoal,
     required this.trainingStreak,
     required this.trainingCompletedThisWeek,
@@ -433,7 +508,35 @@ class SongListScreenContent extends StatelessWidget {
         onDelete: onDeleteTake,
         onMix: onMixTake,
         onPlayMix: onPlayTakeMix,
+        onPlayAccompaniment: onPlayTakeAccompaniment,
+        onCutAccompaniment: onCutTakeAccompaniment,
+        onMixSettings: onTakeMixSettings,
+        onExport: onExportTake,
       ),
+      composePanel: ComposePanel(
+        composeStatusLabel: composeStatusLabel,
+        bgmStatusLabel: bgmStatusLabel,
+        jobs: composeJobs,
+        compositions: compositions,
+        playingCompositionId: playingCompositionId,
+        onPolishPrompt: onPolishPrompt,
+        onTagLyrics: onTagLyrics,
+        onGenerate: onCompose,
+        onGenerateVariations: onComposeVariations,
+        onCancelJob: onCancelComposeJob,
+        onRetryJob: onRetryComposeJob,
+        onClearFinishedJobs: onClearFinishedComposeJobs,
+        onPlay: onPlayComposition,
+        onStopPlay: onStopComposition,
+        onRename: onRenameComposition,
+        onRegister: onRegisterComposition,
+        onAttachToSong: onAttachCompositionToSong,
+        onExport: onExportComposition,
+        onDelete: onDeleteComposition,
+        presetsLoader: bgmPresetsLoader,
+      ),
+      disabledDestinations: disabledDestinations,
+      onDisabledDestinationTap: onDisabledDestinationTap,
       importProgress: ImportProgressStrip(
         jobs: importJobs,
         onCancel: onCancelImportJob,
@@ -466,6 +569,15 @@ class SongListScreenContent extends StatelessWidget {
         onRunMaintenance: onRunMaintenance,
         onCustomFontSize: onCustomFontSize,
         onAccessibilityPreset: onAccessibilityPreset,
+        recordingDevices: recordingDevices,
+        onRefreshDevices: onRefreshRecordingDevices,
+        micTesting: micTesting,
+        micLevel: micLevel,
+        micLevelLabel: micLevelLabel,
+        onToggleMicTest: onToggleMicTest,
+        composeStatusLabel: composeStatusLabel,
+        bgmStatusLabel: bgmStatusLabel,
+        onCheckOllamaModels: onCheckOllamaModels,
       ),
     );
   }

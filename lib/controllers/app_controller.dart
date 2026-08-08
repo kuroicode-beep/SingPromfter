@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../constants/app_constants.dart';
+import '../models/composition.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
@@ -27,26 +28,32 @@ import '../models/song_draft.dart';
 import '../models/track_levels.dart';
 import '../models/track_variant.dart';
 import '../repository/song_repository.dart';
+import '../services/bgm_compose_client.dart';
+import '../services/compose_library_service.dart';
 import '../services/key_detection_service.dart';
 import '../services/level_analysis_service.dart';
 import '../services/lyrics_align_service.dart';
 import '../services/lyrics_sync_service.dart';
+import '../services/ollama_client.dart';
 import '../services/pitch_variant_service.dart';
 import '../services/track_asset_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/process_runner.dart';
 import '../services/process/tool_progress_parsers.dart';
 import '../services/prompter_audio_service.dart';
+import '../services/song_compose_client.dart';
 import '../services/song_library_service.dart';
 import '../services/song_list_bootstrap_service.dart';
 import '../services/song_queue_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
+import '../utils/lrc_builder.dart';
 import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
 import '../utils/youtube_title_cleaner.dart';
+import 'compose_job_controller.dart';
 import 'import_job_controller.dart';
 import 'playback_controller.dart';
 
@@ -63,6 +70,25 @@ class ImportEnqueueOutcome {
       message = null;
 
   const ImportEnqueueOutcome.error(this.errorCode, this.message)
+    : jobId = null;
+
+  bool get ok => jobId != null;
+}
+
+/// 작곡 요청 결과. ImportEnqueueOutcome과 같은 규약 — 에러 코드는 기계용.
+class ComposeEnqueueOutcome {
+  final String? jobId;
+
+  /// null=성공, 'local_ai_disabled', 'empty_prompt',
+  /// 'compose_server_offline', 'engine_offline', 'bgm_server_offline'
+  final String? errorCode;
+  final String? message;
+
+  const ComposeEnqueueOutcome.ok(String this.jobId)
+    : errorCode = null,
+      message = null;
+
+  const ComposeEnqueueOutcome.error(this.errorCode, this.message)
     : jobId = null;
 
   bool get ok => jobId != null;
@@ -101,9 +127,15 @@ class AppController extends ChangeNotifier {
     locator: toolLocator,
   );
   final VocalSeparationClient separation = VocalSeparationClient();
+  // 작곡(v3.0.0) — 보컬곡(8774 게이트웨이)·BGM(8766)·프롬프트 다듬기(Ollama).
+  final SongComposeClient songCompose = SongComposeClient();
+  final BgmComposeClient bgmCompose = BgmComposeClient();
+  final OllamaClient ollama = OllamaClient();
+  final ComposeLibraryService composeLibrary = ComposeLibraryService();
   late final PrompterAudioService audio = PrompterAudioService(repo);
   final ScrollController lyricsScrollController = ScrollController();
   late final ImportJobController importJobs;
+  late final ComposeJobController composeJobs;
   late final PlaybackController playback;
 
   // ── UI 연결점 (화면이 설정; 없어도 동작한다) ─────────────
@@ -122,6 +154,11 @@ class AppController extends ChangeNotifier {
   String? ytDlpVersion;
   String separatorStatusLabel = '분리 서버: 확인 중';
   bool separatorOnline = false;
+  // 작곡 서버 상태(v3.0.0) — 로컬AI가 켜져 있을 때만 폴링한다.
+  String composeStatusLabel = '작곡 서버: 확인 중';
+  bool composeServerOnline = false;
+  String bgmStatusLabel = 'BGM 서버: 확인 중';
+  bool bgmServerOnline = false;
 
   Timer? _statusRefreshTimer;
   bool _disposed = false;
@@ -149,6 +186,7 @@ class AppController extends ChangeNotifier {
           onPracticeSessionEnded?.call(snapshot, played),
     )..init();
     importJobs = ImportJobController(runner: _runImportJob);
+    composeJobs = ComposeJobController(runner: _runComposeJob);
   }
 
   @override
@@ -160,6 +198,10 @@ class AppController extends ChangeNotifier {
     pendingPitch.dispose();
     pendingTempo.dispose();
     importJobs.dispose();
+    composeJobs.dispose();
+    songCompose.close();
+    bgmCompose.close();
+    ollama.close();
     playback.dispose();
     audio.dispose();
     lyricsScrollController.dispose();
@@ -193,6 +235,10 @@ class AppController extends ChangeNotifier {
     loading = false;
     _notify();
 
+    // AI 생성곡 목록 — "곡으로 등록"이 이 컨트롤러 소관이라 여기서 소유한다.
+    await composeLibrary.load();
+    if (_disposed) return;
+
     unawaited(refreshToolAvailability());
     _startStatusRefresh();
 
@@ -214,10 +260,13 @@ class AppController extends ChangeNotifier {
   // ── 설정 (단일 쓰기 경로) ───────────────────────────────
 
   Future<void> updateSettings(PrompterSettings next) async {
+    final localAiChanged = next.localAiEnabled != settings.localAiEnabled;
     settings = next;
     _notify();
     await repo.saveSettings(next);
     await playback.applySettings(next);
+    // 로컬AI를 켜고 끄면 서버 상태 표시를 바로 갱신한다(30초 폴링을 기다리지 않게).
+    if (localAiChanged) unawaited(refreshToolAvailability());
   }
 
   Future<void> selectTrackSlot(int slot) async {
@@ -674,15 +723,33 @@ class AppController extends ChangeNotifier {
 
   Future<void> refreshToolAvailability() async {
     final tool = await toolLocator.locate(ExternalTool.ytDlp, refresh: true);
-    final separator = await separation.status();
     if (_disposed) return;
     ytDlpAvailable = tool.found;
     ytDlpVersion = tool.version;
     ytDlpMissingReason = tool.found
         ? null
         : 'yt-dlp를 찾을 수 없습니다. 설치했다면 실행 파일 경로를 직접 지정해 주세요.';
-    separatorStatusLabel = separator.label;
-    separatorOnline = separator.online;
+
+    // AI 서버 폴링은 로컬AI가 켜져 있을 때만 — 꺼져 있으면 트래픽을 아낀다.
+    if (settings.localAiEnabled) {
+      final separator = await separation.status();
+      final compose = await songCompose.status();
+      final bgm = await bgmCompose.status();
+      if (_disposed) return;
+      separatorStatusLabel = separator.label;
+      separatorOnline = separator.online;
+      composeStatusLabel = compose.label;
+      composeServerOnline = compose.online;
+      bgmStatusLabel = bgm.label;
+      bgmServerOnline = bgm.online;
+    } else {
+      separatorStatusLabel = '분리 서버: 로컬AI 꺼짐';
+      separatorOnline = false;
+      composeStatusLabel = '작곡 서버: 로컬AI 꺼짐';
+      composeServerOnline = false;
+      bgmStatusLabel = 'BGM 서버: 로컬AI 꺼짐';
+      bgmServerOnline = false;
+    }
     _notify();
   }
 
@@ -741,6 +808,12 @@ class AppController extends ChangeNotifier {
       return const ImportEnqueueOutcome.error(
         'notice_not_acked',
         '앱에서 최초 1회 저작권 확인이 필요합니다. 앱의 곡 추가에서 "확인했습니다"를 눌러 주세요.',
+      );
+    }
+    if (mode == MrSourceMode.aiSeparate && !settings.localAiEnabled) {
+      return const ImportEnqueueOutcome.error(
+        'local_ai_disabled',
+        'AI 보컬 분리는 설정에서 로컬AI를 켜면 사용할 수 있습니다.',
       );
     }
     if (plan.makeInstrumental &&
@@ -1102,6 +1175,327 @@ class AppController extends ChangeNotifier {
       debugPrint('가져온 곡 등록 실패: $e');
       return null;
     }
+  }
+
+  // ── 작곡 파이프라인 (v3.0.0) ────────────────────────────
+
+  /// 작곡 요청을 큐에 넣는다. 로컬AI 게이트와 서버 프리플라이트를 여기서
+  /// 검사해 UI·제어 API·MCP가 같은 규칙으로 막히게 한다.
+  Future<ComposeEnqueueOutcome> enqueueCompose(ComposeRequest request) async {
+    if (!settings.localAiEnabled) {
+      return const ComposeEnqueueOutcome.error(
+        'local_ai_disabled',
+        '작곡은 설정에서 로컬AI를 켜면 사용할 수 있습니다.',
+      );
+    }
+    if (request.effectivePrompt.isEmpty) {
+      return const ComposeEnqueueOutcome.error(
+        'empty_prompt',
+        '스타일 프롬프트를 입력해 주세요.',
+      );
+    }
+    if (request.mode == ComposeMode.vocal) {
+      final server = await songCompose.status();
+      if (!server.online) {
+        return const ComposeEnqueueOutcome.error(
+          'compose_server_offline',
+          '작곡 서버(8774)가 꺼져 있어요. SAW에서 compose_system\\start.bat을 실행해 주세요.',
+        );
+      }
+      final engine = await songCompose.engineStatus();
+      if (!engine.alive) {
+        return const ComposeEnqueueOutcome.error(
+          'engine_offline',
+          'ACE-Step 엔진(:8001)이 꺼져 있어요. SAW 트레이 또는 '
+              'C:\\ai-acestep\\start_api_server.bat로 시작해 주세요.',
+        );
+      }
+    } else {
+      final server = await bgmCompose.status();
+      if (!server.online) {
+        return const ComposeEnqueueOutcome.error(
+          'bgm_server_offline',
+          'BGM 서버(8766)가 꺼져 있어요. SAW에서 bgm_system\\start.bat을 실행해 주세요.',
+        );
+      }
+    }
+    final job = composeJobs.enqueue(id: const Uuid().v4(), request: request);
+    return ComposeEnqueueOutcome.ok(job.id);
+  }
+
+  /// 작곡 작업 1건 수행 — 모드에 따라 8774(잡 폴링) / 8766(블로킹) 분기.
+  Future<void> _runComposeJob(
+    ComposeJob job, {
+    required void Function(String detail) onProgress,
+    required void Function(void Function() cancel) onCancel,
+  }) async {
+    var cancelled = false;
+    onCancel(() => cancelled = true);
+
+    final request = job.request;
+    final compositionId = const Uuid().v4();
+
+    if (request.mode == ComposeMode.vocal) {
+      await _runVocalCompose(
+        job,
+        compositionId,
+        onProgress: onProgress,
+        isCancelled: () => cancelled,
+      );
+    } else {
+      await _runBgmCompose(
+        job,
+        compositionId,
+        onProgress: onProgress,
+        isCancelled: () => cancelled,
+      );
+    }
+  }
+
+  /// 보컬곡 — 게이트웨이 잡 제출 → 5초 폴링(서버 detail 실표시) → 파일 확보.
+  Future<void> _runVocalCompose(
+    ComposeJob job,
+    String compositionId, {
+    required void Function(String detail) onProgress,
+    required bool Function() isCancelled,
+  }) async {
+    final request = job.request;
+    onProgress('작곡 서버에 제출 중');
+    final gatewayJobId = await songCompose.submit(
+      buildSongBody(
+        prompt: request.effectivePrompt,
+        lyrics: request.lyrics,
+        durationSec: request.durationSec,
+        vocalType: request.vocalType,
+        genre: request.genre,
+        bpm: request.bpm,
+        seed: request.seed,
+      ),
+    );
+
+    // 게이트웨이 잡 타임아웃(20분)보다 여유 있게 25분까지 기다린다.
+    final deadline = DateTime.now().add(const Duration(minutes: 25));
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(seconds: 5));
+      if (isCancelled() || _disposed) return; // 폴링 포기 — 서버는 계속될 수 있다.
+
+      final status = await songCompose.pollStatus(gatewayJobId);
+      if (status.isError) {
+        throw Exception(status.error ?? '곡 생성에 실패했습니다.');
+      }
+      if (status.isDone) {
+        final remotePath = status.resultPath;
+        if (remotePath == null) {
+          throw Exception('완료됐지만 결과 파일 경로가 없습니다.');
+        }
+        onProgress('생성된 곡을 가져오는 중');
+        final ext = remotePath.toLowerCase().endsWith('.wav') ? '.wav' : '.mp3';
+        final localPath =
+            '${(await composeLibrary.directory()).path}/$compositionId$ext';
+        await songCompose.downloadOutput(remotePath, localPath);
+        if (isCancelled() || _disposed) return;
+        await _finishComposeJob(
+          job,
+          compositionId: compositionId,
+          fileName: '$compositionId$ext',
+          seed: status.resultSeed ?? request.seed,
+          genTimeSec: status.elapsedSec,
+        );
+        return;
+      }
+      final elapsed = Duration(seconds: status.elapsedSec.round());
+      final mm = elapsed.inMinutes.toString().padLeft(2, '0');
+      final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
+      onProgress(
+        status.detail.isEmpty ? '곡 생성 중 · 경과 $mm:$ss' : '${status.detail} · 경과 $mm:$ss',
+      );
+    }
+    throw Exception('곡 생성이 25분 안에 끝나지 않았어요. SAW 엔진 콘솔을 확인해 주세요.');
+  }
+
+  /// BGM — 블로킹 생성 후 서버가 지우기 전에 즉시 파일 확보.
+  Future<void> _runBgmCompose(
+    ComposeJob job,
+    String compositionId, {
+    required void Function(String detail) onProgress,
+    required bool Function() isCancelled,
+  }) async {
+    final request = job.request;
+    onProgress('BGM 생성 중 (보통 1~5분 걸립니다)');
+    final result = await bgmCompose.generate(
+      buildGenerateBody(
+        prompt: request.effectivePrompt,
+        preset: request.preset,
+        durationSec: request.durationSec,
+        modelSize: request.modelSize,
+        seed: request.seed,
+      ),
+    );
+    if (isCancelled() || _disposed) return; // 응답 무시 — 파일은 받지 않는다.
+    if (!result.ok || result.remotePath == null) {
+      throw Exception(result.message ?? 'BGM 생성에 실패했습니다.');
+    }
+
+    onProgress('생성된 BGM을 가져오는 중');
+    final ext = result.remotePath!.toLowerCase().endsWith('.wav')
+        ? '.wav'
+        : '.mp3';
+    final localPath =
+        '${(await composeLibrary.directory()).path}/$compositionId$ext';
+    await bgmCompose.downloadOutput(result.remotePath!, localPath);
+    if (isCancelled() || _disposed) return;
+    await _finishComposeJob(
+      job,
+      compositionId: compositionId,
+      fileName: '$compositionId$ext',
+      seed: result.seed ?? request.seed,
+      genTimeSec: result.genTimeSec,
+    );
+  }
+
+  /// 완료 공통 처리 — Composition 등록 + 잡 완료 표시.
+  Future<void> _finishComposeJob(
+    ComposeJob job, {
+    required String compositionId,
+    required String fileName,
+    required int seed,
+    required double genTimeSec,
+  }) async {
+    final request = job.request;
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final title = request.title.trim().isEmpty
+        ? 'AI 작곡 ${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}:${two(now.minute)}'
+        : request.title.trim();
+
+    await composeLibrary.add(
+      Composition(
+        id: compositionId,
+        title: title,
+        mode: request.mode,
+        stylePromptKo: request.stylePromptKo,
+        stylePromptEn: request.stylePromptEn,
+        lyrics: request.lyrics,
+        vocalType: request.vocalType,
+        genre: request.genre,
+        bpm: request.bpm,
+        durationSec: request.durationSec,
+        seed: seed,
+        fileName: fileName,
+        createdAt: now,
+        genTimeSec: genTimeSec,
+        batchId: request.batchId,
+      ),
+    );
+    if (_disposed) return;
+
+    final current = composeJobs.jobById(job.id);
+    if (current != null && current.status == ComposeJobStatus.running) {
+      composeJobs.update(
+        current.copyWith(
+          status: ComposeJobStatus.done,
+          statusDetail: '완료',
+          resultCompositionId: compositionId,
+        ),
+      );
+    }
+    _notify();
+    _emit('"$title" 생성이 끝났습니다. 작곡 탭에서 들어보세요.');
+  }
+
+  /// 생성곡을 라이브러리 곡으로 등록한다(슬롯1). 성공하면 곡을 돌려준다.
+  Future<Song?> registerCompositionAsSong(String compositionId) async {
+    final comp = composeLibrary.byId(compositionId);
+    if (comp == null) return null;
+    try {
+      final path = await composeLibrary.pathFor(comp);
+      if (!await File(path).exists()) {
+        _emit('생성곡 파일을 찾을 수 없습니다.');
+        return null;
+      }
+      final title = libraryService.hasDuplicateTitle(songs, comp.title)
+          ? '${comp.title} (작곡)'
+          : comp.title;
+      final draft = SongDraft(
+        title: title,
+        artist: 'AI 작곡',
+        trackPaths: {1: path},
+        trackLabels: {
+          1: comp.mode == ComposeMode.vocal ? 'AI 보컬곡' : 'AI BGM',
+        },
+      );
+      final result = await libraryService.addSong(
+        songs: songs,
+        draft: draft,
+        lyrics: comp.lyrics,
+      );
+      if (_disposed) return null;
+      songs = result.songs;
+      _notify();
+      await composeLibrary.update(
+        comp.copyWith(registeredSongId: result.song.id),
+      );
+      // 가져오기와 동일하게 EQ 레벨을 선분석해 둔다.
+      unawaited(loadTrackLevels(result.song, 1));
+      _emit('"$title"을(를) 곡 목록에 등록했습니다.');
+      return result.song;
+    } catch (e) {
+      debugPrint('생성곡 등록 실패: $e');
+      _emit('곡 등록에 실패했습니다: $e');
+      return null;
+    }
+  }
+
+  /// 노래방 세트 — 등록된 생성 보컬곡에 ① AI 분리로 MR(슬롯2)을 붙이고
+  /// ② 가사를 균등 배치 LRC로 깔아 ③ DSP 정렬로 오프셋을 보정한다.
+  Future<bool> makeKaraokeSetForComposition(String compositionId) async {
+    final comp = composeLibrary.byId(compositionId);
+    final songId = comp?.registeredSongId;
+    if (comp == null || songId == null) {
+      _emit('먼저 곡으로 등록해 주세요.');
+      return false;
+    }
+    if (!settings.localAiEnabled) {
+      _emit('설정에서 로컬AI를 켜면 사용할 수 있습니다.');
+      return false;
+    }
+
+    // 1) 분리 → MR 슬롯
+    _emit('AI 분리로 MR을 만드는 중... (수십 초 걸립니다)');
+    final srcPath = await composeLibrary.pathFor(comp);
+    final sep = await separation.separate(srcPath);
+    if (_disposed) return false;
+    if (!sep.success || sep.instrumentalPath == null) {
+      _emit(sep.message ?? 'MR 분리에 실패했습니다.');
+      return false;
+    }
+    final withMr = await attachTrackToSong(
+      songId: songId,
+      slot: TrackVariant.mr.preferredSlot,
+      sourcePath: sep.instrumentalPath!,
+      label: 'AI MR',
+    );
+    if (withMr == null) {
+      _emit('MR 슬롯 등록에 실패했습니다.');
+      return false;
+    }
+
+    // 2) 가사 균등 배치 LRC → 3) DSP 정렬 보정
+    if (comp.lyrics.trim().isNotEmpty) {
+      final lrc = buildEvenlySpacedLrc(
+        comp.lyrics,
+        durationSec: comp.durationSec,
+      );
+      if (lrc != null) {
+        final withLrc = await lyricsSync.save(withMr, lrc);
+        if (withLrc != null) {
+          await replaceSongInList(withLrc);
+          await autoAlignLyrics(songId: songId);
+        }
+      }
+    }
+    _emit('노래방 세트 완성 — 원곡·MR·싱크 가사가 준비됐습니다.');
+    return true;
   }
 
   // ── 반주 슬롯 관리 ──────────────────────────────────────

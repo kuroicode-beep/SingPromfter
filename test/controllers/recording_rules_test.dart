@@ -230,5 +230,37 @@ void _ffmpegRecordingTests() {
       expect(args[args.indexOf('-ac') + 1], '1');
       expect(args[args.indexOf('-ar') + 1], '48000');
     });
+
+    test('게인 1.0이면 volume 필터를 넣지 않는다', () {
+      final args = buildRecordArgs(deviceName: 'mic', outputPath: 'o.wav');
+      expect(args[args.indexOf('-af') + 1], isNot(contains('volume=')));
+    });
+
+    test('게인이 다르면 volume이 astats 앞에 온다 (미터에 게인 반영)', () {
+      final args = buildRecordArgs(
+        deviceName: 'mic',
+        outputPath: 'o.wav',
+        gain: 1.5,
+      );
+      final filter = args[args.indexOf('-af') + 1];
+      expect(filter, startsWith('volume=1.50,'));
+      expect(filter.indexOf('volume='), lessThan(filter.indexOf('astats')));
+    });
+  });
+
+  group('buildLevelProbeArgs — 마이크 테스트', () {
+    test('파일 대신 null 출력으로 레벨만 흘린다', () {
+      final args = buildLevelProbeArgs(deviceName: 'mic');
+      expect(args.last, '-');
+      expect(args[args.length - 2], 'null');
+      expect(args, isNot(contains('-progress')));
+      final filter = args[args.indexOf('-af') + 1];
+      expect(filter, contains('RMS_level'));
+    });
+
+    test('녹음과 같은 게인 체인을 쓴다', () {
+      final args = buildLevelProbeArgs(deviceName: 'mic', gain: 0.8);
+      expect(args[args.indexOf('-af') + 1], startsWith('volume=0.80,'));
+    });
   });
 }

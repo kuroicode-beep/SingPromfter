@@ -75,7 +75,8 @@ class PrompterAudioService {
       if (startMs != null && startMs > 0) {
         await _player.seek(Duration(milliseconds: startMs));
       }
-      return const AudioPrepareResult.ready();
+      // 실제 재생 파일 경로를 돌려준다 — 녹음 시 반주 구간 잘라내기에 쓴다.
+      return AudioPrepareResult.ready(path: path);
     } catch (e) {
       return AudioPrepareResult.notReady(message: '반주 파일을 재생할 수 없습니다: $e');
     }
@@ -181,9 +182,13 @@ class AudioPrepareResult {
   final bool ready;
   final String? message;
 
-  const AudioPrepareResult._({required this.ready, this.message});
+  /// 준비된 실제 재생 파일 경로(키/템포 변형본 포함). 준비 실패면 null.
+  final String? path;
 
-  const AudioPrepareResult.ready() : this._(ready: true);
+  const AudioPrepareResult._({required this.ready, this.message, this.path});
+
+  const AudioPrepareResult.ready({String? path})
+    : this._(ready: true, path: path);
 
   const AudioPrepareResult.notReady({String? message})
     : this._(ready: false, message: message);

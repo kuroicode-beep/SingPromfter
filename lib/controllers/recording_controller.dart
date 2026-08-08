@@ -69,10 +69,19 @@ List<String> parseDshowAudioDevices(String output) {
   return devices;
 }
 
+/// 캡처 오디오 필터 체인. 게인은 astats **앞**에 두어 미터가 게인 반영
+/// 값을 보여준다(클리핑을 실시간으로 경고할 수 있게). (순수 함수)
+String _captureFilterChain(double gain) {
+  final volume = gain == 1.0 ? '' : 'volume=${gain.toStringAsFixed(2)},';
+  return '${volume}astats=metadata=1:reset=1,'
+      'ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-';
+}
+
 /// ffmpeg dshow 녹음 인자를 만든다. (순수 함수 — 프로세스를 띄우지 않는다)
 List<String> buildRecordArgs({
   required String deviceName,
   required String outputPath,
+  double gain = 1.0,
 }) {
   return [
     '-hide_banner',
@@ -81,13 +90,30 @@ List<String> buildRecordArgs({
     '-ac', '1',
     '-ar', '48000',
     // 파일을 쓰면서 동시에 입력 레벨을 표준출력으로 흘린다.
-    '-af',
-    'astats=metadata=1:reset=1,'
-        'ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-',
+    '-af', _captureFilterChain(gain),
     '-progress', 'pipe:1',
     '-nostats',
     '-y',
     outputPath,
+  ];
+}
+
+/// 마이크 테스트(레벨 프로브) 인자 — 파일 대신 null 출력으로 레벨만 흘린다.
+/// (순수 함수 — 테스트 대상)
+List<String> buildLevelProbeArgs({
+  required String deviceName,
+  double gain = 1.0,
+}) {
+  return [
+    '-hide_banner',
+    '-f', 'dshow',
+    '-i', 'audio=$deviceName',
+    '-ac', '1',
+    '-ar', '48000',
+    '-af', _captureFilterChain(gain),
+    '-nostats',
+    '-f', 'null',
+    '-',
   ];
 }
 
@@ -100,6 +126,11 @@ class RecordingController extends ChangeNotifier {
 
   JobHandle? _job;
   StreamSubscription<String>? _sub;
+
+  // 마이크 테스트(레벨 프로브) — 녹음과 별개 프로세스로 레벨만 흘린다.
+  JobHandle? _probeJob;
+  StreamSubscription<String>? _probeSub;
+  bool _isProbing = false;
 
   bool _isRecording = false;
   Duration _elapsed = Duration.zero;
@@ -116,6 +147,7 @@ class RecordingController extends ChangeNotifier {
        _locator = locator ?? ExternalToolLocator(runner: runner);
 
   bool get isRecording => _isRecording;
+  bool get isProbing => _isProbing;
   Duration get elapsed => _elapsed;
   double? get dbfs => _dbfs;
   String get levelLabel => inputLevelLabel(_dbfs);
@@ -157,20 +189,26 @@ class RecordingController extends ChangeNotifier {
   ///
   /// WAV로 캡처하는 이유: 인코더 의존이 없고, 중간에 끊겨도 그때까지
   /// 쓰인 부분이 대체로 재생 가능한 파일로 남는다.
-  Future<String?> start(String fileName) async {
+  Future<String?> start(String fileName, {double gain = 1.0}) async {
     if (_isRecording) return null;
+    // 프로브가 돌고 있으면 장치를 놓아준다(같은 장치는 동시에 못 연다).
+    await stopLevelProbe();
 
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) return null;
     if (_devices.isEmpty) await refreshDevices();
-    final device = _deviceName ?? (_devices.isEmpty ? null : _devices.first);
+    // 저장된 장치가 뽑혔을 수 있으니 목록에 없으면 첫 장치로 폴백한다.
+    var device = _deviceName ?? (_devices.isEmpty ? null : _devices.first);
+    if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
+      device = _devices.first;
+    }
     if (device == null) return null;
 
     try {
       final path = await pathBuilder(fileName);
       final job = _runner.start(
         ffmpeg.path!,
-        buildRecordArgs(deviceName: device, outputPath: path),
+        buildRecordArgs(deviceName: device, outputPath: path, gain: gain),
       );
 
       _job = job;
@@ -229,6 +267,66 @@ class RecordingController extends ChangeNotifier {
     return (fileName: fileName, duration: duration);
   }
 
+  /// 마이크 테스트를 시작한다 — 파일을 만들지 않고 레벨만 흘린다.
+  /// 녹음 중에는 시작하지 않는다(장치 충돌).
+  Future<bool> startLevelProbe({double gain = 1.0}) async {
+    if (_isRecording || _isProbing) return false;
+
+    final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
+    if (!ffmpeg.found) return false;
+    if (_devices.isEmpty) await refreshDevices();
+    var device = _deviceName ?? (_devices.isEmpty ? null : _devices.first);
+    if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
+      device = _devices.first;
+    }
+    if (device == null) return false;
+
+    try {
+      final job = _runner.start(
+        ffmpeg.path!,
+        buildLevelProbeArgs(deviceName: device, gain: gain),
+      );
+      _probeJob = job;
+      _isProbing = true;
+      _dbfs = null;
+      _probeSub = job.lines.listen(
+        (line) {
+          final rms = parseRmsLevel(line);
+          if (rms != null) {
+            _dbfs = rms;
+            notifyListeners();
+          }
+        },
+        onError: (Object e) => debugPrint('마이크 테스트 스트림 오류: $e'),
+      );
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('마이크 테스트 시작 실패: $e');
+      await stopLevelProbe();
+      return false;
+    }
+  }
+
+  Future<void> stopLevelProbe() async {
+    if (_probeJob == null && !_isProbing) return;
+    final job = _probeJob;
+    if (job != null) {
+      job.writeStdin('q');
+      try {
+        await job.exitCode.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        job.cancel();
+      } catch (_) {}
+    }
+    await _probeSub?.cancel();
+    _probeSub = null;
+    _probeJob = null;
+    _isProbing = false;
+    if (!_isRecording) _dbfs = null;
+    notifyListeners();
+  }
+
   Future<void> _cleanup() async {
     await _sub?.cancel();
     _sub = null;
@@ -243,6 +341,8 @@ class RecordingController extends ChangeNotifier {
   void dispose() {
     _sub?.cancel();
     _job?.cancel();
+    _probeSub?.cancel();
+    _probeJob?.cancel();
     super.dispose();
   }
 }
