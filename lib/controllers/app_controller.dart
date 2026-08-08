@@ -48,6 +48,7 @@ import '../services/song_queue_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
 import '../utils/key_label.dart';
+import '../utils/lrc_builder.dart';
 import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
@@ -1443,6 +1444,58 @@ class AppController extends ChangeNotifier {
       _emit('곡 등록에 실패했습니다: $e');
       return null;
     }
+  }
+
+  /// 노래방 세트 — 등록된 생성 보컬곡에 ① AI 분리로 MR(슬롯2)을 붙이고
+  /// ② 가사를 균등 배치 LRC로 깔아 ③ DSP 정렬로 오프셋을 보정한다.
+  Future<bool> makeKaraokeSetForComposition(String compositionId) async {
+    final comp = composeLibrary.byId(compositionId);
+    final songId = comp?.registeredSongId;
+    if (comp == null || songId == null) {
+      _emit('먼저 곡으로 등록해 주세요.');
+      return false;
+    }
+    if (!settings.localAiEnabled) {
+      _emit('설정에서 로컬AI를 켜면 사용할 수 있습니다.');
+      return false;
+    }
+
+    // 1) 분리 → MR 슬롯
+    _emit('AI 분리로 MR을 만드는 중... (수십 초 걸립니다)');
+    final srcPath = await composeLibrary.pathFor(comp);
+    final sep = await separation.separate(srcPath);
+    if (_disposed) return false;
+    if (!sep.success || sep.instrumentalPath == null) {
+      _emit(sep.message ?? 'MR 분리에 실패했습니다.');
+      return false;
+    }
+    final withMr = await attachTrackToSong(
+      songId: songId,
+      slot: TrackVariant.mr.preferredSlot,
+      sourcePath: sep.instrumentalPath!,
+      label: 'AI MR',
+    );
+    if (withMr == null) {
+      _emit('MR 슬롯 등록에 실패했습니다.');
+      return false;
+    }
+
+    // 2) 가사 균등 배치 LRC → 3) DSP 정렬 보정
+    if (comp.lyrics.trim().isNotEmpty) {
+      final lrc = buildEvenlySpacedLrc(
+        comp.lyrics,
+        durationSec: comp.durationSec,
+      );
+      if (lrc != null) {
+        final withLrc = await lyricsSync.save(withMr, lrc);
+        if (withLrc != null) {
+          await replaceSongInList(withLrc);
+          await autoAlignLyrics(songId: songId);
+        }
+      }
+    }
+    _emit('노래방 세트 완성 — 원곡·MR·싱크 가사가 준비됐습니다.');
+    return true;
   }
 
   // ── 반주 슬롯 관리 ──────────────────────────────────────

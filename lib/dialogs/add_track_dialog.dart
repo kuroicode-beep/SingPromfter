@@ -36,6 +36,9 @@ class AddTrackDialog extends StatefulWidget {
   final String separatorStatusLabel;
   final bool separatorOnline;
 
+  /// 로컬AI 스위치가 꺼져 있으면 AI 보컬 분리 선택지를 비활성화한다.
+  final bool localAiEnabled;
+
   const AddTrackDialog({
     super.key,
     required this.song,
@@ -43,6 +46,7 @@ class AddTrackDialog extends StatefulWidget {
     required this.toolMissingReason,
     required this.separatorStatusLabel,
     required this.separatorOnline,
+    this.localAiEnabled = true,
   });
 
   static Future<AddTrackFromUrl?> show(
@@ -52,6 +56,7 @@ class AddTrackDialog extends StatefulWidget {
     required String? toolMissingReason,
     required String separatorStatusLabel,
     required bool separatorOnline,
+    bool localAiEnabled = true,
   }) {
     return showDialog<AddTrackFromUrl>(
       context: context,
@@ -61,6 +66,7 @@ class AddTrackDialog extends StatefulWidget {
         toolMissingReason: toolMissingReason,
         separatorStatusLabel: separatorStatusLabel,
         separatorOnline: separatorOnline,
+        localAiEnabled: localAiEnabled,
       ),
     );
   }
@@ -214,11 +220,36 @@ class _AddTrackDialogState extends State<AddTrackDialog> {
               Text('반주 처리', style: AppTypography.bodyMuted),
               const SizedBox(height: 6),
               for (final mode in MrSourceMode.values)
-                _ModeRow(
-                  mode: mode,
-                  selected: _mode == mode,
-                  onTap: () => setState(() => _mode = mode),
-                ),
+                if (widget.localAiEnabled || mode != MrSourceMode.aiSeparate)
+                  _ModeRow(
+                    mode: mode,
+                    selected: _mode == mode,
+                    onTap: () => setState(() => _mode = mode),
+                  )
+                else
+                  // 로컬AI 꺼짐 — 보이되 흐리게, 사유를 글자로 알린다.
+                  Opacity(
+                    opacity: 0.4,
+                    child: IgnorePointer(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _ModeRow(
+                            mode: mode,
+                            selected: false,
+                            onTap: () {},
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 34, bottom: 6),
+                            child: Text(
+                              '설정에서 로컬AI를 켜면 사용할 수 있습니다.',
+                              style: AppTypography.bodyMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               if (_mode == MrSourceMode.aiSeparate) ...[
                 const SizedBox(height: 4),
                 Text(

@@ -6,7 +6,9 @@ import 'package:uuid/uuid.dart';
 
 import 'package:flutter/material.dart';
 
+import '../constants/app_constants.dart';
 import '../controllers/app_controller.dart';
+import '../controllers/compose_job_controller.dart';
 import '../controllers/import_job_controller.dart';
 import '../controllers/playback_controller.dart';
 import '../controllers/recording_controller.dart';
@@ -16,6 +18,7 @@ import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
 import '../dialogs/take_mix_dialog.dart';
 import '../models/app_destination.dart';
+import '../models/composition.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
 import '../models/prompter_display_mode.dart';
@@ -76,6 +79,7 @@ class _SongListScreenState extends State<SongListScreen> {
   String _recordingQuery = '';
   RecordingFilterMode _recordingFilterMode = RecordingFilterMode.all;
   String? _playingTakeId;
+  String? _playingCompositionId;
   Song? _recordingSong;
   int? _recordingSlot;
   int _recordingPitch = 0;
@@ -130,11 +134,17 @@ class _SongListScreenState extends State<SongListScreen> {
     )..addListener(_onPlaybackStateChanged);
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     _playback.isRecordingProvider = () => _recording.isRecording;
-    // 테이크 재생이 끝나면 '정지' 버튼이 '듣기'로 돌아오게 한다.
+    _app.composeJobs.addListener(_onPlaybackStateChanged);
+    // 테이크·생성곡 재생이 끝나면 '정지' 버튼이 '듣기'로 돌아오게 한다.
     _takeBindings = _takePlayer.bind(
       onPlayingChanged: (playing) {
-        if (!playing && _playingTakeId != null && mounted) {
-          setState(() => _playingTakeId = null);
+        if (!playing &&
+            (_playingTakeId != null || _playingCompositionId != null) &&
+            mounted) {
+          setState(() {
+            _playingTakeId = null;
+            _playingCompositionId = null;
+          });
         }
       },
       onPositionChanged: (_) {},
@@ -156,6 +166,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.removeListener(_onPlaybackStateChanged);
+    _app.composeJobs.removeListener(_onPlaybackStateChanged);
     _recording.dispose();
     _takeBindings?.cancel();
     _takePlayer.dispose();
@@ -189,8 +200,15 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _applyAccessibilityPreset(String preset) =>
       _updateSettings(PrompterSettingsService.preset(_settings, preset));
 
-  Future<void> _updateSettings(PrompterSettings next) =>
-      _app.updateSettings(next);
+  Future<void> _updateSettings(PrompterSettings next) async {
+    await _app.updateSettings(next);
+    // 로컬AI를 끄면 작곡 탭이 비활성화되므로 그 화면에 남지 않게 한다.
+    if (!next.localAiEnabled &&
+        _destination == AppDestination.compose &&
+        mounted) {
+      setState(() => _destination = AppDestination.home);
+    }
+  }
 
   Future<void> _showCustomFontSizeDialog() async {
     final next = await CustomFontSizeDialog.pickSettings(context, _settings);
@@ -414,6 +432,212 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
     setState(() => _playingTakeId = take.id);
+  }
+
+  // ── 작곡 (v3.0.0) ───────────────────────────────────────
+
+  Future<void> _composeGenerate(ComposeRequest request) async {
+    final outcome = await _app.enqueueCompose(request);
+    if (!mounted) return;
+    _showSnack(
+      outcome.ok
+          ? '생성을 시작했습니다. 진행 상황은 작곡 탭에 표시됩니다.'
+          : (outcome.message ?? '생성을 시작하지 못했습니다.'),
+    );
+  }
+
+  /// 같은 조건으로 seed만 랜덤인 변주 여러 개를 묶음(batchId)으로 생성한다.
+  Future<void> _composeVariations(ComposeRequest request, int count) async {
+    final batchId = const Uuid().v4();
+    var started = 0;
+    for (var i = 1; i <= count; i++) {
+      final outcome = await _app.enqueueCompose(
+        request.copyWith(
+          title: request.title.trim().isEmpty
+              ? ''
+              : '${request.title.trim()} (변주 $i)',
+          seed: -1,
+          batchId: batchId,
+        ),
+      );
+      if (!outcome.ok) {
+        if (mounted) _showSnack(outcome.message ?? '변주 생성을 시작하지 못했습니다.');
+        break;
+      }
+      started++;
+    }
+    if (!mounted || started == 0) return;
+    _showSnack('변주 $started개 생성을 시작했습니다. 차례로 만들어집니다.');
+  }
+
+  Future<String?> _polishPrompt(String korean) async {
+    final result = await _app.ollama.polishStylePrompt(
+      korean,
+      model: _settings.ollamaModel,
+    );
+    if (!result.ok) {
+      if (mounted) {
+        _showSnack(
+          '${result.message ?? '다듬기에 실패했습니다.'} 다듬기 없이 그대로 생성할 수도 있습니다.',
+        );
+      }
+      return null;
+    }
+    return result.text;
+  }
+
+  Future<String?> _tagComposeLyrics(String lyrics) async {
+    final result = await _app.ollama.tagLyrics(
+      lyrics,
+      model: _settings.ollamaModel,
+    );
+    if (!result.ok) {
+      if (mounted) _showSnack(result.message ?? '가사 태깅에 실패했습니다.');
+      return null;
+    }
+    return result.text;
+  }
+
+  Future<void> _playComposition(Composition item) async {
+    final path = await _app.composeLibrary.pathFor(item);
+    final ok = await _takePlayer.playFile(path);
+    if (!mounted) return;
+    if (!ok) {
+      _showSnack('생성곡 파일을 재생할 수 없습니다.');
+      return;
+    }
+    setState(() {
+      _playingCompositionId = item.id;
+      _playingTakeId = null;
+    });
+  }
+
+  Future<void> _stopComposition(Composition item) async {
+    await _takePlayer.stop();
+    if (!mounted) return;
+    setState(() => _playingCompositionId = null);
+  }
+
+  Future<void> _renameComposition(Composition item, String newTitle) async {
+    await _app.composeLibrary.update(item.copyWith(title: newTitle));
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Future<void> _registerComposition(
+    Composition item, {
+    bool karaokeSet = false,
+  }) async {
+    final song = await _app.registerCompositionAsSong(item.id);
+    if (song == null || !mounted) return;
+    setState(() {});
+    if (karaokeSet) {
+      await _app.makeKaraokeSetForComposition(item.id);
+      if (!mounted) return;
+      setState(() {});
+    }
+  }
+
+  /// 생성 BGM을 기존 곡의 빈 슬롯에 반주로 넣는다.
+  Future<void> _attachCompositionToSong(Composition item) async {
+    // 빈 슬롯이 있는 곡만 후보로 보여준다.
+    final candidates = _songs
+        .where(
+          (s) =>
+              s.availableTrackSlots.length < AppConstants.backingTrackSlots.length,
+        )
+        .toList();
+    if (candidates.isEmpty) {
+      _showSnack('빈 반주 슬롯이 있는 곡이 없습니다.');
+      return;
+    }
+    final picked = await showDialog<Song>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('반주를 넣을 곡 선택'),
+        children: candidates
+            .map(
+              (s) => SimpleDialogOption(
+                onPressed: () => Navigator.of(ctx).pop(s),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(s.title, style: AppTypography.body),
+                ),
+              ),
+            )
+            .toList(growable: false),
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    final usedSlots = picked.availableTrackSlots.toSet();
+    final freeSlot = AppConstants.backingTrackSlots
+        .firstWhere((s) => !usedSlots.contains(s), orElse: () => -1);
+    if (freeSlot < 0) {
+      _showSnack('이 곡에는 빈 슬롯이 없습니다.');
+      return;
+    }
+    final path = await _app.composeLibrary.pathFor(item);
+    final updated = await _app.attachTrackToSong(
+      songId: picked.id,
+      slot: freeSlot,
+      sourcePath: path,
+      label: 'AI BGM',
+    );
+    if (!mounted) return;
+    _showSnack(
+      updated == null
+          ? '반주 넣기에 실패했습니다.'
+          : '"${picked.title}"의 슬롯 $freeSlot에 반주로 넣었습니다.',
+    );
+  }
+
+  Future<void> _exportComposition(Composition item) async {
+    final ext = item.fileName.contains('.')
+        ? item.fileName.substring(item.fileName.lastIndexOf('.'))
+        : '.mp3';
+    final target = await FilePicker.platform.saveFile(
+      dialogTitle: '내보낼 위치 선택',
+      fileName: '${sanitizeFileName(item.title, fallback: 'AI작곡')}$ext',
+    );
+    if (target == null || !mounted) return;
+    try {
+      await File(await _app.composeLibrary.pathFor(item)).copy(target);
+      if (mounted) _showSnack('내보냈습니다: $target');
+    } catch (e) {
+      if (mounted) _showSnack('내보내기에 실패했습니다: $e');
+    }
+  }
+
+  Future<void> _deleteComposition(Composition item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('생성곡 삭제'),
+        content: Text(
+          '"${item.title}"을(를) 삭제할까요? 오디오 파일도 함께 지워집니다.\n'
+          '(곡으로 등록한 사본에는 영향이 없습니다)',
+          style: AppTypography.body,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (_playingCompositionId == item.id) await _takePlayer.stop();
+    await _app.composeLibrary.remove(item);
+    if (!mounted) return;
+    setState(() => _playingCompositionId = null);
+    _showSnack('삭제했습니다.');
   }
 
   // ── 수동 .lrc 가져오기 ──────────────────────────────────
@@ -893,6 +1117,7 @@ class _SongListScreenState extends State<SongListScreen> {
       toolMissingReason: _ytDlpMissingReason,
       separatorStatusLabel: _separatorStatusLabel,
       separatorOnline: _separatorOnline,
+      localAiEnabled: _settings.localAiEnabled,
     );
     if (choice == null) return;
     if (!await _confirmYoutubeNotice()) return;
@@ -921,6 +1146,7 @@ class _SongListScreenState extends State<SongListScreen> {
       toolMissingReason: _ytDlpMissingReason,
       separatorStatusLabel: _separatorStatusLabel,
       separatorOnline: _separatorOnline,
+      localAiEnabled: _settings.localAiEnabled,
     );
     if (choice == null) return;
     await _startYoutubeImport(
@@ -1217,6 +1443,32 @@ class _SongListScreenState extends State<SongListScreen> {
         micLevel: _recording.level,
         micLevelLabel: _recording.levelLabel,
         onToggleMicTest: _toggleMicTest,
+        composeJobs: _app.composeJobs.jobs,
+        compositions: _app.composeLibrary.items,
+        composeStatusLabel: _app.composeStatusLabel,
+        bgmStatusLabel: _app.bgmStatusLabel,
+        playingCompositionId: _playingCompositionId,
+        onPolishPrompt: _polishPrompt,
+        onTagLyrics: _tagComposeLyrics,
+        onCompose: _composeGenerate,
+        onComposeVariations: _composeVariations,
+        onCancelComposeJob: _app.composeJobs.cancel,
+        onRetryComposeJob: _app.composeJobs.retry,
+        onClearFinishedComposeJobs: _app.composeJobs.clearFinished,
+        onPlayComposition: _playComposition,
+        onStopComposition: _stopComposition,
+        onRenameComposition: _renameComposition,
+        onRegisterComposition: _registerComposition,
+        onAttachCompositionToSong: _attachCompositionToSong,
+        onExportComposition: _exportComposition,
+        onDeleteComposition: _deleteComposition,
+        bgmPresetsLoader: _app.bgmCompose.presets,
+        disabledDestinations: _settings.localAiEnabled
+            ? const <AppDestination>{}
+            : const {AppDestination.compose},
+        onDisabledDestinationTap: (_) =>
+            _showSnack('설정에서 로컬AI를 켜면 사용할 수 있습니다.'),
+        onCheckOllamaModels: _app.ollama.listModels,
         todayGoal: _dailyGoals.today(),
         trainingStreak: _dailyGoals.streak(),
         trainingCompletedThisWeek: _dailyGoals.completedInLast(7),

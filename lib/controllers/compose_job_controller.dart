@@ -61,6 +61,25 @@ class ComposeRequest {
   /// 생성에 실제로 보낼 프롬프트 — 다듬은 영문이 있으면 그것, 없으면 원문.
   String get effectivePrompt =>
       stylePromptEn.trim().isNotEmpty ? stylePromptEn.trim() : stylePromptKo.trim();
+
+  /// 변주 생성용 — 같은 요청에 제목·seed·묶음 id만 바꾼다.
+  ComposeRequest copyWith({String? title, int? seed, String? batchId}) {
+    return ComposeRequest(
+      title: title ?? this.title,
+      mode: mode,
+      stylePromptKo: stylePromptKo,
+      stylePromptEn: stylePromptEn,
+      lyrics: lyrics,
+      vocalType: vocalType,
+      genre: genre,
+      bpm: bpm,
+      durationSec: durationSec,
+      seed: seed ?? this.seed,
+      preset: preset,
+      modelSize: modelSize,
+      batchId: batchId ?? this.batchId,
+    );
+  }
 }
 
 @immutable

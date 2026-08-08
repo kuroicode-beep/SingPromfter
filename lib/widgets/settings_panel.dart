@@ -48,6 +48,13 @@ class SettingsPanel extends StatelessWidget {
   final String micLevelLabel;
   final VoidCallback? onToggleMicTest;
 
+  // ── AI 기능·작곡 섹션 (v3.0.0) ──
+  final String composeStatusLabel;
+  final String bgmStatusLabel;
+
+  /// Ollama 설치 모델 목록 조회(꺼져 있으면 null) — '모델 확인' 버튼용.
+  final Future<List<String>?> Function()? onCheckOllamaModels;
+
   const SettingsPanel({
     super.key,
     this.practiceSummaries = const [],
@@ -68,6 +75,9 @@ class SettingsPanel extends StatelessWidget {
     this.micLevel = 0,
     this.micLevelLabel = '',
     this.onToggleMicTest,
+    this.composeStatusLabel = '',
+    this.bgmStatusLabel = '',
+    this.onCheckOllamaModels,
   });
 
   @override
@@ -134,6 +144,20 @@ class SettingsPanel extends StatelessWidget {
           micLevel: micLevel,
           micLevelLabel: micLevelLabel,
           onToggleMicTest: onToggleMicTest,
+        ),
+        const SizedBox(height: 24),
+        _AiFeatureSection(
+          settings: settings,
+          onChanged: onSettingsChanged,
+          separatorStatusLabel: separatorStatusLabel,
+          composeStatusLabel: composeStatusLabel,
+          bgmStatusLabel: bgmStatusLabel,
+        ),
+        const SizedBox(height: 24),
+        _ComposeSettingsSection(
+          settings: settings,
+          onChanged: onSettingsChanged,
+          onCheckOllamaModels: onCheckOllamaModels,
         ),
         const SizedBox(height: 24),
         _StageDisplaySection(
@@ -312,6 +336,303 @@ class _RecordingSection extends StatelessWidget {
               ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+/// AI 기능 — 로컬AI/클라우드AI 스위치 (기본 꺼짐). (v3.0.0)
+///
+/// 켤 때는 필요한 서버·설치 목록과 현재 상태를 팝업으로 먼저 보여준다.
+/// [켜기]를 눌러야만 실제로 켜진다 — SAW가 없는 환경에서 기능이 조용히
+/// 실패하는 것을 막기 위해서다.
+class _AiFeatureSection extends StatelessWidget {
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onChanged;
+  final String separatorStatusLabel;
+  final String composeStatusLabel;
+  final String bgmStatusLabel;
+
+  const _AiFeatureSection({
+    required this.settings,
+    required this.onChanged,
+    required this.separatorStatusLabel,
+    required this.composeStatusLabel,
+    required this.bgmStatusLabel,
+  });
+
+  Future<void> _toggleLocalAi(BuildContext context, bool next) async {
+    if (!next) {
+      onChanged(settings.copyWith(localAiEnabled: false));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로컬 AI 기능 안내'),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '로컬AI를 켜면 아래 기능을 쓸 수 있습니다. 각 기능은 SAW '
+                  '(SVIL AI Workstation)의 로컬 서버가 필요합니다.',
+                  style: AppTypography.body,
+                ),
+                const SizedBox(height: 12),
+                const _AiRequirementRow(
+                  title: 'AI 보컬 분리 (MR 만들기·녹음 정리)',
+                  detail: 'separator_system\\start.bat — 포트 8771',
+                ),
+                const _AiRequirementRow(
+                  title: '작곡 — 보컬곡 (ACE-Step 1.5 터보)',
+                  detail:
+                      'compose_system\\start.bat(8774) + '
+                      'C:\\ai-acestep\\start_api_server.bat(8001, SAW 트레이 가능)',
+                ),
+                const _AiRequirementRow(
+                  title: '작곡 — BGM (MusicGen)',
+                  detail: 'bgm_system\\start.bat — 포트 8766',
+                ),
+                _AiRequirementRow(
+                  title: '프롬프트 다듬기 (Ollama)',
+                  detail:
+                      'Ollama(11434) + ollama pull ${settings.ollamaModel}',
+                ),
+                const Divider(height: 20),
+                Text('현재 상태', style: AppTypography.bodyMuted),
+                const SizedBox(height: 4),
+                Text(
+                  '$separatorStatusLabel\n$composeStatusLabel\n$bgmStatusLabel',
+                  style: AppTypography.mono,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '서버가 꺼져 있어도 켤 수 있습니다 — 기능을 쓸 때 다시 안내합니다.',
+                  style: AppTypography.bodyMuted,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('켜기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      onChanged(settings.copyWith(localAiEnabled: true));
+    }
+  }
+
+  Future<void> _toggleCloudAi(BuildContext context, bool next) async {
+    if (!next) {
+      onChanged(settings.copyWith(cloudAiEnabled: false));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('클라우드 AI 기능 안내'),
+        content: Text(
+          '현재 버전에는 클라우드 AI 기능이 없습니다.\n'
+          '향후 확장(클라우드 LLM 프롬프트 다듬기 등)을 위한 예약 스위치입니다.\n'
+          '켜 두어도 요금이 발생하지 않습니다.',
+          style: AppTypography.body,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('켜기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      onChanged(settings.copyWith(cloudAiEnabled: true));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('AI 기능', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('로컬AI 사용', style: AppTypography.body),
+          subtitle: Text(
+            settings.localAiEnabled
+                ? '켜짐 — 보컬 분리·작곡·프롬프트 다듬기 사용 가능'
+                : '꺼짐 — 작곡 탭과 AI 보컬 분리가 비활성화됩니다',
+            style: AppTypography.bodyMuted,
+          ),
+          value: settings.localAiEnabled,
+          onChanged: (v) => _toggleLocalAi(context, v),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('클라우드AI 사용', style: AppTypography.body),
+          subtitle: Text(
+            '향후 확장용 (현재 클라우드 AI 기능 없음)',
+            style: AppTypography.bodyMuted,
+          ),
+          value: settings.cloudAiEnabled,
+          onChanged: (v) => _toggleCloudAi(context, v),
+        ),
+      ],
+    );
+  }
+}
+
+class _AiRequirementRow extends StatelessWidget {
+  final String title;
+  final String detail;
+
+  const _AiRequirementRow({required this.title, required this.detail});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTypography.body),
+          Text(detail, style: AppTypography.monoMuted),
+        ],
+      ),
+    );
+  }
+}
+
+/// 작곡 — Ollama 모델명 설정과 존재 확인. (v3.0.0)
+class _ComposeSettingsSection extends StatefulWidget {
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onChanged;
+  final Future<List<String>?> Function()? onCheckOllamaModels;
+
+  const _ComposeSettingsSection({
+    required this.settings,
+    required this.onChanged,
+    required this.onCheckOllamaModels,
+  });
+
+  @override
+  State<_ComposeSettingsSection> createState() =>
+      _ComposeSettingsSectionState();
+}
+
+class _ComposeSettingsSectionState extends State<_ComposeSettingsSection> {
+  late final TextEditingController _modelController = TextEditingController(
+    text: widget.settings.ollamaModel,
+  );
+  String _checkResult = '';
+  bool _checking = false;
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _check() async {
+    final loader = widget.onCheckOllamaModels;
+    if (loader == null) return;
+    setState(() {
+      _checking = true;
+      _checkResult = '';
+    });
+    final models = await loader();
+    if (!mounted) return;
+    final wanted = _modelController.text.trim();
+    setState(() {
+      _checking = false;
+      if (models == null) {
+        _checkResult = 'Ollama(11434)에 연결할 수 없습니다. Ollama 실행을 확인해 주세요.';
+      } else if (models.isEmpty) {
+        _checkResult =
+            "설치된 모델이 없습니다. 터미널에서 'ollama pull $wanted'를 실행해 주세요.";
+      } else if (wanted.isNotEmpty &&
+          models.any((m) => m == wanted || m.startsWith('$wanted-') ||
+              m.split(':').first == wanted)) {
+        _checkResult = "'$wanted' 확인됨 — 사용 가능합니다.";
+      } else {
+        _checkResult =
+            "'$wanted'가 없습니다. 설치된 모델: ${models.take(5).join(', ')}";
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('작곡', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _modelController,
+                style: AppTypography.body,
+                decoration: const InputDecoration(
+                  labelText: '프롬프트 다듬기 모델 (Ollama)',
+                  hintText: '예: gemma4:12b',
+                ),
+                onSubmitted: (value) => widget.onChanged(
+                  widget.settings.copyWith(ollamaModel: value.trim()),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: _checking
+                    ? null
+                    : () {
+                        widget.onChanged(
+                          widget.settings.copyWith(
+                            ollamaModel: _modelController.text.trim(),
+                          ),
+                        );
+                        _check();
+                      },
+                icon: _checking
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.fact_check_outlined),
+                label: const Text('모델 확인'),
+              ),
+            ),
+          ],
+        ),
+        if (_checkResult.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(_checkResult, style: AppTypography.bodyMuted),
+          ),
       ],
     );
   }

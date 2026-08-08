@@ -28,9 +28,14 @@ class SongListScreenView extends StatelessWidget {
   final Widget searchPanel;
   final Widget trainingPanel;
   final Widget recordingsPanel;
+  final Widget composePanel;
   final Widget importPanel;
   final Widget importProgress;
   final Widget settingsPanel;
+
+  /// 비활성 탭(로컬AI 꺼짐 등)과 눌렀을 때 안내 콜백.
+  final Set<AppDestination> disabledDestinations;
+  final ValueChanged<AppDestination>? onDisabledDestinationTap;
 
   const SongListScreenView({
     super.key,
@@ -50,9 +55,12 @@ class SongListScreenView extends StatelessWidget {
     required this.searchPanel,
     required this.trainingPanel,
     required this.recordingsPanel,
+    required this.composePanel,
     required this.importPanel,
     required this.importProgress,
     required this.settingsPanel,
+    this.disabledDestinations = const {},
+    this.onDisabledDestinationTap,
   });
 
   @override
@@ -64,6 +72,8 @@ class SongListScreenView extends StatelessWidget {
             destination: destination,
             onDestinationChanged: onDestinationChanged,
             onAddSong: onAddSong,
+            disabled: disabledDestinations,
+            onDisabledTap: onDisabledDestinationTap,
           ),
           Expanded(
             child: loading
@@ -92,6 +102,8 @@ class SongListScreenView extends StatelessWidget {
         return trainingPanel;
       case AppDestination.recordings:
         return recordingsPanel;
+      case AppDestination.compose:
+        return composePanel;
       case AppDestination.jobs:
         return importPanel;
       case AppDestination.settings:

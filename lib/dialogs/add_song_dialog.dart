@@ -35,12 +35,16 @@ class AddSongDialog extends StatefulWidget {
   final String separatorStatusLabel;
   final bool separatorOnline;
 
+  /// 로컬AI 스위치가 꺼져 있으면 AI 보컬 분리 선택지를 비활성화한다.
+  final bool localAiEnabled;
+
   const AddSongDialog({
     super.key,
     required this.toolAvailable,
     required this.toolMissingReason,
     required this.separatorStatusLabel,
     required this.separatorOnline,
+    this.localAiEnabled = true,
   });
 
   static Future<AddSongFromUrl?> show(
@@ -49,6 +53,7 @@ class AddSongDialog extends StatefulWidget {
     required String? toolMissingReason,
     required String separatorStatusLabel,
     required bool separatorOnline,
+    bool localAiEnabled = true,
   }) {
     return showDialog<AddSongFromUrl>(
       context: context,
@@ -57,6 +62,7 @@ class AddSongDialog extends StatefulWidget {
         toolMissingReason: toolMissingReason,
         separatorStatusLabel: separatorStatusLabel,
         separatorOnline: separatorOnline,
+        localAiEnabled: localAiEnabled,
       ),
     );
   }
@@ -67,7 +73,10 @@ class AddSongDialog extends StatefulWidget {
 
 class _AddSongDialogState extends State<AddSongDialog> {
   final _controller = TextEditingController();
-  MrSourceMode _mode = MrSourceMode.aiSeparate;
+  // 로컬AI가 꺼져 있으면 AI 분리 대신 'MR 영상 그대로'를 기본으로 한다.
+  late MrSourceMode _mode = widget.localAiEnabled
+      ? MrSourceMode.aiSeparate
+      : MrSourceMode.asIs;
   bool _fetchLyrics = true;
   bool _makeOriginal = true;
   bool _makeInstrumental = true;
@@ -175,6 +184,9 @@ class _AddSongDialogState extends State<AddSongDialog> {
                 (mode) => _ModeTile(
                   mode: mode,
                   selected: _mode == mode,
+                  enabled: widget.localAiEnabled ||
+                      mode != MrSourceMode.aiSeparate,
+                  disabledReason: '설정에서 로컬AI를 켜면 사용할 수 있습니다.',
                   onTap: () => setState(() => _mode = mode),
                 ),
               ),
@@ -424,15 +436,63 @@ class _ModeTile extends StatelessWidget {
   final MrSourceMode mode;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
+  final String? disabledReason;
 
   const _ModeTile({
     required this.mode,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
+    this.disabledReason,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (!enabled) {
+      // 보이되 흐리게 — 사유는 색이 아니라 글자로 알린다.
+      return Semantics(
+        label: '${mode.label} (사용 불가)',
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Opacity(
+            opacity: 0.4,
+            child: Container(
+              constraints: const BoxConstraints(
+                minHeight: AppConstants.minTouchTarget,
+              ),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.elevated,
+                borderRadius: AppShapes.controlRadius,
+                border: Border.all(color: AppColors.borderStrong, width: 2),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.radio_button_off,
+                      color: AppColors.textMuted),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(mode.label, style: AppTypography.body),
+                        const SizedBox(height: 2),
+                        Text(
+                          disabledReason ?? mode.description,
+                          style: AppTypography.bodyMuted,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Semantics(
       button: true,
       selected: selected,
