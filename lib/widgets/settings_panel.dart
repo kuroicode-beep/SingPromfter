@@ -15,6 +15,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../constants/app_constants.dart';
 import '../constants/app_shortcuts.dart';
 import '../constants/app_version.dart';
 import '../models/practice_session.dart';
@@ -28,7 +29,32 @@ import 'preset_btn.dart';
 import 'prompter_space_background.dart'
     show spaceBackgroundLevelLabel, spaceBackgroundMaxLevel;
 
-class SettingsPanel extends StatelessWidget {
+/// 설정 분류 — 왼쪽 사이드 메뉴 항목. 순서가 곧 메뉴 순서다.
+enum SettingsCategory { data, recording, ai, display, training, shortcuts, info }
+
+extension SettingsCategoryInfo on SettingsCategory {
+  String get label => switch (this) {
+    SettingsCategory.data => '데이터·도구',
+    SettingsCategory.recording => '녹음',
+    SettingsCategory.ai => 'AI·작곡',
+    SettingsCategory.display => '표시',
+    SettingsCategory.training => '트레이닝',
+    SettingsCategory.shortcuts => '단축키',
+    SettingsCategory.info => '기록·정보',
+  };
+
+  IconData get icon => switch (this) {
+    SettingsCategory.data => Icons.folder_outlined,
+    SettingsCategory.recording => Icons.mic_none,
+    SettingsCategory.ai => Icons.auto_awesome_outlined,
+    SettingsCategory.display => Icons.visibility_outlined,
+    SettingsCategory.training => Icons.fitness_center,
+    SettingsCategory.shortcuts => Icons.keyboard_outlined,
+    SettingsCategory.info => Icons.info_outline,
+  };
+}
+
+class SettingsPanel extends StatefulWidget {
   final List<PracticeSummary> practiceSummaries;
   final String? ytDlpVersion;
   /// 무대 가사 표시 설정 전체. showEqMeter 하나만 따로 받던 것을 대체한다 —
@@ -91,144 +117,263 @@ class SettingsPanel extends StatelessWidget {
   });
 
   @override
+  State<SettingsPanel> createState() => _SettingsPanelState();
+}
+
+class _SettingsPanelState extends State<SettingsPanel> {
+  /// 설정이 12섹션까지 길어져 분류별 사이드 메뉴로 나눴다(v5.1.0).
+  /// 선택은 화면 상태로만 두고 저장하지 않는다 — 항상 첫 분류에서 시작.
+  SettingsCategory _category = SettingsCategory.data;
+
+  @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('데이터 관리', style: AppTypography.listTitle),
-        const SizedBox(height: 8),
-        _SettingsTile(
-          icon: Icons.archive_outlined,
-          title: '백업보내기',
-          subtitle: '곡·설정을 zip 파일로 저장',
-          onTap: onExportBackup,
+        SizedBox(
+          width: 176,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 16, 8, 16),
+            children: [
+              for (final c in SettingsCategory.values)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _CategoryButton(
+                    category: c,
+                    selected: _category == c,
+                    onTap: () => setState(() => _category = c),
+                  ),
+                ),
+            ],
+          ),
         ),
-        _SettingsTile(
-          icon: Icons.unarchive_outlined,
-          title: '백업 가져오기',
-          subtitle: '저장한 zip 백업 복원',
-          onTap: onImportBackup,
+        const VerticalDivider(width: 1, thickness: 1),
+        Expanded(
+          child: ListView(
+            // 분류가 바뀌면 새 리스트로 취급해 스크롤을 맨 위로 되돌린다.
+            key: ValueKey(_category),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: _sections(context),
+          ),
         ),
-        _SettingsTile(
-          icon: Icons.cleaning_services_outlined,
-          title: '라이브러리 정리',
-          subtitle: '사용하지 않는 파일·임시 항목 정리, 중복 제목 확인',
-          onTap: onRunMaintenance,
+      ],
+    );
+  }
+
+  List<Widget> _sections(BuildContext context) {
+    switch (_category) {
+      case SettingsCategory.data:
+        return [
+          Text('데이터 관리', style: AppTypography.listTitle),
+          const SizedBox(height: 8),
+          _SettingsTile(
+            icon: Icons.archive_outlined,
+            title: '백업보내기',
+            subtitle: '곡·설정을 zip 파일로 저장',
+            onTap: widget.onExportBackup,
+          ),
+          _SettingsTile(
+            icon: Icons.unarchive_outlined,
+            title: '백업 가져오기',
+            subtitle: '저장한 zip 백업 복원',
+            onTap: widget.onImportBackup,
+          ),
+          _SettingsTile(
+            icon: Icons.cleaning_services_outlined,
+            title: '라이브러리 정리',
+            subtitle: '사용하지 않는 파일·임시 항목 정리, 중복 제목 확인',
+            onTap: widget.onRunMaintenance,
+          ),
+          _SettingsTile(
+            icon: Icons.drive_file_move_outlined,
+            title: 'MR 내보내기 폴더',
+            subtitle: widget.settings.exportFolder,
+            onTap: () async {
+              final picked = await FilePicker.platform.getDirectoryPath(
+                dialogTitle: 'MR 내보내기 폴더 선택',
+                initialDirectory: widget.settings.exportFolder,
+              );
+              if (picked == null || picked.trim().isEmpty) return;
+              widget.onSettingsChanged(
+                widget.settings.copyWith(exportFolder: picked.trim()),
+              );
+            },
+          ),
+          const SizedBox(height: 24),
+          Text('외부 도구', style: AppTypography.listTitle),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('yt-dlp ', style: AppTypography.bodyMuted),
+              Expanded(
+                child: Text(
+                  widget.ytDlpVersion == null
+                      ? '찾을 수 없음'
+                      : '버전 ${widget.ytDlpVersion}',
+                  style: AppTypography.mono,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '유튜브 가져오기가 갑자기 실패하면 대부분 오래된 yt-dlp가 원인입니다.',
+            style: AppTypography.bodyMuted,
+          ),
+          _SettingsTile(
+            icon: Icons.system_update_alt,
+            title: 'yt-dlp 업데이트 실행',
+            subtitle: 'yt-dlp -U 로 최신 버전을 받습니다',
+            onTap: widget.onUpdateYtDlp,
+          ),
+          if (widget.separatorStatusLabel.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(widget.separatorStatusLabel, style: AppTypography.bodyMuted),
+          ],
+        ];
+      case SettingsCategory.recording:
+        return [
+          _RecordingSection(
+            settings: widget.settings,
+            onChanged: widget.onSettingsChanged,
+            devices: widget.recordingDevices,
+            onRefreshDevices: widget.onRefreshRecordingDevices,
+            micTesting: widget.micTesting,
+            micLevel: widget.micLevel,
+            micLevelLabel: widget.micLevelLabel,
+            onToggleMicTest: widget.onToggleMicTest,
+          ),
+        ];
+      case SettingsCategory.ai:
+        return [
+          _AiFeatureSection(
+            settings: widget.settings,
+            onChanged: widget.onSettingsChanged,
+            separatorStatusLabel: widget.separatorStatusLabel,
+            composeStatusLabel: widget.composeStatusLabel,
+            bgmStatusLabel: widget.bgmStatusLabel,
+          ),
+          const SizedBox(height: 24),
+          _ComposeSettingsSection(
+            settings: widget.settings,
+            onChanged: widget.onSettingsChanged,
+            onCheckOllamaModels: widget.onCheckOllamaModels,
+          ),
+        ];
+      case SettingsCategory.display:
+        return [
+          _StageDisplaySection(
+            settings: widget.settings,
+            onChanged: widget.onSettingsChanged,
+            fontOptions: widget.fontOptions,
+            onCustomFontSize: widget.onCustomFontSize,
+            onAccessibilityPreset: widget.onAccessibilityPreset,
+          ),
+          const SizedBox(height: 24),
+          const _AppDisplaySection(),
+        ];
+      case SettingsCategory.training:
+        return [
+          _TrainingSection(
+            settings: widget.settings,
+            onChanged: widget.onSettingsChanged,
+          ),
+        ];
+      case SettingsCategory.shortcuts:
+        return [
+          const _ShortcutHelpSection(),
+          const SizedBox(height: 24),
+          const _KeyDiagSection(),
+        ];
+      case SettingsCategory.info:
+        return [
+          _PracticeLogSection(summaries: widget.practiceSummaries),
+          const SizedBox(height: 32),
+          Text('앱 정보', style: AppTypography.listTitle),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text('버전 ', style: AppTypography.bodyMuted),
+              Text('v${AppVersion.current}', style: AppTypography.mono),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Theme(
+            data:
+                Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(bottom: 8),
+              title: Text('업데이트 히스토리', style: AppTypography.body),
+              iconColor: AppColors.primary,
+              collapsedIconColor: AppColors.onSurfaceVariant,
+              children: AppVersion.history
+                  .map((e) => _HistoryRow(entry: e))
+                  .toList(growable: false),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Copyright SVIL. Powered by 디또 2026/03/10',
+            style: AppTypography.bodyMuted.copyWith(height: 1.4),
+          ),
+        ];
+    }
+  }
+}
+
+/// 사이드 메뉴 버튼 — 선택 상태를 색·테두리·배경으로 함께 표시한다.
+class _CategoryButton extends StatelessWidget {
+  final SettingsCategory category;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CategoryButton({
+    required this.category,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${category.label} 설정',
+      child: TextButton(
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          minimumSize: const Size.fromHeight(AppConstants.minTouchTarget),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          backgroundColor:
+              selected ? AppColors.selectedSurface : Colors.transparent,
+          foregroundColor:
+              selected ? AppColors.primary : AppColors.onSurfaceVariant,
+          shape:
+              RoundedRectangleBorder(borderRadius: AppShapes.controlRadius),
+          side: selected
+              ? const BorderSide(color: AppColors.primaryContainer, width: 2)
+              : BorderSide.none,
         ),
-        _SettingsTile(
-          icon: Icons.drive_file_move_outlined,
-          title: 'MR 내보내기 폴더',
-          subtitle: settings.exportFolder,
-          onTap: () async {
-            final picked = await FilePicker.platform.getDirectoryPath(
-              dialogTitle: 'MR 내보내기 폴더 선택',
-              initialDirectory: settings.exportFolder,
-            );
-            if (picked == null || picked.trim().isEmpty) return;
-            onSettingsChanged(settings.copyWith(exportFolder: picked.trim()));
-          },
-        ),
-        const SizedBox(height: 24),
-        _RecordingSection(
-          settings: settings,
-          onChanged: onSettingsChanged,
-          devices: recordingDevices,
-          onRefreshDevices: onRefreshRecordingDevices,
-          micTesting: micTesting,
-          micLevel: micLevel,
-          micLevelLabel: micLevelLabel,
-          onToggleMicTest: onToggleMicTest,
-        ),
-        const SizedBox(height: 24),
-        Text('외부 도구', style: AppTypography.listTitle),
-        const SizedBox(height: 8),
-        Row(
+        child: Row(
           children: [
-            Text('yt-dlp ', style: AppTypography.bodyMuted),
+            Icon(category.icon, size: 20),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                ytDlpVersion == null ? '찾을 수 없음' : '버전 $ytDlpVersion',
-                style: AppTypography.mono,
+                category.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.body.copyWith(
+                  color: selected
+                      ? AppColors.primary
+                      : AppColors.onSurfaceVariant,
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 4),
-        Text(
-          '유튜브 가져오기가 갑자기 실패하면 대부분 오래된 yt-dlp가 원인입니다.',
-          style: AppTypography.bodyMuted,
-        ),
-        _SettingsTile(
-          icon: Icons.system_update_alt,
-          title: 'yt-dlp 업데이트 실행',
-          subtitle: 'yt-dlp -U 로 최신 버전을 받습니다',
-          onTap: onUpdateYtDlp,
-        ),
-        if (separatorStatusLabel.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(separatorStatusLabel, style: AppTypography.bodyMuted),
-        ],
-        const SizedBox(height: 24),
-        _AiFeatureSection(
-          settings: settings,
-          onChanged: onSettingsChanged,
-          separatorStatusLabel: separatorStatusLabel,
-          composeStatusLabel: composeStatusLabel,
-          bgmStatusLabel: bgmStatusLabel,
-        ),
-        const SizedBox(height: 24),
-        _ComposeSettingsSection(
-          settings: settings,
-          onChanged: onSettingsChanged,
-          onCheckOllamaModels: onCheckOllamaModels,
-        ),
-        const SizedBox(height: 24),
-        _StageDisplaySection(
-          settings: settings,
-          onChanged: onSettingsChanged,
-          fontOptions: fontOptions,
-          onCustomFontSize: onCustomFontSize,
-          onAccessibilityPreset: onAccessibilityPreset,
-        ),
-        const SizedBox(height: 24),
-        const _AppDisplaySection(),
-        const SizedBox(height: 24),
-        _TrainingSection(settings: settings, onChanged: onSettingsChanged),
-        const SizedBox(height: 24),
-        const _ShortcutHelpSection(),
-        const SizedBox(height: 24),
-        const _KeyDiagSection(),
-        const SizedBox(height: 24),
-        _PracticeLogSection(summaries: practiceSummaries),
-        const SizedBox(height: 32),
-        Text('앱 정보', style: AppTypography.listTitle),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Text('버전 ', style: AppTypography.bodyMuted),
-            Text('v${AppVersion.current}', style: AppTypography.mono),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            childrenPadding: const EdgeInsets.only(bottom: 8),
-            title: Text('업데이트 히스토리', style: AppTypography.body),
-            iconColor: AppColors.primary,
-            collapsedIconColor: AppColors.onSurfaceVariant,
-            children: AppVersion.history
-                .map((e) => _HistoryRow(entry: e))
-                .toList(growable: false),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Copyright SVIL. Powered by 디또 2026/03/10',
-          style: AppTypography.bodyMuted.copyWith(height: 1.4),
-        ),
-      ],
+      ),
     );
   }
 }

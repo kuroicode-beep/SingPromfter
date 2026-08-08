@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.0.1';
+  static const String current = '5.1.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.1.0',
+      '2026-08-08',
+      '설정 화면 개편 — 12개 섹션을 7개 분류(데이터·도구/녹음/AI·작곡/표시/'
+          '트레이닝/단축키/기록·정보)로 묶고 왼쪽 사이드 메뉴로 전환. '
+          '한 화면에 한 분류만 보여 스크롤이 짧아졌습니다',
+    ),
     AppVersionEntry(
       '5.0.1',
       '2026-08-08',
