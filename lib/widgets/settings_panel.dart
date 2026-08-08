@@ -40,6 +40,14 @@ class SettingsPanel extends StatelessWidget {
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
 
+  // ── 녹음 섹션 (v3.0.0) ──
+  final List<String> recordingDevices;
+  final VoidCallback? onRefreshDevices;
+  final bool micTesting;
+  final double micLevel;
+  final String micLevelLabel;
+  final VoidCallback? onToggleMicTest;
+
   const SettingsPanel({
     super.key,
     this.practiceSummaries = const [],
@@ -54,6 +62,12 @@ class SettingsPanel extends StatelessWidget {
     required this.onRunMaintenance,
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
+    this.recordingDevices = const [],
+    this.onRefreshDevices,
+    this.micTesting = false,
+    this.micLevel = 0,
+    this.micLevelLabel = '',
+    this.onToggleMicTest,
   });
 
   @override
@@ -111,6 +125,17 @@ class SettingsPanel extends StatelessWidget {
           Text(separatorStatusLabel, style: AppTypography.bodyMuted),
         ],
         const SizedBox(height: 24),
+        _RecordingSection(
+          settings: settings,
+          onChanged: onSettingsChanged,
+          devices: recordingDevices,
+          onRefreshDevices: onRefreshDevices,
+          micTesting: micTesting,
+          micLevel: micLevel,
+          micLevelLabel: micLevelLabel,
+          onToggleMicTest: onToggleMicTest,
+        ),
+        const SizedBox(height: 24),
         _StageDisplaySection(
           settings: settings,
           onChanged: onSettingsChanged,
@@ -149,6 +174,143 @@ class SettingsPanel extends StatelessWidget {
         Text(
           'Copyright SVIL. Powered by 디또 2026/03/10',
           style: AppTypography.bodyMuted.copyWith(height: 1.4),
+        ),
+      ],
+    );
+  }
+}
+
+/// 녹음 — 입력 장치·입력 볼륨·마이크 테스트. (v3.0.0)
+///
+/// 볼륨은 캡처 시점에 파일에 구워지므로, 테스트 미터도 같은 게인을 지나
+/// 실제 저장될 소리 크기를 보여준다. 상태는 막대+텍스트를 병행한다(저시력).
+class _RecordingSection extends StatelessWidget {
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onChanged;
+  final List<String> devices;
+  final VoidCallback? onRefreshDevices;
+  final bool micTesting;
+  final double micLevel;
+  final String micLevelLabel;
+  final VoidCallback? onToggleMicTest;
+
+  const _RecordingSection({
+    required this.settings,
+    required this.onChanged,
+    required this.devices,
+    required this.onRefreshDevices,
+    required this.micTesting,
+    required this.micLevel,
+    required this.micLevelLabel,
+    required this.onToggleMicTest,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 저장된 장치가 목록에 없으면(장치가 뽑힘) 표시는 비워 두고 자동 선택에 맡긴다.
+    final selectedDevice =
+        devices.contains(settings.recordingDeviceName)
+            ? settings.recordingDeviceName
+            : null;
+    final gainPercent = (settings.recordingGain * 100).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('녹음', style: AppTypography.listTitle),
+        const SizedBox(height: 8),
+        Text('입력 장치', style: AppTypography.bodyMuted),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                initialValue: selectedDevice,
+                hint: Text(
+                  devices.isEmpty ? '장치 없음 — 새로고침을 눌러 주세요' : '자동 (첫 번째 장치)',
+                  style: AppTypography.bodyMuted,
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('자동 (첫 번째 장치)'),
+                  ),
+                  ...devices.map(
+                    (d) => DropdownMenuItem<String>(
+                      value: d,
+                      child: Text(d, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ],
+                onChanged: (value) => onChanged(
+                  settings.copyWith(
+                    recordingDeviceName: value,
+                    clearRecordingDevice: value == null,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: onRefreshDevices,
+                icon: const Icon(Icons.refresh),
+                label: const Text('새로고침'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Text('입력 볼륨', style: AppTypography.bodyMuted),
+            const SizedBox(width: 8),
+            Text('$gainPercent%', style: AppTypography.mono),
+          ],
+        ),
+        Slider(
+          value: settings.recordingGain.clamp(0.0, 2.0),
+          min: 0,
+          max: 2,
+          divisions: 20,
+          label: '$gainPercent%',
+          onChanged: (value) =>
+              onChanged(settings.copyWith(recordingGain: value)),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            SizedBox(
+              height: 50,
+              child: FilledButton.tonalIcon(
+                onPressed: onToggleMicTest,
+                icon: Icon(micTesting ? Icons.stop : Icons.mic_none),
+                label: Text(micTesting ? '테스트 정지' : '마이크 테스트'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (micTesting) ...[
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: micLevel,
+                    minHeight: 12,
+                    backgroundColor: AppColors.surfaceContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(micLevelLabel, style: AppTypography.body),
+            ] else
+              Expanded(
+                child: Text(
+                  '누르면 저장 없이 입력 크기를 확인합니다.',
+                  style: AppTypography.bodyMuted,
+                ),
+              ),
+          ],
         ),
       ],
     );

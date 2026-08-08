@@ -23,6 +23,11 @@ class RecordingsPanel extends StatelessWidget {
   final ValueChanged<RecordingTake> onDelete;
   final ValueChanged<RecordingTake> onMix;
   final ValueChanged<RecordingTake> onPlayMix;
+  // v3.0.0 — 반주 듣기·반주 만들기(재시도)·믹스 설정·파일 내보내기.
+  final ValueChanged<RecordingTake> onPlayAccompaniment;
+  final ValueChanged<RecordingTake> onCutAccompaniment;
+  final ValueChanged<RecordingTake> onMixSettings;
+  final ValueChanged<RecordingTake> onExport;
 
   const RecordingsPanel({
     super.key,
@@ -40,6 +45,10 @@ class RecordingsPanel extends StatelessWidget {
     required this.onDelete,
     required this.onMix,
     required this.onPlayMix,
+    required this.onPlayAccompaniment,
+    required this.onCutAccompaniment,
+    required this.onMixSettings,
+    required this.onExport,
   });
 
   @override
@@ -118,6 +127,10 @@ class RecordingsPanel extends StatelessWidget {
                       onDelete: () => onDelete(take),
                       onMix: () => onMix(take),
                       onPlayMix: () => onPlayMix(take),
+                      onPlayAccompaniment: () => onPlayAccompaniment(take),
+                      onCutAccompaniment: () => onCutAccompaniment(take),
+                      onMixSettings: () => onMixSettings(take),
+                      onExport: () => onExport(take),
                     );
                   },
                 ),
@@ -189,6 +202,10 @@ class _TakeRow extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onMix;
   final VoidCallback onPlayMix;
+  final VoidCallback onPlayAccompaniment;
+  final VoidCallback onCutAccompaniment;
+  final VoidCallback onMixSettings;
+  final VoidCallback onExport;
 
   const _TakeRow({
     required this.take,
@@ -201,6 +218,10 @@ class _TakeRow extends StatelessWidget {
     required this.onDelete,
     required this.onMix,
     required this.onPlayMix,
+    required this.onPlayAccompaniment,
+    required this.onCutAccompaniment,
+    required this.onMixSettings,
+    required this.onExport,
   });
 
   static String _formatDuration(Duration d) {
@@ -265,11 +286,37 @@ class _TakeRow extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: playing ? onStopPlay : onPlay,
                   icon: Icon(playing ? Icons.stop : Icons.play_arrow),
-                  label: Text(playing ? '정지' : '듣기'),
+                  label: Text(playing ? '정지' : '듣기(보컬)'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(96, AppConstants.minTouchTarget),
                   ),
                 ),
+                if (take.hasAccompaniment)
+                  OutlinedButton.icon(
+                    onPressed: playing ? onStopPlay : onPlayAccompaniment,
+                    icon: const Icon(Icons.queue_music),
+                    label: const Text('반주 듣기'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(110, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
+                    ),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: onCutAccompaniment,
+                    icon: const Icon(Icons.content_cut),
+                    label: const Text('반주 만들기'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(110, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 OutlinedButton.icon(
                   onPressed: onEditComment,
                   icon: const Icon(Icons.edit_note),
@@ -318,6 +365,30 @@ class _TakeRow extends StatelessWidget {
                       ),
                     ),
                   ),
+                OutlinedButton.icon(
+                  onPressed: onMixSettings,
+                  icon: const Icon(Icons.tune),
+                  label: const Text('믹스 설정'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(110, AppConstants.minTouchTarget),
+                    side: const BorderSide(
+                      color: AppColors.borderStrong,
+                      width: 2,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onExport,
+                  icon: const Icon(Icons.drive_file_move_outline),
+                  label: const Text('파일로 내보내기'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(140, AppConstants.minTouchTarget),
+                    side: const BorderSide(
+                      color: AppColors.borderStrong,
+                      width: 2,
+                    ),
+                  ),
+                ),
                 OutlinedButton(
                   onPressed: onDelete,
                   style: OutlinedButton.styleFrom(

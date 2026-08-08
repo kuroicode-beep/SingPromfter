@@ -97,6 +97,18 @@ class SongListScreenContent extends StatelessWidget {
   final void Function(RecordingTake take, int rating) onRateTake;
   final ValueChanged<RecordingTake> onToggleTakeKeep;
   final ValueChanged<RecordingTake> onDeleteTake;
+  // v3.0.0 — 반주 듣기·반주 만들기·믹스 설정·내보내기.
+  final ValueChanged<RecordingTake> onPlayTakeAccompaniment;
+  final ValueChanged<RecordingTake> onCutTakeAccompaniment;
+  final ValueChanged<RecordingTake> onTakeMixSettings;
+  final ValueChanged<RecordingTake> onExportTake;
+  // v3.0.0 — 설정 '녹음' 섹션.
+  final List<String> recordingDevices;
+  final VoidCallback onRefreshRecordingDevices;
+  final bool micTesting;
+  final double micLevel;
+  final String micLevelLabel;
+  final VoidCallback onToggleMicTest;
   final DailyGoalLog todayGoal;
   final int trainingStreak;
   final int trainingCompletedThisWeek;
@@ -198,6 +210,16 @@ class SongListScreenContent extends StatelessWidget {
     required this.onRateTake,
     required this.onToggleTakeKeep,
     required this.onDeleteTake,
+    required this.onPlayTakeAccompaniment,
+    required this.onCutTakeAccompaniment,
+    required this.onTakeMixSettings,
+    required this.onExportTake,
+    this.recordingDevices = const [],
+    required this.onRefreshRecordingDevices,
+    this.micTesting = false,
+    this.micLevel = 0,
+    this.micLevelLabel = '',
+    required this.onToggleMicTest,
     required this.todayGoal,
     required this.trainingStreak,
     required this.trainingCompletedThisWeek,
@@ -433,6 +455,10 @@ class SongListScreenContent extends StatelessWidget {
         onDelete: onDeleteTake,
         onMix: onMixTake,
         onPlayMix: onPlayTakeMix,
+        onPlayAccompaniment: onPlayTakeAccompaniment,
+        onCutAccompaniment: onCutTakeAccompaniment,
+        onMixSettings: onTakeMixSettings,
+        onExport: onExportTake,
       ),
       importProgress: ImportProgressStrip(
         jobs: importJobs,
@@ -466,6 +492,12 @@ class SongListScreenContent extends StatelessWidget {
         onRunMaintenance: onRunMaintenance,
         onCustomFontSize: onCustomFontSize,
         onAccessibilityPreset: onAccessibilityPreset,
+        recordingDevices: recordingDevices,
+        onRefreshDevices: onRefreshRecordingDevices,
+        micTesting: micTesting,
+        micLevel: micLevel,
+        micLevelLabel: micLevelLabel,
+        onToggleMicTest: onToggleMicTest,
       ),
     );
   }

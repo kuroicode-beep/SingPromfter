@@ -36,6 +36,22 @@ class PrompterSettings {
   /// 하단 조작판을 펼쳐 둘지. 기본은 닫힘 — 가사 자리를 먼저 준다.
   final bool controlsDrawerOpen;
 
+  /// 녹음 입력 장치 이름. null이면 첫 번째 장치를 자동 선택한다.
+  final String? recordingDeviceName;
+
+  /// 녹음 입력 볼륨(0.0~2.0). 캡처 시점에 파일에 구워진다.
+  final double recordingGain;
+
+  /// 로컬 AI 기능(보컬 분리·작곡·프롬프트 다듬기) 사용 여부. 기본 꺼짐 —
+  /// SAW 서버가 없어도 앱이 온전하도록, 켤 때 설치 안내를 거친다.
+  final bool localAiEnabled;
+
+  /// 클라우드 AI 기능 사용 여부. 기본 꺼짐 (향후 확장용 예약).
+  final bool cloudAiEnabled;
+
+  /// 프롬프트 다듬기에 쓸 Ollama 모델 이름.
+  final String ollamaModel;
+
   const PrompterSettings({
     this.fontSizeLevel = 3,
     this.lineHeightLevel = 3,
@@ -51,6 +67,11 @@ class PrompterSettings {
     this.showEqMeter = true,
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
+    this.recordingDeviceName,
+    this.recordingGain = 1.0,
+    this.localAiEnabled = false,
+    this.cloudAiEnabled = false,
+    this.ollamaModel = 'gemma4:12b',
   });
 
   double get effectiveFontSizePt =>
@@ -74,8 +95,14 @@ class PrompterSettings {
     bool? showEqMeter,
     bool? showSyllableSweep,
     bool? controlsDrawerOpen,
+    String? recordingDeviceName,
+    double? recordingGain,
+    bool? localAiEnabled,
+    bool? cloudAiEnabled,
+    String? ollamaModel,
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
+    bool clearRecordingDevice = false,
   }) {
     return PrompterSettings(
       fontSizeLevel: fontSizeLevel ?? this.fontSizeLevel,
@@ -98,6 +125,13 @@ class PrompterSettings {
       showEqMeter: showEqMeter ?? this.showEqMeter,
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
       controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
+      recordingDeviceName: clearRecordingDevice
+          ? null
+          : (recordingDeviceName ?? this.recordingDeviceName),
+      recordingGain: recordingGain ?? this.recordingGain,
+      localAiEnabled: localAiEnabled ?? this.localAiEnabled,
+      cloudAiEnabled: cloudAiEnabled ?? this.cloudAiEnabled,
+      ollamaModel: ollamaModel ?? this.ollamaModel,
     );
   }
 
@@ -161,6 +195,11 @@ class PrompterSettings {
     'showEqMeter': showEqMeter,
     'showSyllableSweep': showSyllableSweep,
     'controlsDrawerOpen': controlsDrawerOpen,
+    'recordingDeviceName': recordingDeviceName,
+    'recordingGain': recordingGain,
+    'localAiEnabled': localAiEnabled,
+    'cloudAiEnabled': cloudAiEnabled,
+    'ollamaModel': ollamaModel,
   };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
@@ -206,6 +245,14 @@ class PrompterSettings {
       showEqMeter: json['showEqMeter'] as bool? ?? true,
       showSyllableSweep: json['showSyllableSweep'] as bool? ?? true,
       controlsDrawerOpen: json['controlsDrawerOpen'] as bool? ?? false,
+      recordingDeviceName: json['recordingDeviceName'] as String?,
+      recordingGain:
+          ((json['recordingGain'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 2.0),
+      localAiEnabled: json['localAiEnabled'] as bool? ?? false,
+      cloudAiEnabled: json['cloudAiEnabled'] as bool? ?? false,
+      ollamaModel: (json['ollamaModel'] as String?)?.trim().isNotEmpty == true
+          ? (json['ollamaModel'] as String).trim()
+          : 'gemma4:12b',
     );
   }
 

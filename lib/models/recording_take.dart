@@ -1,10 +1,34 @@
-﻿// file: lib/models/recording_take.dart
+// file: lib/models/recording_take.dart
 //
 // 녹음된 한 번의 연습(테이크).
 //
 // songs.json과 분리해 recordings.json에 저장한다. 테이크는 곡 하나에 여러 개
 // 쌓이고, 곡을 지워도 기록은 남아야 하기 때문이다. songId는 소프트 FK이고
 // 표시에는 songTitle 스냅샷을 쓴다.
+//
+// v2(스키마): 반주 조각·믹스 설정·분리 보컬 필드 추가 — 전부 additive라
+// v1 파일은 기본값으로 자연 흡수된다.
+
+/// 믹스 시 보컬에 거는 리버브 프리셋.
+enum ReverbPreset { none, karaoke, hall, studio }
+
+extension ReverbPresetInfo on ReverbPreset {
+  String get label => switch (this) {
+    ReverbPreset.none => '없음',
+    ReverbPreset.karaoke => '노래방',
+    ReverbPreset.hall => '홀',
+    ReverbPreset.studio => '스튜디오',
+  };
+
+  String get storageValue => name;
+
+  static ReverbPreset fromStorage(String? raw) {
+    for (final p in ReverbPreset.values) {
+      if (p.name == raw) return p;
+    }
+    return ReverbPreset.none;
+  }
+}
 
 class RecordingTake {
   final String id;
@@ -37,6 +61,28 @@ class RecordingTake {
   /// 반주와 합친 파일명(있으면). data/recordings 안.
   final String? mixedFileName;
 
+  /// 녹음 당시 실제 재생 파일(키/템포 변형본 포함) 절대경로.
+  /// 반주 조각을 다시 잘라야 할 때(캐시 잔존 시) 쓴다.
+  final String? sourceAudioPath;
+
+  /// 녹음 당시 템포(배). 메타 표시·재컷용.
+  final double tempoScale;
+
+  /// 잘라낸 반주 조각 파일명(`<id>_acc.m4a`). data/recordings 안.
+  final String? accompanimentFileName;
+
+  /// 믹스 밸런스(0=반주만, 1=보컬만, 0.5=동등).
+  final double mixBalance;
+
+  /// 믹스 시 보컬 리버브 프리셋.
+  final ReverbPreset reverbPreset;
+
+  /// 믹스 시 보컬 노이즈 제거(afftdn) 적용.
+  final bool noiseReduction;
+
+  /// 분리 서버로 정리한 순수 보컬 파일명(`<id>_sep.wav`). data/recordings 안.
+  final String? separatedFileName;
+
   const RecordingTake({
     required this.id,
     required this.songId,
@@ -51,6 +97,13 @@ class RecordingTake {
     this.rating = 0,
     this.isKeep = false,
     this.mixedFileName,
+    this.sourceAudioPath,
+    this.tempoScale = 1.0,
+    this.accompanimentFileName,
+    this.mixBalance = 0.5,
+    this.reverbPreset = ReverbPreset.none,
+    this.noiseReduction = false,
+    this.separatedFileName,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -61,6 +114,10 @@ class RecordingTake {
 
   bool get hasMix => (mixedFileName ?? '').isNotEmpty;
 
+  bool get hasAccompaniment => (accompanimentFileName ?? '').isNotEmpty;
+
+  bool get hasSeparatedVocal => (separatedFileName ?? '').isNotEmpty;
+
   RecordingTake copyWith({
     String? mixedFileName,
     String? songTitle,
@@ -69,6 +126,13 @@ class RecordingTake {
     bool? isKeep,
     int? durationMs,
     int? alignOffsetMs,
+    String? sourceAudioPath,
+    double? tempoScale,
+    String? accompanimentFileName,
+    double? mixBalance,
+    ReverbPreset? reverbPreset,
+    bool? noiseReduction,
+    String? separatedFileName,
   }) {
     return RecordingTake(
       id: id,
@@ -84,6 +148,14 @@ class RecordingTake {
       rating: rating ?? this.rating,
       isKeep: isKeep ?? this.isKeep,
       mixedFileName: mixedFileName ?? this.mixedFileName,
+      sourceAudioPath: sourceAudioPath ?? this.sourceAudioPath,
+      tempoScale: tempoScale ?? this.tempoScale,
+      accompanimentFileName:
+          accompanimentFileName ?? this.accompanimentFileName,
+      mixBalance: mixBalance ?? this.mixBalance,
+      reverbPreset: reverbPreset ?? this.reverbPreset,
+      noiseReduction: noiseReduction ?? this.noiseReduction,
+      separatedFileName: separatedFileName ?? this.separatedFileName,
     );
   }
 
@@ -101,6 +173,13 @@ class RecordingTake {
     'rating': rating,
     'isKeep': isKeep,
     'mixedFileName': mixedFileName,
+    'sourceAudioPath': sourceAudioPath,
+    'tempoScale': tempoScale,
+    'accompanimentFileName': accompanimentFileName,
+    'mixBalance': mixBalance,
+    'reverbPreset': reverbPreset.storageValue,
+    'noiseReduction': noiseReduction,
+    'separatedFileName': separatedFileName,
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -120,6 +199,16 @@ class RecordingTake {
       rating: ((json['rating'] as num?)?.toInt() ?? 0).clamp(0, 5),
       isKeep: json['isKeep'] as bool? ?? false,
       mixedFileName: json['mixedFileName'] as String?,
+      sourceAudioPath: json['sourceAudioPath'] as String?,
+      tempoScale: (json['tempoScale'] as num?)?.toDouble() ?? 1.0,
+      accompanimentFileName: json['accompanimentFileName'] as String?,
+      mixBalance:
+          ((json['mixBalance'] as num?)?.toDouble() ?? 0.5).clamp(0.0, 1.0),
+      reverbPreset: ReverbPresetInfo.fromStorage(
+        json['reverbPreset'] as String?,
+      ),
+      noiseReduction: json['noiseReduction'] as bool? ?? false,
+      separatedFileName: json['separatedFileName'] as String?,
     );
   }
 }

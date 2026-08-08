@@ -50,7 +50,8 @@ class RecordingFilter {
 }
 
 class RecordingStore {
-  static const int schemaVersion = 1;
+  /// v2: 반주 조각·믹스 설정·분리 보컬 필드 추가 (additive — v1 파일 그대로 읽힘).
+  static const int schemaVersion = 2;
 
   Future<Directory> get recordingsDir async {
     final base = await getApplicationDocumentsDirectory();
@@ -145,7 +146,17 @@ class RecordingLibraryService {
   }
 
   Future<void> remove(RecordingTake take) async {
+    // 보컬 원본과 함께 부속 파일(반주 조각·믹스·분리 보컬)도 지운다.
     await _store.deleteFile(take.fileName);
+    for (final attached in [
+      take.accompanimentFileName,
+      take.mixedFileName,
+      take.separatedFileName,
+    ]) {
+      if (attached != null && attached.isNotEmpty) {
+        await _store.deleteFile(attached);
+      }
+    }
     _takes = _takes.where((t) => t.id != take.id).toList();
     await _store.save(_takes);
   }

@@ -14,6 +14,7 @@ import '../coordinators/song_action_coordinator.dart';
 import '../dialogs/add_song_dialog.dart';
 import '../dialogs/add_track_dialog.dart';
 import '../dialogs/custom_font_size_dialog.dart';
+import '../dialogs/take_mix_dialog.dart';
 import '../models/app_destination.dart';
 import '../models/import_plan.dart';
 import '../models/mr_source_mode.dart';
@@ -37,7 +38,9 @@ import '../services/library_maintenance_service.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../services/take_mix_service.dart';
+import '../services/vocal_separation_client.dart';
 import '../services/control_server.dart';
+import '../utils/file_name_sanitizer.dart';
 import '../widgets/song_list_screen_content.dart';
 import '../theme/app_theme.dart';
 import '../widgets/snack_message.dart';
@@ -77,6 +80,9 @@ class _SongListScreenState extends State<SongListScreen> {
   int? _recordingSlot;
   int _recordingPitch = 0;
   int _recordingAlignMs = 0;
+  // 녹음 당시 실제 재생 파일(변형본 포함)·템포 — 반주 조각을 자르는 데 쓴다.
+  String? _recordingSourcePath;
+  double _recordingTempo = 1.0;
 
   bool get _ytDlpAvailable => _app.ytDlpAvailable;
   String? get _ytDlpMissingReason => _app.ytDlpMissingReason;
@@ -167,6 +173,8 @@ class _SongListScreenState extends State<SongListScreen> {
     await _app.bootstrap();
     // MCP 제어 API — 루프백 전용, 실패해도 앱 동작에 영향 없음.
     await _controlServer.start();
+    // 설정 화면의 입력 장치 목록을 미리 채워 둔다(실패해도 무시).
+    unawaited(_recording.refreshDevices());
   }
 
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
@@ -195,24 +203,34 @@ class _SongListScreenState extends State<SongListScreen> {
   // ── 녹음 믹스다운 ───────────────────────────────────────
 
   Future<void> _mixTake(RecordingTake take) async {
-    final songMatches = _songs.where((s) => s.id == take.songId).toList();
-    final song = songMatches.isEmpty ? null : songMatches.first;
-    final slot = take.backingTrackSlot;
-    final track = (song != null && slot != null)
-        ? song.trackForSlot(slot)
-        : null;
-    if (track == null) {
-      _showSnack('이 녹음의 반주를 찾을 수 없어 합칠 수 없습니다.');
-      return;
+    // 반주 소스 우선순위: 잘라 둔 반주 조각(정렬 0, 키 일치 보장) →
+    // 녹음 당시 재생 파일 → 원본 슬롯 파일(구 테이크 폴백).
+    String? backingPath;
+    var alignMs = take.alignOffsetMs;
+    if (take.hasAccompaniment) {
+      final accPath =
+          '${(await _recordingLibrary.directory()).path}/${take.accompanimentFileName}';
+      if (await File(accPath).exists()) {
+        backingPath = accPath;
+        alignMs = 0;
+      }
     }
-    final backingPath = await _repo.getBackingTrackPath(track.fileName);
+    if (backingPath == null &&
+        take.sourceAudioPath != null &&
+        await File(take.sourceAudioPath!).exists()) {
+      backingPath = take.sourceAudioPath;
+    }
+    backingPath ??= await _backingPathForTake(take);
     if (backingPath == null) {
-      _showSnack('반주 파일이 없습니다.');
+      _showSnack('이 녹음의 반주를 찾을 수 없어 합칠 수 없습니다.');
       return;
     }
 
     _showSnack('반주와 합치는 중...');
-    final vocalPath = await _recordingLibrary.pathFor(take);
+    // 분리 보컬이 있으면 그것을 쓴다(스피커 녹음 정리본).
+    final vocalPath = take.hasSeparatedVocal
+        ? '${(await _recordingLibrary.directory()).path}/${take.separatedFileName}'
+        : await _recordingLibrary.pathFor(take);
     final mixedName = '${take.id}_mix.m4a';
     final outputPath =
         '${(await _recordingLibrary.directory()).path}/$mixedName';
@@ -220,7 +238,10 @@ class _SongListScreenState extends State<SongListScreen> {
       backingPath: backingPath,
       vocalPath: vocalPath,
       outputPath: outputPath,
-      alignMs: take.alignOffsetMs,
+      alignMs: alignMs,
+      mixBalance: take.mixBalance,
+      reverbPreset: take.reverbPreset,
+      noiseReduction: take.noiseReduction,
     );
     if (!mounted) return;
     if (!result.success) {
@@ -231,6 +252,154 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     setState(() {});
     _showSnack('합쳤습니다. "합친 곡 듣기"로 확인해 보세요.');
+  }
+
+  /// 믹스 설정 다이얼로그 — 밸런스·리버브·노이즈 제거·보컬 분리.
+  Future<void> _showTakeMixSettings(RecordingTake take) async {
+    final result = await TakeMixDialog.show(
+      context,
+      take: take,
+      localAiEnabled: _settings.localAiEnabled,
+    );
+    if (result == null || !mounted) return;
+    await _recordingLibrary.update(result.take);
+    if (!mounted) return;
+    setState(() {});
+    if (result.separate) {
+      await _separateTakeVocal(result.take);
+    } else if (result.remix) {
+      await _mixTake(result.take);
+    } else {
+      _showSnack('믹스 설정을 저장했습니다. "다시 합치기"에 반영됩니다.');
+    }
+  }
+
+  /// 분리 서버(8771)로 테이크 보컬을 정리한다 — 스피커 녹음의 반주 제거용.
+  Future<void> _separateTakeVocal(RecordingTake take) async {
+    if (!_settings.localAiEnabled) {
+      _showSnack('설정에서 로컬AI를 켜면 사용할 수 있습니다.');
+      return;
+    }
+    _showSnack('보컬 분리 중... (수십 초 걸립니다)');
+    final client = VocalSeparationClient();
+    try {
+      final vocalPath = await _recordingLibrary.pathFor(take);
+      final result = await client.separate(vocalPath);
+      if (!mounted) return;
+      if (!result.success || result.vocalsPath == null) {
+        _showSnack(result.message ?? '보컬 분리에 실패했습니다.');
+        return;
+      }
+      final sepName = '${take.id}_sep.wav';
+      final destPath =
+          '${(await _recordingLibrary.directory()).path}/$sepName';
+      await File(result.vocalsPath!).copy(destPath);
+      await _recordingLibrary.update(
+        take.copyWith(separatedFileName: sepName),
+      );
+      if (!mounted) return;
+      setState(() {});
+      _showSnack('보컬을 정리했습니다. 다시 합치면 정리본이 쓰입니다.');
+    } catch (e) {
+      if (mounted) _showSnack('보컬 분리 중 오류가 났습니다: $e');
+    } finally {
+      client.close();
+    }
+  }
+
+  /// 설정 패널 — 입력 장치 새로고침.
+  Future<void> _refreshRecordingDevices() async {
+    final devices = await _recording.refreshDevices();
+    if (!mounted) return;
+    setState(() {});
+    _showSnack(devices.isEmpty
+        ? '입력 장치를 찾지 못했습니다. 마이크 연결과 ffmpeg 설치를 확인해 주세요.'
+        : '입력 장치 ${devices.length}개를 찾았습니다.');
+  }
+
+  /// 설정 패널 — 마이크 테스트 토글.
+  Future<void> _toggleMicTest() async {
+    if (_recording.isRecording) {
+      _showSnack('녹음 중에는 마이크 테스트를 할 수 없습니다.');
+      return;
+    }
+    if (_recording.isProbing) {
+      await _recording.stopLevelProbe();
+      return;
+    }
+    if (_settings.recordingDeviceName != null) {
+      _recording.deviceName = _settings.recordingDeviceName;
+    }
+    final ok = await _recording.startLevelProbe(
+      gain: _settings.recordingGain,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      _showSnack('마이크 테스트를 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
+    }
+  }
+
+  Future<void> _playTakeAccompaniment(RecordingTake take) async {
+    final acc = take.accompanimentFileName;
+    if (acc == null || acc.isEmpty) return;
+    final path = '${(await _recordingLibrary.directory()).path}/$acc';
+    final ok = await _takePlayer.playFile(path);
+    if (!mounted) return;
+    if (!ok) {
+      _showSnack('반주 파일을 재생할 수 없습니다.');
+      return;
+    }
+    setState(() => _playingTakeId = take.id);
+  }
+
+  /// 보컬·반주·믹스 3파일을 사용자가 고른 폴더로 복사한다.
+  Future<void> _exportTake(RecordingTake take) async {
+    final folder = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '저장할 폴더 선택',
+    );
+    if (folder == null) return;
+    if (!mounted) return;
+
+    // 믹스가 없으면 먼저 만든다(반주가 있을 때만).
+    if (!take.hasMix && (take.hasAccompaniment || take.sourceAudioPath != null)) {
+      await _mixTake(take);
+    }
+    // 믹스 생성으로 테이크가 갱신됐을 수 있으니 최신본을 다시 찾는다.
+    final current = _recordingLibrary.takes
+        .where((t) => t.id == take.id)
+        .toList();
+    final fresh = current.isEmpty ? take : current.first;
+
+    final dir = (await _recordingLibrary.directory()).path;
+    final stamp =
+        '${fresh.recordedAt.year}${fresh.recordedAt.month.toString().padLeft(2, '0')}${fresh.recordedAt.day.toString().padLeft(2, '0')}'
+        '_${fresh.recordedAt.hour.toString().padLeft(2, '0')}${fresh.recordedAt.minute.toString().padLeft(2, '0')}';
+    final base = sanitizeFileName('${fresh.songTitle}_$stamp', fallback: '녹음');
+
+    var copied = 0;
+    Future<void> copyIfExists(String? fileName, String suffix) async {
+      if (fileName == null || fileName.isEmpty) return;
+      final src = File('$dir/$fileName');
+      if (!await src.exists()) return;
+      final ext = fileName.contains('.')
+          ? fileName.substring(fileName.lastIndexOf('.'))
+          : '';
+      await src.copy('$folder/${base}_$suffix$ext');
+      copied++;
+    }
+
+    try {
+      await copyIfExists(fresh.fileName, '보컬');
+      await copyIfExists(fresh.accompanimentFileName, '반주');
+      await copyIfExists(fresh.mixedFileName, '믹스');
+    } catch (e) {
+      if (mounted) _showSnack('내보내기에 실패했습니다: $e');
+      return;
+    }
+    if (!mounted) return;
+    _showSnack(copied == 0
+        ? '내보낼 파일이 없습니다.'
+        : '$copied개 파일을 내보냈습니다: $folder');
   }
 
   Future<void> _playTakeMix(RecordingTake take) async {
@@ -407,8 +576,16 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
 
+    // 설정에서 고른 입력 장치·볼륨을 적용한다.
+    if (_settings.recordingDeviceName != null) {
+      _recording.deviceName = _settings.recordingDeviceName;
+    }
+
     final id = const Uuid().v4();
-    final started = await _recording.start('$id.wav');
+    final started = await _recording.start(
+      '$id.wav',
+      gain: _settings.recordingGain,
+    );
     if (started == null) {
       if (mounted) _showSnack('녹음을 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
       return;
@@ -419,6 +596,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _recordingPitch = _settings.pitchForSong(song.id, _selectedTrackSlot);
     // 반주와 합칠 때 쓸 정렬점 — 녹음 시작 순간의 재생 위치.
     _recordingAlignMs = _playback.position.value.inMilliseconds;
+    // 실제 재생 중인 파일(키/템포 변형본 포함) — 종료 직후 반주 조각을 자른다.
+    _recordingSourcePath = _playback.snapshot.activeAudioPath;
+    _recordingTempo = _playback.snapshot.tempoScale;
     if (!mounted) return;
     _showSnack('녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.');
   }
@@ -436,22 +616,79 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
 
-    await _recordingLibrary.add(
-      RecordingTake(
-        id: const Uuid().v4(),
-        songId: song.id,
-        songTitle: song.title,
-        fileName: result.fileName,
-        recordedAt: DateTime.now(),
-        durationMs: result.duration.inMilliseconds,
-        backingTrackSlot: _recordingSlot,
-        pitchSemitones: _recordingPitch,
-        alignOffsetMs: _recordingAlignMs,
-      ),
+    final take = RecordingTake(
+      id: const Uuid().v4(),
+      songId: song.id,
+      songTitle: song.title,
+      fileName: result.fileName,
+      recordedAt: DateTime.now(),
+      durationMs: result.duration.inMilliseconds,
+      backingTrackSlot: _recordingSlot,
+      pitchSemitones: _recordingPitch,
+      alignOffsetMs: _recordingAlignMs,
+      sourceAudioPath: _recordingSourcePath,
+      tempoScale: _recordingTempo,
     );
+    await _recordingLibrary.add(take);
     if (!mounted) return;
     setState(() {});
     _showSnack('녹음을 저장했습니다. 녹음 탭에서 들어볼 수 있어요.');
+    // 변형본 캐시가 지워지기 전에 즉시 반주 조각을 잘라 자립시킨다.
+    // 실패해도 테이크는 남는다(녹음 탭에서 재시도 가능).
+    unawaited(_cutAccompanimentForTake(take, silent: true));
+  }
+
+  /// 녹음 당시 반주에서 녹음 구간과 같은 조각을 잘라 테이크에 붙인다.
+  Future<void> _cutAccompanimentForTake(
+    RecordingTake take, {
+    bool silent = false,
+  }) async {
+    // 소스 우선순위: 녹음 당시 실제 재생 파일 → 원본 슬롯 파일.
+    String? sourcePath = take.sourceAudioPath;
+    if (sourcePath == null || !await File(sourcePath).exists()) {
+      final backing = await _backingPathForTake(take);
+      sourcePath = backing;
+    }
+    if (sourcePath == null) {
+      if (!silent && mounted) {
+        _showSnack('녹음 당시 반주 파일을 찾을 수 없어 반주를 만들지 못했습니다.');
+      }
+      return;
+    }
+
+    final accName = '${take.id}_acc.m4a';
+    final outputPath =
+        '${(await _recordingLibrary.directory()).path}/$accName';
+    final result = await TakeMixService().cutAccompaniment(
+      sourcePath: sourcePath,
+      outputPath: outputPath,
+      startMs: take.alignOffsetMs,
+      durationMs: take.durationMs,
+    );
+    if (!result.success) {
+      if (!silent && mounted) {
+        _showSnack(result.message ?? '반주 잘라내기에 실패했습니다.');
+      }
+      return;
+    }
+    await _recordingLibrary.update(
+      take.copyWith(accompanimentFileName: accName),
+    );
+    if (!mounted) return;
+    setState(() {});
+    if (!silent) _showSnack('반주를 만들었습니다. "반주 듣기"로 확인해 보세요.');
+  }
+
+  /// 테이크의 원본 슬롯 반주 파일 경로(없으면 null).
+  Future<String?> _backingPathForTake(RecordingTake take) async {
+    final songMatches = _songs.where((s) => s.id == take.songId).toList();
+    final song = songMatches.isEmpty ? null : songMatches.first;
+    final slot = take.backingTrackSlot;
+    final track = (song != null && slot != null)
+        ? song.trackForSlot(slot)
+        : null;
+    if (track == null) return null;
+    return _repo.getBackingTrackPath(track.fileName);
   }
 
   Future<void> _playTake(RecordingTake take) async {
@@ -970,6 +1207,16 @@ class _SongListScreenState extends State<SongListScreen> {
         onRateTake: _rateTake,
         onToggleTakeKeep: _toggleTakeKeep,
         onDeleteTake: _deleteTake,
+        onPlayTakeAccompaniment: _playTakeAccompaniment,
+        onCutTakeAccompaniment: _cutAccompanimentForTake,
+        onTakeMixSettings: _showTakeMixSettings,
+        onExportTake: _exportTake,
+        recordingDevices: _recording.devices,
+        onRefreshRecordingDevices: _refreshRecordingDevices,
+        micTesting: _recording.isProbing,
+        micLevel: _recording.level,
+        micLevelLabel: _recording.levelLabel,
+        onToggleMicTest: _toggleMicTest,
         todayGoal: _dailyGoals.today(),
         trainingStreak: _dailyGoals.streak(),
         trainingCompletedThisWeek: _dailyGoals.completedInLast(7),

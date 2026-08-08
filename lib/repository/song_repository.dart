@@ -7,6 +7,7 @@ import '../models/backing_track.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
+import '../utils/file_name_sanitizer.dart';
 import 'song_meta_store.dart';
 
 const _kSongsKey = 'singpromfter_songs';
@@ -474,14 +475,8 @@ class SongRepository {
     return '${_sanitizeFileStem(title)}_mr$slot.mp3';
   }
 
-  String _sanitizeFileStem(String input) {
-    final sanitized = input
-        .replaceAll(RegExp(r'[<>:"/\\|?*]'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim()
-        .replaceAll(RegExp(r'[. ]+$'), '');
-    return sanitized.isEmpty ? 'song' : sanitized;
-  }
+  String _sanitizeFileStem(String input) =>
+      sanitizeFileName(input, fallback: 'song');
 
   String _trackLabel(Map<int, String>? labels, int slot, String fallback) {
     final label = labels?[slot]?.trim();
