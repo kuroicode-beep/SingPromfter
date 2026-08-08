@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.0.0';
+  static const String current = '5.0.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.0.1',
+      '2026-08-08',
+      '작곡 탭이 로컬AI 꺼짐 상태에서 너무 흐려 안 보이던 문제 — 비활성 탭은 '
+          "이제 '작곡(꺼짐)'처럼 글자로 상태를 표시합니다(저시력 접근성)",
+    ),
     AppVersionEntry(
       '5.0.0',
       '2026-08-08',

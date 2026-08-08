@@ -84,16 +84,17 @@ class _TopNavTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 비활성은 흐림(0.4)으로 표시하되, 탭 자체는 눌러져 안내 스낵바가 뜬다 —
-    // "왜 안 되는지"를 색이 아니라 글자로도 알려주기 위해서다.
+    // 비활성 상태는 투명도가 아니라 글자로 알린다 — '작곡(꺼짐)'처럼 라벨에
+    // 병기해야 저시력에서도 탭의 존재가 보인다(투명도 0.4만 쓰던 초판은
+    // 어두운 배경에서 탭이 사라져 보였다). 흐림은 보조 신호로만 약하게.
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: Semantics(
-        label: enabled ? label : '$label (로컬AI 꺼짐 — 사용 불가)',
+        label: enabled ? label : '$label (로컬AI 꺼짐 — 설정에서 켜기)',
         button: true,
         selected: selected,
         child: Opacity(
-          opacity: enabled ? 1.0 : 0.4,
+          opacity: enabled ? 1.0 : 0.75,
           child: TextButton(
             onPressed: onTap,
             style: TextButton.styleFrom(
@@ -109,7 +110,7 @@ class _TopNavTab extends StatelessWidget {
                   : BorderSide.none,
             ),
             child: Text(
-              label,
+              enabled ? label : '$label(꺼짐)',
               style: AppTypography.body.copyWith(
                 color:
                     selected ? AppColors.primary : AppColors.onSurfaceVariant,
