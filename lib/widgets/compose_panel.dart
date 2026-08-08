@@ -26,6 +26,21 @@ const vocalTypeChoices = [
   ('choir', '합창'),
 ];
 
+/// 프롬프트 권장 최대 길이. ACE-Step 텍스트 인코더가 앞부분 위주로
+/// 반영하므로 이보다 길면 뒷부분이 무시될 수 있다 — 차단하지 않고 경고만.
+const promptMaxChars = 300;
+
+/// 가사 권장 최대 길이(구조 태그 포함). 10분 곡 기준 현실 상한.
+const lyricsMaxChars = 2000;
+
+/// 템포 느낌 선택지 — 조합 프롬프트에 들어갈 한국어 표현.
+const tempoFeelChoices = [
+  ('', '지정 안 함'),
+  ('slow', '느리게'),
+  ('medium', '보통'),
+  ('fast', '빠르게'),
+];
+
 String formatDurationChoice(int seconds) {
   if (seconds < 60) return '$seconds초';
   final m = seconds ~/ 60;
@@ -97,12 +112,15 @@ class _ComposePanelState extends State<ComposePanel> {
   final _polishedController = TextEditingController();
   final _lyricsController = TextEditingController();
   final _genreController = TextEditingController();
+  final _instrumentsController = TextEditingController();
+  final _chordsController = TextEditingController();
   final _bpmController = TextEditingController();
   final _seedController = TextEditingController(text: '-1');
 
   ComposeMode _mode = ComposeMode.bgm;
   int _durationSec = bgmDurationChoices[1];
   String _vocalType = '';
+  String _tempoFeel = '';
   String _preset = '';
   String _modelSize = 'medium';
   bool _polishing = false;
@@ -146,6 +164,8 @@ class _ComposePanelState extends State<ComposePanel> {
     _polishedController.dispose();
     _lyricsController.dispose();
     _genreController.dispose();
+    _instrumentsController.dispose();
+    _chordsController.dispose();
     _bpmController.dispose();
     _seedController.dispose();
     super.dispose();
@@ -155,7 +175,7 @@ class _ComposePanelState extends State<ComposePanel> {
     return ComposeRequest(
       title: _titleController.text.trim(),
       mode: _mode,
-      stylePromptKo: _promptController.text.trim(),
+      stylePromptKo: _assembledPrompt(),
       stylePromptEn: _polishedController.text.trim(),
       lyrics: _mode == ComposeMode.vocal ? _lyricsController.text.trim() : '',
       vocalType: _mode == ComposeMode.vocal ? _vocalType : '',
@@ -168,8 +188,57 @@ class _ComposePanelState extends State<ComposePanel> {
     );
   }
 
+  /// 구조화 입력(장르·보컬·악기·템포·코드·기타)을 하나의 프롬프트로 조합한다.
+  /// 우측 미리보기와 다듬기·생성이 전부 이 문자열을 쓴다 — 조립 경로는 하나다.
+  String _assembledPrompt() {
+    final parts = <String>[];
+    final genre = _genreController.text.trim();
+    if (genre.isNotEmpty) parts.add(genre);
+    if (_mode == ComposeMode.vocal && _vocalType.isNotEmpty) {
+      parts.add(switch (_vocalType) {
+        'female' => '여성 보컬',
+        'male' => '남성 보컬',
+        'duet' => '남녀 듀엣',
+        'choir' => '합창',
+        _ => '',
+      });
+    }
+    final instruments = _instrumentsController.text.trim();
+    if (instruments.isNotEmpty) parts.add(instruments);
+    final tempoWord = switch (_tempoFeel) {
+      'slow' => '느린 템포',
+      'medium' => '보통 템포',
+      'fast' => '빠른 템포',
+      _ => '',
+    };
+    if (tempoWord.isNotEmpty) parts.add(tempoWord);
+    final bpm = _bpmController.text.trim();
+    if (bpm.isNotEmpty) parts.add('${bpm}BPM');
+    final chords = _chordsController.text.trim();
+    if (chords.isNotEmpty) parts.add('코드진행 $chords');
+    final extra = _promptController.text.trim();
+    if (extra.isNotEmpty) parts.add(extra);
+    return parts.where((p) => p.isNotEmpty).join(', ');
+  }
+
+  /// 가사 커서 위치에 구조 태그 한 줄을 끼워 넣는다.
+  void _insertLyricsTag(String tag) {
+    final c = _lyricsController;
+    final text = c.text;
+    final sel = c.selection;
+    final start = sel.isValid ? sel.start : text.length;
+    final end = sel.isValid ? sel.end : text.length;
+    final needsNewlineBefore = start > 0 && text[start - 1] != '\n';
+    final insert = '${needsNewlineBefore ? '\n' : ''}$tag\n';
+    c.value = TextEditingValue(
+      text: text.replaceRange(start, end, insert),
+      selection: TextSelection.collapsed(offset: start + insert.length),
+    );
+    setState(() {});
+  }
+
   Future<void> _polish() async {
-    final source = _promptController.text.trim();
+    final source = _assembledPrompt();
     if (source.isEmpty) return;
     setState(() => _polishing = true);
     final result = await widget.onPolishPrompt(source);
@@ -258,95 +327,182 @@ class _ComposePanelState extends State<ComposePanel> {
     return Container(
       decoration: AppShapes.panel(),
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 넓으면 좌측 입력 + 우측 전체 프롬프트 미리보기 2열.
+          final wide = constraints.maxWidth >= 860;
+          final fields = _buildFormFields(isVocal, durations);
+          final preview = _buildPromptPreview();
+          if (wide) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: fields,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                SizedBox(width: 350, child: preview),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [...fields, const SizedBox(height: 16), preview],
+          );
+        },
+      ),
+    );
+  }
+
+  List<Widget> _buildFormFields(bool isVocal, List<int> durations) {
+    return [
+      TextField(
+        controller: _titleController,
+        style: AppTypography.body,
+        decoration: const InputDecoration(
+          labelText: '제목',
+          hintText: '비우면 "AI 작곡 날짜 시간"으로 저장됩니다',
+        ),
+      ),
+      const SizedBox(height: 12),
+      Text('생성 모드', style: AppTypography.bodyMuted),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 8,
         children: [
-          TextField(
-            controller: _titleController,
-            style: AppTypography.body,
-            decoration: const InputDecoration(
-              labelText: '제목',
-              hintText: '비우면 "AI 작곡 날짜 시간"으로 저장됩니다',
+          ChoiceChip(
+            label: Text('BGM (반주만)', style: AppTypography.body),
+            selected: !isVocal,
+            onSelected: (_) => _switchMode(ComposeMode.bgm),
+          ),
+          ChoiceChip(
+            label: Text('보컬곡 (가사 포함)', style: AppTypography.body),
+            selected: isVocal,
+            onSelected: (_) => _switchMode(ComposeMode.vocal),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _genreController,
+              style: AppTypography.body,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: '장르',
+                hintText: '예: 발라드, k-pop, 재즈',
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-          Text('생성 모드', style: AppTypography.bodyMuted),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            children: [
-              ChoiceChip(
-                label: Text('BGM (반주만)', style: AppTypography.body),
-                selected: !isVocal,
-                onSelected: (_) => _switchMode(ComposeMode.bgm),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: _instrumentsController,
+              style: AppTypography.body,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: '악기',
+                hintText: '예: 피아노, 현악, 어쿠스틱 기타',
               ),
-              ChoiceChip(
-                label: Text('보컬곡 (가사 포함)', style: AppTypography.body),
-                selected: isVocal,
-                onSelected: (_) => _switchMode(ComposeMode.vocal),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _promptController,
-            style: AppTypography.body,
-            minLines: 2,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: '스타일 프롬프트',
-              hintText: '예: 잔잔한 발라드, 피아노와 현악, 느린 템포 — 한국어로 적으면 AI가 다듬어 줍니다',
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
+        ],
+      ),
+      if (isVocal) ...[
+        const SizedBox(height: 12),
+        Text('보컬색', style: AppTypography.bodyMuted),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: vocalTypeChoices.map((choice) {
+            final (value, label) = choice;
+            return ChoiceChip(
+              label: Text(label, style: AppTypography.body),
+              selected: _vocalType == value,
+              onSelected: (_) => setState(() => _vocalType = value),
+            );
+          }).toList(growable: false),
+        ),
+      ],
+      const SizedBox(height: 12),
+      Text('템포', style: AppTypography.bodyMuted),
+      const SizedBox(height: 6),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: tempoFeelChoices.map((choice) {
+                final (value, label) = choice;
+                return ChoiceChip(
+                  label: Text(label, style: AppTypography.body),
+                  selected: _tempoFeel == value,
+                  onSelected: (_) => setState(() => _tempoFeel = value),
+                );
+              }).toList(growable: false),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 110,
+            child: TextField(
+              controller: _bpmController,
+              style: AppTypography.body,
+              keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(labelText: 'BPM (선택)'),
+            ),
+          ),
+        ],
+      ),
+      if (isVocal) ...[
+        const SizedBox(height: 12),
+        TextField(
+          controller: _lyricsController,
+          style: AppTypography.body,
+          minLines: 4,
+          maxLines: 10,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: '가사 (한국어 그대로)',
+            hintText: '[verse]/[chorus] 구조 태그는 아래 버튼으로 붙일 수 있습니다',
+            counterText:
+                '${_lyricsController.text.length}/$lyricsMaxChars자',
+            counterStyle: _lyricsController.text.length > lyricsMaxChars
+                ? AppTypography.bodyMuted.copyWith(color: AppColors.danger)
+                : AppTypography.bodyMuted,
+          ),
+        ),
+        if (_lyricsController.text.length > lyricsMaxChars)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '가사가 깁니다 — $lyricsMaxChars자 이내를 권장합니다. '
+              '너무 길면 생성이 실패하거나 뒷부분이 잘릴 수 있습니다.',
+              style: AppTypography.body.copyWith(color: AppColors.danger),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final tag in ['[verse]', '[chorus]', '[bridge]'])
               SizedBox(
                 height: AppConstants.minTouchTarget,
-                child: OutlinedButton.icon(
-                  onPressed: _polishing ? null : _polish,
-                  icon: _polishing
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.auto_fix_high),
-                  label: Text(_polishing ? '다듬는 중...' : 'AI 다듬기'),
+                child: OutlinedButton(
+                  onPressed: () => _insertLyricsTag(tag),
+                  child: Text('$tag 넣기'),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '다듬은 결과는 아래 칸에 채워지고, 직접 고칠 수 있습니다.',
-                  style: AppTypography.bodyMuted,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _polishedController,
-            style: AppTypography.body,
-            minLines: 1,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: '다듬은 프롬프트 (영문, 비우면 원문으로 생성)',
-            ),
-          ),
-          if (isVocal) ...[
-            const SizedBox(height: 12),
-            TextField(
-              controller: _lyricsController,
-              style: AppTypography.body,
-              minLines: 4,
-              maxLines: 10,
-              decoration: const InputDecoration(
-                labelText: '가사 (한국어 그대로)',
-                hintText: '[verse]/[chorus] 구조 태그는 아래 버튼으로 자동으로 붙일 수 있습니다',
-              ),
-            ),
-            const SizedBox(height: 8),
             SizedBox(
               height: AppConstants.minTouchTarget,
               child: OutlinedButton.icon(
@@ -358,204 +514,295 @@ class _ComposePanelState extends State<ComposePanel> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.format_list_bulleted),
-                label: Text(_tagging ? '태그 붙이는 중...' : '가사 구조 태그 자동 붙이기'),
+                label: Text(_tagging ? '태그 붙이는 중...' : 'AI 구조 태그'),
               ),
             ),
-            const SizedBox(height: 12),
-            Text('보컬 타입', style: AppTypography.bodyMuted),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: vocalTypeChoices.map((choice) {
-                final (value, label) = choice;
-                return ChoiceChip(
-                  label: Text(label, style: AppTypography.body),
-                  selected: _vocalType == value,
-                  onSelected: (_) => setState(() => _vocalType = value),
-                );
-              }).toList(growable: false),
+          ],
+        ),
+      ],
+      const SizedBox(height: 12),
+      TextField(
+        controller: _chordsController,
+        style: AppTypography.body,
+        onChanged: (_) => setState(() {}),
+        decoration: const InputDecoration(
+          labelText: '코드진행 (선택)',
+          hintText: '예: C-G-Am-F, 캐논 진행',
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _promptController,
+        style: AppTypography.body,
+        minLines: 2,
+        maxLines: 4,
+        onChanged: (_) => setState(() {}),
+        decoration: const InputDecoration(
+          labelText: '기타 (자유 서술)',
+          hintText: '예: 새벽 감성, 비 오는 날, 후렴에서 웅장하게',
+        ),
+      ),
+      const SizedBox(height: 12),
+      Text('길이', style: AppTypography.bodyMuted),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: durations.map((seconds) {
+          return ChoiceChip(
+            label: Text(
+              formatDurationChoice(seconds),
+              style: AppTypography.body,
             ),
-            const SizedBox(height: 12),
+            selected: _durationSec == seconds,
+            onSelected: (_) => setState(() => _durationSec = seconds),
+          );
+        }).toList(growable: false),
+      ),
+      if (isVocal)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            '보컬곡은 3분(180초)부터 만들 수 있습니다. 짧은 곡은 BGM 모드를 써 주세요.',
+            style: AppTypography.bodyMuted,
+          ),
+        ),
+      const SizedBox(height: 8),
+      Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        // 색 있는 패널 컨테이너 안이라 잉크 표면을 따로 깔아야 한다.
+        child: Material(
+          type: MaterialType.transparency,
+          child: ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(bottom: 8),
+          title: Text('고급', style: AppTypography.body),
+          iconColor: AppColors.primary,
+          collapsedIconColor: AppColors.onSurfaceVariant,
+          onExpansionChanged: (open) {
+            if (open && _mode == ComposeMode.bgm) {
+              unawaited(_loadPresetsOnce());
+            }
+          },
+          children: [
             Row(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _genreController,
-                    style: AppTypography.body,
-                    decoration: const InputDecoration(
-                      labelText: '장르 태그 (선택, 영문 권장)',
-                      hintText: '예: k-ballad, acoustic',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
                 SizedBox(
-                  width: 120,
+                  width: 140,
                   child: TextField(
-                    controller: _bpmController,
+                    controller: _seedController,
                     style: AppTypography.body,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                      labelText: 'BPM (선택)',
+                      labelText: 'seed (-1=랜덤)',
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                if (!isVocal) ...[
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _preset.isEmpty ? null : _preset,
+                      hint: Text('프리셋 (선택)', style: AppTypography.bodyMuted),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('프리셋 없음'),
+                        ),
+                        ..._presets.map(
+                          (p) => DropdownMenuItem(
+                            value: p.name,
+                            child: Text(
+                              p.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) => setState(() {
+                        _preset = value ?? '';
+                        // 프리셋 추천 길이를 자동 반영한다(수동 변경 가능).
+                        final preset = _presets
+                            .where((p) => p.name == _preset)
+                            .toList();
+                        final rec = preset.isEmpty
+                            ? null
+                            : preset.first.recommendedDuration?.round();
+                        if (rec != null) {
+                          var closest = bgmDurationChoices.first;
+                          for (final c in bgmDurationChoices) {
+                            if ((c - rec).abs() < (closest - rec).abs()) {
+                              closest = c;
+                            }
+                          }
+                          _durationSec = closest;
+                        }
+                      }),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 140,
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _modelSize,
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'small',
+                          child: Text('빠름 (small)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'medium',
+                          child: Text('표준 (medium)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'large',
+                          child: Text('정밀 (large)'),
+                        ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _modelSize = value ?? 'medium'),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
-          const SizedBox(height: 12),
-          Text('길이', style: AppTypography.bodyMuted),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: durations.map((seconds) {
-              return ChoiceChip(
-                label: Text(
-                  formatDurationChoice(seconds),
-                  style: AppTypography.body,
-                ),
-                selected: _durationSec == seconds,
-                onSelected: (_) => setState(() => _durationSec = seconds),
-              );
-            }).toList(growable: false),
           ),
-          if (isVocal)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                '보컬곡은 3분(180초)부터 만들 수 있습니다. 짧은 곡은 BGM 모드를 써 주세요.',
-                style: AppTypography.bodyMuted,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            onPressed: () => widget.onGenerate(_buildRequest()),
+            icon: const Icon(Icons.play_circle_fill),
+            label: const Text('생성 시작'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primaryContainer,
+              foregroundColor: AppColors.onPrimaryContainer,
+              minimumSize: const Size(140, AppConstants.minTouchTarget),
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: () =>
+                widget.onGenerateVariations(_buildRequest(), 3),
+            icon: const Icon(Icons.shuffle),
+            label: const Text('변주 3개 생성'),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(140, AppConstants.minTouchTarget),
+              side: const BorderSide(
+                color: AppColors.borderStrong,
+                width: 2,
               ),
             ),
-          const SizedBox(height: 8),
-          Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              title: Text('고급', style: AppTypography.body),
-              iconColor: AppColors.primary,
-              collapsedIconColor: AppColors.onSurfaceVariant,
-              onExpansionChanged: (open) {
-                if (open && !isVocal) unawaited(_loadPresetsOnce());
-              },
-              children: [
-                Row(
-                  children: [
-                    SizedBox(
-                      width: 140,
-                      child: TextField(
-                        controller: _seedController,
-                        style: AppTypography.body,
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'seed (-1=랜덤)',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (!isVocal) ...[
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _preset.isEmpty ? null : _preset,
-                          hint: Text('프리셋 (선택)', style: AppTypography.bodyMuted),
-                          items: [
-                            const DropdownMenuItem(
-                              value: '',
-                              child: Text('프리셋 없음'),
-                            ),
-                            ..._presets.map(
-                              (p) => DropdownMenuItem(
-                                value: p.name,
-                                child: Text(
-                                  p.name,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                          onChanged: (value) => setState(() {
-                            _preset = value ?? '';
-                            // 프리셋 추천 길이를 자동 반영한다(수동 변경 가능).
-                            final preset = _presets
-                                .where((p) => p.name == _preset)
-                                .toList();
-                            final rec = preset.isEmpty
-                                ? null
-                                : preset.first.recommendedDuration?.round();
-                            if (rec != null) {
-                              var closest = bgmDurationChoices.first;
-                              for (final c in bgmDurationChoices) {
-                                if ((c - rec).abs() < (closest - rec).abs()) {
-                                  closest = c;
-                                }
-                              }
-                              _durationSec = closest;
-                            }
-                          }),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 140,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _modelSize,
-                          items: const [
-                            DropdownMenuItem(
-                              value: 'small',
-                              child: Text('빠름 (small)'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'medium',
-                              child: Text('표준 (medium)'),
-                            ),
-                            DropdownMenuItem(
-                              value: 'large',
-                              child: Text('정밀 (large)'),
-                            ),
-                          ],
-                          onChanged: (value) =>
-                              setState(() => _modelSize = value ?? 'medium'),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+        ],
+      ),
+    ];
+  }
+
+  /// 우측 미리보기 — 조합된 전체 프롬프트와 다듬은 영문, 길이 카운터/경고.
+  Widget _buildPromptPreview() {
+    final assembled = _assembledPrompt();
+    final assembledOver = assembled.length > promptMaxChars;
+    final polishedLen = _polishedController.text.length;
+    final polishedOver = polishedLen > promptMaxChars;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainer,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              FilledButton.icon(
-                onPressed: () => widget.onGenerate(_buildRequest()),
-                icon: const Icon(Icons.play_circle_fill),
-                label: const Text('생성 시작'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryContainer,
-                  foregroundColor: AppColors.onPrimaryContainer,
-                  minimumSize: const Size(140, AppConstants.minTouchTarget),
-                ),
+              Expanded(
+                child: Text('전체 프롬프트', style: AppTypography.listTitle),
               ),
-              OutlinedButton.icon(
-                onPressed: () =>
-                    widget.onGenerateVariations(_buildRequest(), 3),
-                icon: const Icon(Icons.shuffle),
-                label: const Text('변주 3개 생성'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(140, AppConstants.minTouchTarget),
-                  side: const BorderSide(
-                    color: AppColors.borderStrong,
-                    width: 2,
-                  ),
-                ),
+              Text(
+                '${assembled.length}/$promptMaxChars자',
+                style: assembledOver
+                    ? AppTypography.mono.copyWith(color: AppColors.danger)
+                    : AppTypography.monoMuted,
               ),
             ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            '왼쪽 입력을 조합한 원문입니다. 이 내용이 다듬기·생성에 쓰입니다.',
+            style: AppTypography.bodyMuted,
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 72),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.outline),
+            ),
+            child: SelectableText(
+              assembled.isEmpty ? '아직 입력이 없습니다' : assembled,
+              style: assembled.isEmpty
+                  ? AppTypography.bodyMuted
+                  : AppTypography.body,
+            ),
+          ),
+          if (assembledOver)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                '프롬프트가 깁니다 — $promptMaxChars자 이내를 권장합니다. '
+                '너무 길면 뒷부분이 생성에 반영되지 않을 수 있습니다.',
+                style: AppTypography.body.copyWith(color: AppColors.danger),
+              ),
+            ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: AppConstants.minTouchTarget,
+            child: OutlinedButton.icon(
+              onPressed: _polishing ? null : _polish,
+              icon: _polishing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.auto_fix_high),
+              label: Text(_polishing ? '다듬는 중...' : 'AI 다듬기 (영문 변환)'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _polishedController,
+            style: AppTypography.body,
+            minLines: 3,
+            maxLines: 8,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: '다듬은 프롬프트 (영문, 비우면 원문으로 생성)',
+              counterText: '$polishedLen/$promptMaxChars자',
+              counterStyle: polishedOver
+                  ? AppTypography.bodyMuted.copyWith(color: AppColors.danger)
+                  : AppTypography.bodyMuted,
+            ),
+          ),
+          if (polishedOver)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '다듬은 프롬프트가 $promptMaxChars자를 넘습니다 — 뒷부분이 '
+                '생성에 반영되지 않을 수 있으니 줄여 주세요.',
+                style: AppTypography.body.copyWith(color: AppColors.danger),
+              ),
+            ),
         ],
       ),
     );

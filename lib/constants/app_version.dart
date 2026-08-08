@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.1.0';
+  static const String current = '5.2.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.2.0',
+      '2026-08-08',
+      '작곡 프롬프트 정형화 — 장르·보컬색·악기·템포(빠르기+BPM)·코드진행·기타 '
+          '칸으로 나눠 입력하면 우측 미리보기에 전체 프롬프트가 실시간 조합됩니다. '
+          '길이 카운터(프롬프트 300자·가사 2000자 권장)와 초과 경고, '
+          '가사 [verse]/[chorus]/[bridge] 삽입 버튼 추가',
+    ),
     AppVersionEntry(
       '5.1.0',
       '2026-08-08',
