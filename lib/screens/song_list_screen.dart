@@ -309,15 +309,6 @@ class _SongListScreenState extends State<SongListScreen> {
     unawaited(_recording.refreshDevices());
   }
 
-  /// 녹음 입력 장치 선택 — 즉시 적용하고 설정에 저장한다.
-  Future<void> _selectRecordingDevice(String device) async {
-    _recording.deviceName = device;
-    await _updateSettings(_settings.copyWith(recordingDevice: device));
-    if (!mounted) return;
-    setState(() {});
-    _showSnack('녹음 입력 장치: $device');
-  }
-
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
       _playback.loadSong(song, preferredSlot: preferredSlot);
 
@@ -2478,10 +2469,6 @@ class _SongListScreenState extends State<SongListScreen> {
         onMoveSongToFolder: _moveSongToFolder,
         onDropSongOnSong: _dropSongOnSong,
         onDuetMix: _duetMix,
-        recordingDevices: _recording.devices,
-        recordingDevice: _recording.deviceName,
-        onRecordingDeviceChanged: (d) => _selectRecordingDevice(d),
-        onRefreshRecordingDevices: () => _recording.refreshDevices(),
         onExportBackup: _exportBackup,
         onImportBackup: _importBackup,
         onSelectTrack: (_, slot) => _selectTrackSlot(slot),

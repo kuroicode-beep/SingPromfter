@@ -224,10 +224,6 @@ class SongListScreenContent extends StatelessWidget {
     int newIndex,
   )? onDropSongOnSong;
   final VoidCallback? onDuetMix;
-  final List<String> recordingDevices;
-  final String? recordingDevice;
-  final ValueChanged<String>? onRecordingDeviceChanged;
-  final VoidCallback? onRefreshRecordingDevices;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onRunMaintenance;
@@ -403,10 +399,6 @@ class SongListScreenContent extends StatelessWidget {
     this.onMoveSongToFolder,
     this.onDropSongOnSong,
     this.onDuetMix,
-    this.recordingDevices = const [],
-    this.recordingDevice,
-    this.onRecordingDeviceChanged,
-    this.onRefreshRecordingDevices,
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onRunMaintenance,
@@ -736,10 +728,6 @@ class SongListScreenContent extends StatelessWidget {
         onSettingsChanged: onSettingsChanged,
         fontOptions: PrompterSettingsService.fontOptions,
         separatorStatusLabel: separatorStatusLabel,
-        recordingDevices: recordingDevices,
-        recordingDevice: recordingDevice,
-        onRecordingDeviceChanged: onRecordingDeviceChanged,
-        onRefreshRecordingDevices: onRefreshRecordingDevices,
         onUpdateYtDlp: onUpdateYtDlp,
         onExportBackup: onExportBackup,
         onImportBackup: onImportBackup,
@@ -747,7 +735,7 @@ class SongListScreenContent extends StatelessWidget {
         onCustomFontSize: onCustomFontSize,
         onAccessibilityPreset: onAccessibilityPreset,
         recordingDevices: recordingDevices,
-        onRefreshDevices: onRefreshRecordingDevices,
+        onRefreshRecordingDevices: onRefreshRecordingDevices,
         micTesting: micTesting,
         micLevel: micLevel,
         micLevelLabel: micLevelLabel,
