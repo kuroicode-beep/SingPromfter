@@ -442,11 +442,39 @@ class _VideoRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  video.title,
-                  style: AppTypography.body,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        video.title,
+                        style: AppTypography.body,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    // 가져오기 — 제목 바로 뒤 아이콘 버튼. 오른쪽 끝에 있으면
+                    // 마우스 이동이 멀다는 실사용 피드백으로 옮겼다(v5.4.0).
+                    Semantics(
+                      button: true,
+                      label: '${video.title} 가져오기 — 구성 선택 창 열기',
+                      child: Tooltip(
+                        message: '가져오기',
+                        child: IconButton(
+                          onPressed: onImport,
+                          icon: const Icon(Icons.download, size: 24),
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppColors.primaryContainer,
+                            foregroundColor: AppColors.onPrimaryContainer,
+                            minimumSize: const Size(
+                              AppConstants.minTouchTarget,
+                              AppConstants.minTouchTarget,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Row(
@@ -483,21 +511,6 @@ class _VideoRow extends StatelessWidget {
               ),
             ),
           ],
-          const SizedBox(width: 8),
-          // 버튼 하나 — 누르면 구성(기본/남자키/4번슬롯) 팝업이 뜬다.
-          Semantics(
-            label: '${video.title} 가져오기 — 구성 선택 창 열기',
-            child: FilledButton(
-              onPressed: onImport,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.primaryContainer,
-                foregroundColor: AppColors.onPrimaryContainer,
-                minimumSize: const Size(96, AppConstants.minTouchTarget),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-              ),
-              child: const Text('가져오기'),
-            ),
-          ),
         ],
       ),
     );

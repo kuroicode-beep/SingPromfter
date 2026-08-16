@@ -37,7 +37,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('결과 행의 [가져오기] 버튼 하나가 구성 선택을 연다', (tester) async {
+  testWidgets('결과 행의 [가져오기] 아이콘 버튼이 구성 선택을 연다', (tester) async {
     YoutubeVideo? imported;
     await pump(
       tester,
@@ -50,7 +50,8 @@ void main() {
     // 버튼은 하나다 — 구성(기본/남자키/4번슬롯)은 팝업에서 고른다.
     expect(find.text('4번 슬롯'), findsNothing);
 
-    await tester.tap(find.text('가져오기'));
+    // 제목 바로 뒤의 아이콘 버튼(v5.4.0) — 텍스트 대신 툴팁으로 찾는다.
+    await tester.tap(find.byTooltip('가져오기'));
     expect(imported?.videoId, 'v1');
   });
 

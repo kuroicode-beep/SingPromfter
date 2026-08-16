@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.3.0';
+  static const String current = '5.4.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.4.0',
+      '2026-08-16',
+      '유튜브 검색 결과의 [가져오기]를 제목 바로 뒤 아이콘 버튼으로 이동 — '
+          '오른쪽 끝까지 마우스를 옮기기 힘들다는 실사용 피드백. '
+          '터치 타겟 50px·툴팁·스크린리더 라벨은 그대로 유지',
+    ),
     AppVersionEntry(
       '5.3.0',
       '2026-08-16',
