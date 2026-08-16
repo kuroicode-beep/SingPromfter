@@ -57,6 +57,9 @@ extension SettingsCategoryInfo on SettingsCategory {
 class SettingsPanel extends StatefulWidget {
   final List<PracticeSummary> practiceSummaries;
   final String? ytDlpVersion;
+
+  /// yt-dlp의 JS 챌린지 해석기(yt-dlp-ejs) 버전. 없으면 403 실패의 주원인.
+  final String? ytDlpEjsVersion;
   /// 무대 가사 표시 설정 전체. showEqMeter 하나만 따로 받던 것을 대체한다 —
   /// 쓰기 경로가 둘이면 반드시 어긋난다.
   final PrompterSettings settings;
@@ -95,6 +98,7 @@ class SettingsPanel extends StatefulWidget {
     super.key,
     this.practiceSummaries = const [],
     this.ytDlpVersion,
+    this.ytDlpEjsVersion,
     this.settings = const PrompterSettings(),
     required this.onSettingsChanged,
     this.fontOptions = const {},
@@ -216,8 +220,27 @@ class _SettingsPanelState extends State<SettingsPanel> {
             ],
           ),
           const SizedBox(height: 4),
+          Row(
+            children: [
+              Text('JS 해석기 ', style: AppTypography.bodyMuted),
+              Expanded(
+                child: Text(
+                  widget.ytDlpEjsVersion == null
+                      ? '없음 — 유튜브 403 실패의 주원인'
+                      : '버전 ${widget.ytDlpEjsVersion} (yt-dlp-ejs)',
+                  style: AppTypography.mono,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           Text(
-            '유튜브 가져오기가 갑자기 실패하면 대부분 오래된 yt-dlp가 원인입니다.',
+            widget.ytDlpEjsVersion == null
+                ? '유튜브 다운로드에는 JS 해석기가 필요합니다 — '
+                      'pip install yt-dlp-ejs 로 설치한 뒤 앱을 다시 시작해 주세요.'
+                : '유튜브 가져오기가 갑자기 실패하면 오래된 yt-dlp가 원인일 수 '
+                      '있습니다. 특정 영상만 403이면 같은 곡의 다른 영상으로 '
+                      '시도해 보세요.',
             style: AppTypography.bodyMuted,
           ),
           _SettingsTile(

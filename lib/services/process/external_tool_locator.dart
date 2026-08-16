@@ -31,6 +31,16 @@ extension ExternalToolInfo on ExternalTool {
   String get prefsKey => 'tool_path_$executableName';
 }
 
+/// yt-dlp verbose 헤더의 Optional libraries 줄에서 yt-dlp-ejs(JS 챌린지
+/// 해석기) 버전을 찾는다. 없으면 null. (순수 함수 — 테스트 대상)
+///
+/// 이 해석기가 없으면 node가 있어도 서명을 못 풀어 유튜브 다운로드가
+/// 403으로 실패한다 — 2026-08-16 실측한 실제 장애 원인.
+String? parseYtDlpEjsVersion(String output) {
+  final match = RegExp(r'yt_dlp_ejs-([0-9][\w.]*)').firstMatch(output);
+  return match?.group(1);
+}
+
 class ToolLocation {
   final ExternalTool tool;
   final String? path;
@@ -133,6 +143,19 @@ class ExternalToolLocator {
     await prefs.setString(tool.prefsKey, path);
     _cache.remove(tool);
     return locate(tool, refresh: true);
+  }
+
+  /// yt-dlp의 EJS 해석기(yt-dlp-ejs) 버전을 조회한다. 없으면 null.
+  ///
+  /// 표기는 -v 헤더에만 나온다(-v --version은 헤더를 안 찍는다). 네트워크
+  /// 없이 헤더만 얻으려고 일부러 지원하지 않는 URL을 준다 — 종료 코드는
+  /// 실패지만 stderr에 헤더는 찍힌다. 그래서 result.ok를 보지 않는다.
+  Future<String?> ytDlpEjsVersion(String ytDlpPath) async {
+    final result = await _runner.run(
+      ytDlpPath,
+      ['-v', '--ignore-config', '--simulate', 'x://ejs-check'],
+    );
+    return parseYtDlpEjsVersion('${result.stdout}\n${result.stderr}');
   }
 
   Future<bool> _exists(String path) async {

@@ -62,6 +62,7 @@ class SongListScreenContent extends StatelessWidget {
   final VoidCallback onClearFinishedImports;
   final VoidCallback onLocateYtDlp;
   final String? ytDlpVersion;
+  final String? ytDlpEjsVersion;
   final VoidCallback onUpdateYtDlp;
   final String separatorStatusLabel;
   final VoidCallback onImportLrcFile;
@@ -274,6 +275,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onClearFinishedImports,
     required this.onLocateYtDlp,
     this.ytDlpVersion,
+    this.ytDlpEjsVersion,
     required this.onUpdateYtDlp,
     required this.separatorStatusLabel,
     required this.onImportLrcFile,
@@ -724,6 +726,7 @@ class SongListScreenContent extends StatelessWidget {
       settingsPanel: SettingsPanel(
         practiceSummaries: practiceSummaries,
         ytDlpVersion: ytDlpVersion,
+        ytDlpEjsVersion: ytDlpEjsVersion,
         settings: settings,
         onSettingsChanged: onSettingsChanged,
         fontOptions: PrompterSettingsService.fontOptions,

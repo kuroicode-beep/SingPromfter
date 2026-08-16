@@ -35,7 +35,7 @@ String describeDownloadFailure(
         : ' Node.js가 없으면 제한된 방식으로 받아 이 오류가 잦습니다 — '
               '설치를 권합니다(${ExternalTool.node.installHint}).';
     return '유튜브가 일시적으로 요청을 막았습니다(403). '
-        '잠시 후 다시 시도해 주세요.$hint';
+        '같은 곡의 다른 영상으로 시도하거나 잠시 후 다시 시도해 주세요.$hint';
   }
   if (detail.contains('Unable to extract') ||
       detail.contains('Unsupported URL') ||

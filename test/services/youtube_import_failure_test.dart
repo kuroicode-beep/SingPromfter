@@ -21,6 +21,15 @@ void main() {
       expect(msg, isNot(contains('업데이트')));
     });
 
+    test('403은 다른 영상 시도 팁을 준다 — 영상 단위 일시 차단 우회', () {
+      final msg = describeDownloadFailure(
+        ['ERROR: unable to download video data: HTTP Error 403: Forbidden'],
+        exitCode: 1,
+        nodeFound: true,
+      );
+      expect(msg, contains('다른 영상'));
+    });
+
     test('403 + node 없음이면 설치 힌트를 함께 준다', () {
       final msg = describeDownloadFailure(
         ['ERROR: HTTP Error 403: Forbidden'],
@@ -57,6 +66,27 @@ void main() {
         nodeFound: true,
       );
       expect(msg, contains('255'));
+    });
+  });
+
+  group('parseYtDlpEjsVersion', () {
+    test('verbose 헤더의 Optional libraries 줄에서 버전을 찾는다', () {
+      const header =
+          '[debug] Optional libraries: brotli-1.2.0, certifi-2026.02.25, '
+          'requests-2.34.2, sqlite3-3.50.4, urllib3-2.6.3, yt_dlp_ejs-0.8.0\n'
+          '[debug] JS runtimes: node-24.13.1';
+      expect(parseYtDlpEjsVersion(header), '0.8.0');
+    });
+
+    test('해석기가 없으면 null — 403 실패의 주원인 진단', () {
+      const header =
+          '[debug] Optional libraries: brotli-1.2.0, requests-2.34.2\n'
+          '[debug] JS runtimes: node-24.13.1';
+      expect(parseYtDlpEjsVersion(header), isNull);
+    });
+
+    test('빈 출력도 null', () {
+      expect(parseYtDlpEjsVersion(''), isNull);
     });
   });
 

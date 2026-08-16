@@ -2325,6 +2325,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onClearFinishedImports: _importJobs.clearFinished,
         onLocateYtDlp: _locateYtDlp,
         ytDlpVersion: _ytDlpVersion,
+        ytDlpEjsVersion: _app.ytDlpEjsVersion,
         onUpdateYtDlp: _updateYtDlp,
         separatorStatusLabel: _separatorStatusLabel,
         onImportLrcFile: _importLrcFile,

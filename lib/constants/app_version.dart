@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.2.0';
+  static const String current = '5.3.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.3.0',
+      '2026-08-16',
+      '유튜브 가져오기 실패 대응 개선 — 실패하면 어느 탭에서든 스낵바로 즉시 '
+          '알림(진행 표시가 홈에만 있어 무반응처럼 보이던 문제), 403 안내에 '
+          '"같은 곡의 다른 영상 시도" 팁 추가, 설정 외부 도구에 JS 해석기'
+          '(yt-dlp-ejs) 점검 표시 — 해석기가 없으면 유튜브 다운로드가 '
+          '403으로 실패합니다',
+    ),
     AppVersionEntry(
       '5.2.0',
       '2026-08-08',

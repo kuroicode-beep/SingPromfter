@@ -190,6 +190,10 @@ class AppController extends ChangeNotifier {
   bool ytDlpAvailable = false;
   String? ytDlpMissingReason;
   String? ytDlpVersion;
+
+  /// yt-dlp의 JS 챌린지 해석기(yt-dlp-ejs) 버전. 없으면 null —
+  /// 이게 없으면 유튜브 다운로드가 403으로 실패한다(설정 진단에 표시).
+  String? ytDlpEjsVersion;
   String separatorStatusLabel = '분리 서버: 확인 중';
   bool separatorOnline = false;
   // 작곡 서버 상태(v3.0.0) — 로컬AI가 켜져 있을 때만 폴링한다.
@@ -1723,6 +1727,10 @@ class AppController extends ChangeNotifier {
     ytDlpMissingReason = tool.found
         ? null
         : 'yt-dlp를 찾을 수 없습니다. 설치했다면 실행 파일 경로를 직접 지정해 주세요.';
+    ytDlpEjsVersion = tool.found
+        ? await toolLocator.ytDlpEjsVersion(tool.path!)
+        : null;
+    if (_disposed) return;
 
     // AI 서버 폴링은 로컬AI가 켜져 있을 때만 — 꺼져 있으면 트래픽을 아낀다.
     if (settings.localAiEnabled) {
@@ -2270,6 +2278,10 @@ class AppController extends ChangeNotifier {
         clearRatio: true,
       ),
     );
+    // 실패는 홈 밖(곡 검색 탭 등)에서도 보이게 스낵으로도 알린다 — 진행
+    // 표시가 홈에만 있어 실패가 "무반응"으로 오인되던 실사용 사고(v5.3.0).
+    final name = current.title.trim().isEmpty ? '유튜브 링크' : current.title;
+    _emit("'$name' 가져오기 실패 — $message");
   }
 
   /// 받은 오디오들을 슬롯에 배치해 곡을 만든다.

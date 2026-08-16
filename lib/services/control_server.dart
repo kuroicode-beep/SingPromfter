@@ -604,7 +604,11 @@ class ControlRouter {
           .length,
       'localAiEnabled': app.settings.localAiEnabled,
       'tools': {
-        'ytDlp': {'found': app.ytDlpAvailable, 'version': app.ytDlpVersion},
+        'ytDlp': {
+          'found': app.ytDlpAvailable,
+          'version': app.ytDlpVersion,
+          'ejs': app.ytDlpEjsVersion,
+        },
         'separator': {
           'online': app.separatorOnline,
           'label': app.separatorStatusLabel,
