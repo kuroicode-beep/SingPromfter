@@ -124,6 +124,10 @@ class RecordingController extends ChangeNotifier {
   /// 녹음 파일을 둘 전체 경로를 만들어 준다.
   final Future<String> Function(String fileName) pathBuilder;
 
+  /// 캡처가 stop() 전에 스스로 죽었을 때(장치 열기 실패 등) 호출된다 —
+  /// 화면이 스낵으로 원인을 알리는 데 쓴다. 없으면 상태만 되돌린다.
+  void Function(String message)? onError;
+
   JobHandle? _job;
   StreamSubscription<String>? _sub;
 
@@ -133,6 +137,7 @@ class RecordingController extends ChangeNotifier {
   bool _isProbing = false;
 
   bool _isRecording = false;
+  bool _stopping = false;
   Duration _elapsed = Duration.zero;
   double? _dbfs;
   String? _currentFileName;
@@ -161,18 +166,28 @@ class RecordingController extends ChangeNotifier {
   }
 
   /// 입력 장치 목록을 새로 읽는다.
+  ///
+  /// run()이 아니라 start() 스트리밍으로 읽는 이유: Process.run의 기본
+  /// 디코딩은 시스템 코드페이지(이 PC는 cp949)인데 ffmpeg는 UTF-8을
+  /// 내보낸다. 한글 장치명("마이크(RØDE...)")이 깨진 채 저장됐다가 녹음
+  /// 시작에서 장치를 못 찾아 캡처가 즉사하던 실사고(2026-08-16)가 있었다.
+  /// start()의 스트림은 UTF-8(toolOutputDecoder)로 디코딩한다.
   Future<List<String>> refreshDevices() async {
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) return const [];
 
     // 장치 목록은 stderr로 나오고 종료 코드도 0이 아니다(정상 동작).
-    final result = await _runner.run(ffmpeg.path!, [
+    final job = _runner.start(ffmpeg.path!, [
       '-hide_banner',
       '-list_devices', 'true',
       '-f', 'dshow',
       '-i', 'dummy',
     ]);
-    _devices = parseDshowAudioDevices('${result.stdout}\n${result.stderr}');
+    final lines = <String>[];
+    final sub = job.lines.listen(lines.add);
+    await job.exitCode;
+    await sub.cancel();
+    _devices = parseDshowAudioDevices(lines.join('\n'));
     _deviceName ??= _devices.isEmpty ? null : _devices.first;
     notifyListeners();
     return _devices;
@@ -213,10 +228,12 @@ class RecordingController extends ChangeNotifier {
 
       _job = job;
       _isRecording = true;
+      _stopping = false;
       _currentFileName = fileName;
       _elapsed = Duration.zero;
       _dbfs = null;
 
+      final errorLines = <String>[];
       _sub = job.lines.listen(
         (line) {
           final rms = parseRmsLevel(line);
@@ -229,9 +246,31 @@ class RecordingController extends ChangeNotifier {
           if (out != null) {
             _elapsed = out;
             notifyListeners();
+            return;
+          }
+          // 즉사 원인 보고용 — 장치 열기 실패 등 ffmpeg의 오류 줄을 담아 둔다.
+          final trimmed = line.trim();
+          if (errorLines.length < 5 &&
+              (trimmed.startsWith('Error') || trimmed.contains('Could not'))) {
+            errorLines.add(trimmed);
           }
         },
         onError: (Object e) => debugPrint('녹음 스트림 오류: $e'),
+      );
+
+      // 캡처가 stop() 전에 스스로 죽으면(장치 열기 실패 등) '녹음 중' 표시가
+      // 유령으로 남고, 정지 시 0초 판정으로 조용히 버려진다 — 종료를 감시해
+      // 즉시 상태를 되돌리고 원인을 알린다(2026-08-16 실사고).
+      unawaited(
+        job.exitCode.then((code) async {
+          if (_stopping || !_isRecording || _currentFileName != fileName) {
+            return;
+          }
+          final detail =
+              errorLines.isEmpty ? '종료 코드 $code' : errorLines.first;
+          await _cleanup();
+          onError?.call('녹음을 시작하지 못했습니다 — $detail');
+        }),
       );
 
       notifyListeners();
@@ -246,6 +285,8 @@ class RecordingController extends ChangeNotifier {
   /// 녹음을 끝내고 파일명과 길이를 돌려준다.
   Future<({String fileName, Duration duration})?> stop() async {
     if (!_isRecording) return null;
+    // 종료 감시가 정상 정지를 즉사로 오인하지 않게 먼저 표시한다.
+    _stopping = true;
     final fileName = _currentFileName;
     final job = _job;
 

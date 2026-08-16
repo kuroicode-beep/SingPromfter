@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.4.0';
+  static const String current = '5.4.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.4.1',
+      '2026-08-16',
+      '녹음이 파일 없이 조용히 끝나던 문제 수정 — 한글 장치명("마이크(...)")이 '
+          '인코딩 깨짐으로 ffmpeg에 잘못 전달돼 캡처가 즉시 죽고, 앱은 녹음 '
+          '중인 줄 알다가 0초 판정으로 버리던 버그. 장치 목록을 UTF-8로 읽고, '
+          '캡처가 도중에 죽으면 유령 상태를 즉시 해제하며 원인을 알립니다',
+    ),
     AppVersionEntry(
       '5.4.0',
       '2026-08-16',

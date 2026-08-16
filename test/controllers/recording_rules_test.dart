@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:singpromfter_app/controllers/recording_controller.dart';
 import 'package:singpromfter_app/models/recording_take.dart';
+import 'package:singpromfter_app/services/process/process_runner.dart';
 import 'package:singpromfter_app/services/recording_library_service.dart';
 
 RecordingTake take({
@@ -272,4 +276,59 @@ void _ffmpegRecordingTests() {
       expect(args[args.indexOf('-af') + 1], startsWith('volume=0.80,'));
     });
   });
+
+  group('refreshDevices — UTF-8 스트리밍 디코딩 (2026-08-16 회귀)', () {
+    test('한글 장치명이 깨지지 않고 들어온다', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      final recording = RecordingController(
+        pathBuilder: (name) async => name,
+        runner: _DeviceListFakeRunner(),
+      );
+
+      final devices = await recording.refreshDevices();
+
+      // Process.run의 시스템 인코딩(cp949) 경로였다면 "留덉씠??..."처럼
+      // 깨졌다 — start() 스트리밍(UTF-8) 경로는 원형을 보존해야 한다.
+      expect(devices, contains('마이크(RØDE NT-USB Mini)'));
+      expect(recording.deviceName, '마이크(RØDE NT-USB Mini)');
+      recording.dispose();
+    });
+  });
+}
+
+/// 장치 목록 시나리오용 러너 — start()는 ffmpeg -list_devices 출력을,
+/// run()은 locate(where·-version)에 성공 응답을 흉내 낸다.
+class _DeviceListFakeRunner implements ProcessRunner {
+  @override
+  JobHandle start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) {
+    final controller = StreamController<String>();
+    controller.add('[in#0 @ 0x1] "마이크(RØDE NT-USB Mini)" (audio)');
+    controller.add('[in#0 @ 0x1] "MAIN L/R(BEHRINGER FLOW 8)" (audio)');
+    final closed = controller.close();
+    return JobHandle(
+      lines: controller.stream,
+      // 실제 러너처럼 스트림이 다 흐른 뒤에 종료 코드를 준다.
+      exitCode: closed.then((_) => 1),
+      cancel: () {},
+    );
+  }
+
+  @override
+  Future<ProcessOutput> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) async {
+    // locate(): where/-version 조회는 전부 성공으로 응답한다.
+    return const ProcessOutput(
+      exitCode: 0,
+      stdout: 'ffmpeg',
+      stderr: '',
+    );
+  }
 }

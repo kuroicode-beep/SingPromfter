@@ -215,6 +215,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _recording = RecordingController(
       pathBuilder: _buildRecordingPath,
     )..addListener(_onPlaybackStateChanged);
+    // 캡처 즉사(장치 열기 실패 등)를 사용자에게 바로 알린다 — 유령 '녹음 중'
+    // 상태로 남아 파일 없이 끝나던 실사고 방지(v5.4.1).
+    _recording.onError = _showSnack;
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     _playback.isRecordingProvider = () => _recording.isRecording;
     // 우하단 '녹음 중' 배지가 듣는 표시용 거울 — 잠금 배지와 같은 패턴.
