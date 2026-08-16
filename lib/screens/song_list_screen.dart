@@ -1680,6 +1680,8 @@ class _SongListScreenState extends State<SongListScreen> {
       _showSnack('유튜브 주소가 아닙니다. 링크를 다시 확인해 주세요.');
       return;
     }
+    if (!await _confirmSameVideoAgain(url)) return;
+    if (!mounted) return;
     if (!await _confirmYoutubeNotice()) return;
     final outcome = await _app.enqueueImport(
       url,
@@ -1693,6 +1695,62 @@ class _SongListScreenState extends State<SongListScreen> {
           ? '가져오는 중입니다. 진행 상황은 홈 위쪽에 표시됩니다.'
           : (outcome.message ?? '가져오기를 시작하지 못했습니다.'),
     );
+  }
+
+  /// 같은 영상이 이미 등록돼 있거나 가져오는 중이면 확인을 받는다.
+  /// true = 계속 진행. 실수로 직전 곡을 또 추가하던 사고 방지(v5.5.0).
+  Future<bool> _confirmSameVideoAgain(String url) async {
+    final id = youtubeVideoId(url);
+    if (id == null) return true;
+
+    // 아직 안 끝난 잡에 같은 영상이 있으면 중복 시작을 막는다(확인 불필요).
+    final importing = _importJobs.jobs.any(
+      (j) => !j.status.isFinished && youtubeVideoId(j.url) == id,
+    );
+    if (importing) {
+      _showSnack('이 영상은 이미 가져오는 중이에요. 진행 상황은 홈 위쪽에 있어요.');
+      return false;
+    }
+
+    Song? existing;
+    for (final song in _songs) {
+      final source = song.sourceUrl;
+      if (source != null && youtubeVideoId(source) == id) {
+        existing = song;
+        break;
+      }
+    }
+    if (existing == null) return true;
+    if (!mounted) return false;
+
+    final again = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('이미 추가한 곡이에요'),
+        content: Text(
+          "이 영상은 '${existing!.title}'(으)로 이미 등록돼 있어요.\n"
+          '같은 영상을 한 번 더 가져올까요?',
+          style: AppTypography.body,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(84, AppConstants.minTouchTarget),
+            ),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(140, AppConstants.minTouchTarget),
+            ),
+            child: const Text('다시 가져오기'),
+          ),
+        ],
+      ),
+    );
+    return again == true;
   }
 
   // ── 유튜브 검색 (곡 검색 탭) ───────────────────────────

@@ -20,6 +20,7 @@ void main() {
     ValueChanged<String>? onSearch,
     ValueChanged<YoutubeChartKind>? onChartChanged,
     ValueChanged<YoutubeVideo>? onImport,
+    ValueChanged<YoutubeVideo>? onPreview,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -30,6 +31,7 @@ void main() {
             onSearch: onSearch ?? (_) {},
             onChartChanged: onChartChanged ?? (_) {},
             onImport: onImport ?? (_) {},
+            onPreview: onPreview,
           ),
         ),
       ),
@@ -53,6 +55,20 @@ void main() {
     // 제목 바로 뒤의 아이콘 버튼(v5.4.0) — 텍스트 대신 툴팁으로 찾는다.
     await tester.tap(find.byTooltip('가져오기'));
     expect(imported?.videoId, 'v1');
+  });
+
+  testWidgets('미리듣기 아이콘이 제목 옆에 나란히 있다 (v5.5.0)', (tester) async {
+    YoutubeVideo? previewed;
+    await pump(
+      tester,
+      state: const YoutubeSearchViewState(query: '선물', results: [video]),
+      onPreview: (v) => previewed = v,
+    );
+
+    // 문구 버튼은 없고 아이콘 두 개(가져오기·미리듣기)만 있다.
+    expect(find.text('미리듣기'), findsNothing);
+    await tester.tap(find.byTooltip('미리듣기'));
+    expect(previewed?.videoId, 'v1');
   });
 
   testWidgets('검색어가 비어 있으면 차트 칩 4개가 보이고 전환을 알린다', (tester) async {

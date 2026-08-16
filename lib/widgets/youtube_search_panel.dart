@@ -453,27 +453,27 @@ class _VideoRow extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    // 가져오기 — 제목 바로 뒤 아이콘 버튼. 오른쪽 끝에 있으면
-                    // 마우스 이동이 멀다는 실사용 피드백으로 옮겼다(v5.4.0).
-                    Semantics(
-                      button: true,
-                      label: '${video.title} 가져오기 — 구성 선택 창 열기',
-                      child: Tooltip(
-                        message: '가져오기',
-                        child: IconButton(
-                          onPressed: onImport,
-                          icon: const Icon(Icons.download, size: 24),
-                          style: IconButton.styleFrom(
-                            backgroundColor: AppColors.primaryContainer,
-                            foregroundColor: AppColors.onPrimaryContainer,
-                            minimumSize: const Size(
-                              AppConstants.minTouchTarget,
-                              AppConstants.minTouchTarget,
-                            ),
-                          ),
-                        ),
-                      ),
+                    // 가져오기·미리듣기 — 제목 바로 뒤에 작은 아이콘 두 개를
+                    // 나란히(v5.4.0 이동 → v5.5.0 축소·병렬). 시각 40px이지만
+                    // 히트 영역은 Material padded로 48px을 유지한다.
+                    _RowIconButton(
+                      icon: Icons.download,
+                      tooltip: '가져오기',
+                      semanticLabel: '${video.title} 가져오기 — 구성 선택 창 열기',
+                      filled: true,
+                      onTap: onImport,
                     ),
+                    if (onPreview != null) ...[
+                      const SizedBox(width: 4),
+                      _RowIconButton(
+                        icon: Icons.open_in_new,
+                        tooltip: '미리듣기',
+                        semanticLabel:
+                            '${video.title} 미리듣기 — 브라우저 새 창으로 열기',
+                        filled: false,
+                        onTap: onPreview!,
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -496,22 +496,50 @@ class _VideoRow extends StatelessWidget {
               ],
             ),
           ),
-          if (onPreview != null) ...[
-            const SizedBox(width: 8),
-            Semantics(
-              label: '${video.title} 미리듣기 — 브라우저 새 창으로 열기',
-              child: OutlinedButton.icon(
-                onPressed: onPreview,
-                icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('미리듣기'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, AppConstants.minTouchTarget),
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                ),
-              ),
-            ),
-          ],
         ],
+      ),
+    );
+  }
+}
+
+/// 결과 행의 컴팩트 아이콘 버튼 — 제목 옆에 나란히 놓기 위해 시각 크기를
+/// 40px로 줄이되, 히트 영역은 MaterialTapTargetSize.padded로 48px을 지킨다.
+class _RowIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final String semanticLabel;
+  final bool filled;
+  final VoidCallback onTap;
+
+  const _RowIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.semanticLabel,
+    required this.filled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Tooltip(
+        message: tooltip,
+        child: IconButton(
+          onPressed: onTap,
+          icon: Icon(icon, size: 20),
+          style: IconButton.styleFrom(
+            backgroundColor:
+                filled ? AppColors.primaryContainer : AppColors.surfaceContainer,
+            foregroundColor:
+                filled ? AppColors.onPrimaryContainer : AppColors.onSurfaceVariant,
+            minimumSize: const Size(40, 40),
+            fixedSize: const Size(40, 40),
+            padding: EdgeInsets.zero,
+            tapTargetSize: MaterialTapTargetSize.padded,
+          ),
+        ),
       ),
     );
   }

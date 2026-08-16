@@ -27,9 +27,15 @@ String describeDownloadFailure(
   List<String> errorLines, {
   required int exitCode,
   required bool nodeFound,
+  bool? ejsFound,
 }) {
   final detail = errorLines.isEmpty ? '종료 코드 $exitCode' : errorLines.last;
   if (detail.contains('403') || detail.contains('Forbidden')) {
+    // 해석기 부재는 403의 근본 원인이라 안내를 최우선으로 둔다(2026-08-16 실사고).
+    if (ejsFound == false) {
+      return '유튜브가 요청을 막았습니다(403). JS 해석기(yt-dlp-ejs)가 없어 '
+          '계속 실패할 수 있어요 — 설정 > 데이터·도구에서 확인해 주세요.';
+    }
     final hint = nodeFound
         ? ''
         : ' Node.js가 없으면 제한된 방식으로 받아 이 오류가 잦습니다 — '
@@ -110,6 +116,29 @@ bool looksLikeYoutubeUrl(String raw) {
     'youtu.be',
   };
   return hosts.contains(host);
+}
+
+/// 유튜브 링크에서 영상 ID를 뽑는다. 못 찾으면 null. (순수 함수 — 테스트 대상)
+///
+/// 같은 영상을 다시 추가하려는지 판별하는 데 쓴다 — URL 표기가 달라도
+/// (youtu.be 단축, 쿼리 순서, shorts/embed 경로) ID가 같으면 같은 영상이다.
+String? youtubeVideoId(String raw) {
+  final uri = Uri.tryParse(raw.trim());
+  if (uri == null) return null;
+  final host = uri.host.toLowerCase().replaceFirst('www.', '');
+  if (host == 'youtu.be') {
+    return uri.pathSegments.isEmpty || uri.pathSegments.first.isEmpty
+        ? null
+        : uri.pathSegments.first;
+  }
+  final v = uri.queryParameters['v'];
+  if (v != null && v.isNotEmpty) return v;
+  final segments = uri.pathSegments;
+  if (segments.length >= 2 &&
+      (segments[0] == 'shorts' || segments[0] == 'embed')) {
+    return segments[1].isEmpty ? null : segments[1];
+  }
+  return null;
 }
 
 /// 너무 긴 영상(라이브 등)을 걸러내기 위한 상한.
@@ -268,11 +297,15 @@ class YoutubeImportService {
 
     if (exitCode != 0) {
       await _cleanup(workDir);
+      // 실패했을 때만 EJS 해석기 존재를 조회한다(-v 프로브 1회, 약 1~2초) —
+      // 403의 근본 원인(해석기 부재)을 실패 안내에 바로 실어 주기 위해서다.
+      final ejsVersion = await _locator.ytDlpEjsVersion(ytDlp.path!);
       return YoutubeImportResult.failure(
         describeDownloadFailure(
           errors,
           exitCode: exitCode,
           nodeFound: jsRuntime.isNotEmpty,
+          ejsFound: ejsVersion != null,
         ),
       );
     }

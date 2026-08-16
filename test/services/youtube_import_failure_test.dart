@@ -30,6 +30,28 @@ void main() {
       expect(msg, contains('다른 영상'));
     });
 
+    test('403 + EJS 해석기 없음이면 근본 원인을 최우선으로 안내한다', () {
+      final msg = describeDownloadFailure(
+        ['ERROR: HTTP Error 403: Forbidden'],
+        exitCode: 1,
+        nodeFound: true,
+        ejsFound: false,
+      );
+      expect(msg, contains('yt-dlp-ejs'));
+      expect(msg, contains('설정'));
+    });
+
+    test('403 + EJS 있으면 기존 재시도 안내 그대로', () {
+      final msg = describeDownloadFailure(
+        ['ERROR: HTTP Error 403: Forbidden'],
+        exitCode: 1,
+        nodeFound: true,
+        ejsFound: true,
+      );
+      expect(msg, contains('잠시 후 다시 시도'));
+      expect(msg, isNot(contains('yt-dlp-ejs')));
+    });
+
     test('403 + node 없음이면 설치 힌트를 함께 준다', () {
       final msg = describeDownloadFailure(
         ['ERROR: HTTP Error 403: Forbidden'],
@@ -66,6 +88,27 @@ void main() {
         nodeFound: true,
       );
       expect(msg, contains('255'));
+    });
+  });
+
+  group('youtubeVideoId — 표기가 달라도 같은 영상 판별 (v5.5.0 중복 확인)', () {
+    test('watch·youtu.be·shorts·embed에서 같은 ID를 뽑는다', () {
+      const id = 'lZaOiTaFYks';
+      expect(youtubeVideoId('https://www.youtube.com/watch?v=$id'), id);
+      expect(youtubeVideoId('https://youtu.be/$id'), id);
+      expect(youtubeVideoId('https://youtube.com/shorts/$id'), id);
+      expect(youtubeVideoId('https://www.youtube.com/embed/$id'), id);
+      expect(
+        youtubeVideoId('https://m.youtube.com/watch?list=PL1&v=$id'),
+        id,
+      );
+    });
+
+    test('ID가 없으면 null', () {
+      expect(youtubeVideoId('https://www.youtube.com/'), isNull);
+      expect(youtubeVideoId('https://youtu.be/'), isNull);
+      expect(youtubeVideoId('not a url'), isNull);
+      expect(youtubeVideoId(''), isNull);
     });
   });
 

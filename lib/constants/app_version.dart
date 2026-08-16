@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.4.1';
+  static const String current = '5.5.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.5.0',
+      '2026-08-16',
+      '유튜브 검색 다듬기 — 이미 추가한 곡을 다시 가져오려 하면 확인창으로 '
+          '물어보고(가져오는 중이면 중복 시작 차단), 가져오기·미리듣기를 작은 '
+          '아이콘 두 개로 제목 옆에 나란히 배치. 403 실패 안내가 JS 해석기 '
+          '부재를 감지하면 그 원인을 바로 알려줍니다',
+    ),
     AppVersionEntry(
       '5.4.1',
       '2026-08-16',
