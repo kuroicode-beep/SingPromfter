@@ -1,4 +1,4 @@
-﻿// file: lib/controllers/app_controller.dart
+// file: lib/controllers/app_controller.dart
 //
 // 앱의 헤드리스 중심부. 곡 목록·큐·설정 상태와 서비스, 가져오기 파이프라인,
 // 재생 컨트롤러를 소유한다. BuildContext가 없어 화면(UI)과 로컬 제어
@@ -54,6 +54,7 @@ import '../models/vocal_segments.dart';
 import '../services/vocal_segments_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/youtube_import_service.dart';
+import '../utils/ai_gate.dart';
 import '../utils/key_label.dart';
 import '../utils/lrc_edit.dart';
 import '../utils/lyrics_refine.dart';
@@ -80,8 +81,7 @@ class ImportEnqueueOutcome {
     : errorCode = null,
       message = null;
 
-  const ImportEnqueueOutcome.error(this.errorCode, this.message)
-    : jobId = null;
+  const ImportEnqueueOutcome.error(this.errorCode, this.message) : jobId = null;
 
   bool get ok => jobId != null;
 }
@@ -315,7 +315,7 @@ class AppController extends ChangeNotifier {
   // ── 설정 (단일 쓰기 경로) ───────────────────────────────
 
   Future<void> updateSettings(PrompterSettings next) async {
-    final localAiChanged = next.localAiEnabled != settings.localAiEnabled;
+    final localAiChanged = next.localAiActive != settings.localAiActive;
     settings = next;
     _notify();
     await repo.saveSettings(next);
@@ -563,6 +563,12 @@ class AppController extends ChangeNotifier {
     String? referenceLyrics,
   }) async {
     if (_syncLockBlocked()) return false;
+    // AI가 꺼져 있으면 여기서 끊는다 — 화면 버튼을 감춰도 제어 API·MCP로
+    // 들어오는 경로가 남아 있고, 그쪽이 GPU를 쓴다.
+    if (!settings.localAiActive) {
+      _emit(AiGate.offReason);
+      return false;
+    }
     final song = songId == null ? selectedSong : songById(songId);
     if (song == null) {
       _emit('먼저 곡을 선택해 주세요.');
@@ -584,10 +590,9 @@ class AppController extends ChangeNotifier {
           subs,
           title: song.title,
           artist: song.artist,
-          duration:
-              isCurrentSong && playback.snapshot.duration > Duration.zero
-                  ? playback.snapshot.duration
-                  : null,
+          duration: isCurrentSong && playback.snapshot.duration > Duration.zero
+              ? playback.snapshot.duration
+              : null,
         );
         final attached = await attachLrc(songId: song.id, content: lrc);
         if (attached != null) {
@@ -637,10 +642,9 @@ class AppController extends ChangeNotifier {
     }
 
     final isCurrent = selectedSong?.id == song.id;
-    final durationMs =
-        isCurrent && playback.snapshot.duration > Duration.zero
-            ? playback.snapshot.duration.inMilliseconds
-            : null;
+    final durationMs = isCurrent && playback.snapshot.duration > Duration.zero
+        ? playback.snapshot.duration.inMilliseconds
+        : null;
 
     // 근거 ①·② — 신뢰도 + 보컬 에너지 구간(없으면 신뢰도만).
     final vocal = await loadVocalSegments(song);
@@ -656,11 +660,14 @@ class AppController extends ChangeNotifier {
     var cutCount = refined.dropped.length;
 
     // 근거 ③ — DeepSeek 텍스트 검증(키 있을 때만, 실패해도 계속).
-    if (useDeepSeek && deepSeekLyrics.available && kept.isNotEmpty) {
+    if (useDeepSeek &&
+        settings.cloudAiActive &&
+        deepSeekLyrics.available &&
+        kept.isNotEmpty) {
       _emit('AI 텍스트 검증 중… (DeepSeek)');
-      final flags = await deepSeekLyrics.flagSuspiciousLines(
-        [for (final s in kept) s.text],
-      );
+      final flags = await deepSeekLyrics.flagSuspiciousLines([
+        for (final s in kept) s.text,
+      ]);
       if (_disposed) return false;
       if (flags != null && flags.isNotEmpty) {
         final survivors = <SttSegment>[];
@@ -678,14 +685,15 @@ class AppController extends ChangeNotifier {
     // ④ — 정답 가사 대조: 타이밍은 STT, 텍스트는 정답.
     final ref = referenceLyrics?.trim() ?? '';
     if (ref.isNotEmpty && kept.isNotEmpty) {
-      if (!deepSeekLyrics.available) {
+      if (!settings.cloudAiActive) {
+        _emit('정답 가사 대조에는 클라우드AI가 필요해요 — 대조 없이 진행합니다.');
+      } else if (!deepSeekLyrics.available) {
         _emit('정답 가사 대조에는 DEEPSEEK_API_KEY가 필요해요 — 대조 없이 진행합니다.');
       } else {
         _emit('정답 가사 대조 중…');
-        final matches = await deepSeekLyrics.alignWithReference(
-          [for (final s in kept) s.text],
-          ref,
-        );
+        final matches = await deepSeekLyrics.alignWithReference([
+          for (final s in kept) s.text,
+        ], ref);
         if (_disposed) return false;
         if (matches == null) {
           _emit('정답 가사 대조에 실패했어요 — 받아쓴 텍스트 그대로 진행합니다.');
@@ -723,6 +731,10 @@ class AppController extends ChangeNotifier {
   /// LRCLIB에 없는 곡의 마지막 수단. 받아쓰기라 오탈자가 있을 수 있고,
   /// 그건 프롬프터에서 줄을 길게 눌러 고친다([editLyricsLine]).
   Future<bool> generateSttLyrics({String? songId, Duration? duration}) async {
+    if (!settings.localAiActive) {
+      _emit(AiGate.offReason);
+      return false;
+    }
     final song = songId == null ? selectedSong : songById(songId);
     if (song == null) {
       _emit('먼저 곡을 선택해 주세요.');
@@ -788,7 +800,10 @@ class AppController extends ChangeNotifier {
   ///
   /// 싱크 가사(LRC)가 있으면 타임스탬프는 그대로 두고 그 줄의 텍스트만
   /// 바꾼다. 없으면 일반 가사 텍스트의 해당 줄을 바꾼다.
-  Future<bool> editLyricsLine({required int index, required String text}) async {
+  Future<bool> editLyricsLine({
+    required int index,
+    required String text,
+  }) async {
     final song = selectedSong == null ? null : songById(selectedSong!.id);
     if (song == null) return false;
     final trimmed = text.trim();
@@ -1110,8 +1125,7 @@ class AppController extends ChangeNotifier {
       _emit('싱크 대기 — 가사가 멈췄습니다. 나올 타이밍에 ]를 다시 누르세요');
       return;
     }
-    final heldMs =
-        (playback.position.value - _lyricsHoldStart!).inMilliseconds;
+    final heldMs = (playback.position.value - _lyricsHoldStart!).inMilliseconds;
     final sameSong = _lyricsHoldSongId == song.id;
     _lyricsHoldStart = null;
     _lyricsHoldSongId = null;
@@ -1608,11 +1622,10 @@ class AppController extends ChangeNotifier {
   /// CREATE_NO_WINDOW로 뜬다(detached는 창 관리도 수명 관리도 안 된다).
   Future<bool> _startManagedServer(String cmd) async {
     try {
-      final proc = await Process.start(
-        'cmd.exe',
-        ['/c', cmd],
-        workingDirectory: File(cmd).parent.path,
-      );
+      final proc = await Process.start('cmd.exe', [
+        '/c',
+        cmd,
+      ], workingDirectory: File(cmd).parent.path);
       // 파이프가 가득 차면 서버가 멈춘다 — 출력은 흘려보낸다.
       unawaited(proc.stdout.drain<void>());
       unawaited(proc.stderr.drain<void>());
@@ -1733,7 +1746,7 @@ class AppController extends ChangeNotifier {
     if (_disposed) return;
 
     // AI 서버 폴링은 로컬AI가 켜져 있을 때만 — 꺼져 있으면 트래픽을 아낀다.
-    if (settings.localAiEnabled) {
+    if (settings.localAiActive) {
       final separator = await separation.status();
       final compose = await songCompose.status();
       final bgm = await bgmCompose.status();
@@ -1812,7 +1825,7 @@ class AppController extends ChangeNotifier {
         '앱에서 최초 1회 저작권 확인이 필요합니다. 앱의 곡 추가에서 "확인했습니다"를 눌러 주세요.',
       );
     }
-    if (mode == MrSourceMode.aiSeparate && !settings.localAiEnabled) {
+    if (mode == MrSourceMode.aiSeparate && !settings.localAiActive) {
       return const ImportEnqueueOutcome.error(
         'local_ai_disabled',
         'AI 보컬 분리는 설정에서 로컬AI를 켜면 사용할 수 있습니다.',
@@ -1826,7 +1839,7 @@ class AppController extends ChangeNotifier {
       return const ImportEnqueueOutcome.error(
         'separator_offline',
         '분리 서버가 꺼져 있어 MR을 만들 수 없습니다. 서버를 켜거나 '
-        '설정에 시작 명령을 등록해 주세요.',
+            '설정에 시작 명령을 등록해 주세요.',
       );
     }
     final job = importJobs.enqueue(
@@ -2085,9 +2098,7 @@ class AppController extends ChangeNotifier {
           }
         }
         if (!attached) {
-          onProgress(
-            const JobProgress(label: '가사가 없어 AI 받아쓰기 중 (수십 초)'),
-          );
+          onProgress(const JobProgress(label: '가사가 없어 AI 받아쓰기 중 (수십 초)'));
           final stt = await generateSttLyrics(
             songId: song.id,
             duration: metadata.duration,
@@ -2330,7 +2341,7 @@ class AppController extends ChangeNotifier {
   /// 작곡 요청을 큐에 넣는다. 로컬AI 게이트와 서버 프리플라이트를 여기서
   /// 검사해 UI·제어 API·MCP가 같은 규칙으로 막히게 한다.
   Future<ComposeEnqueueOutcome> enqueueCompose(ComposeRequest request) async {
-    if (!settings.localAiEnabled) {
+    if (!settings.localAiActive) {
       return const ComposeEnqueueOutcome.error(
         'local_ai_disabled',
         '작곡은 설정에서 로컬AI를 켜면 사용할 수 있습니다.',
@@ -2455,7 +2466,9 @@ class AppController extends ChangeNotifier {
       final mm = elapsed.inMinutes.toString().padLeft(2, '0');
       final ss = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
       onProgress(
-        status.detail.isEmpty ? '곡 생성 중 · 경과 $mm:$ss' : '${status.detail} · 경과 $mm:$ss',
+        status.detail.isEmpty
+            ? '곡 생성 중 · 경과 $mm:$ss'
+            : '${status.detail} · 경과 $mm:$ss',
       );
     }
     throw Exception('곡 생성이 25분 안에 끝나지 않았어요. SAW 엔진 콘솔을 확인해 주세요.');
@@ -2568,9 +2581,7 @@ class AppController extends ChangeNotifier {
         title: title,
         artist: 'AI 작곡',
         trackPaths: {1: path},
-        trackLabels: {
-          1: comp.mode == ComposeMode.vocal ? 'AI 보컬곡' : 'AI BGM',
-        },
+        trackLabels: {1: comp.mode == ComposeMode.vocal ? 'AI 보컬곡' : 'AI BGM'},
       );
       final result = await libraryService.addSong(
         songs: songs,
@@ -2603,7 +2614,7 @@ class AppController extends ChangeNotifier {
       _emit('먼저 곡으로 등록해 주세요.');
       return false;
     }
-    if (!settings.localAiEnabled) {
+    if (!settings.localAiActive) {
       _emit('설정에서 로컬AI를 켜면 사용할 수 있습니다.');
       return false;
     }
@@ -2814,8 +2825,11 @@ class AppController extends ChangeNotifier {
     if (song == null) return null;
     final nextTitle = (title ?? song.title).trim();
     if (nextTitle != song.title &&
-        libraryService.hasDuplicateTitle(songs, nextTitle,
-            excludeId: song.id)) {
+        libraryService.hasDuplicateTitle(
+          songs,
+          nextTitle,
+          excludeId: song.id,
+        )) {
       _emit('같은 제목의 곡이 이미 있습니다.');
       return null;
     }
@@ -2862,7 +2876,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> reserveAll(List<Song> songsToAdd) async {
     await _applyQueueChange(
-      queueService.addSongs(queue: queue, songs: songsToAdd, settings: settings),
+      queueService.addSongs(
+        queue: queue,
+        songs: songsToAdd,
+        settings: settings,
+      ),
       message: '${songsToAdd.length}곡 예약 완료',
     );
   }

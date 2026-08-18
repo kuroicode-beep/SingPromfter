@@ -28,6 +28,9 @@ class RegenerateLyricsDialog {
     required bool hasExistingLyrics,
     required bool deepSeekAvailable,
     bool hasSourceUrl = false,
+    // 못 쓰는 이유가 둘이다 — 키가 없거나(환경변수), 설정에서 껐거나.
+    // 사유가 틀리면 사용자가 엉뚱한 곳을 뒤진다.
+    String? deepSeekOffReason,
   }) {
     final refController = TextEditingController();
     var useVocalStem = true;
@@ -110,7 +113,8 @@ class RegenerateLyricsDialog {
                       value: useYoutubeSubs,
                       onChanged: (v) => setLocal(() => useYoutubeSubs = v),
                       title: '유튜브 자막 우선 (있으면)',
-                      subtitle: '업로더가 단 수동 자막은 타이밍까지 있는 정답이라 '
+                      subtitle:
+                          '업로더가 단 수동 자막은 타이밍까지 있는 정답이라 '
                           '받아쓰기를 건너뛰어요',
                     ),
                   _OptionRow(
@@ -127,7 +131,8 @@ class RegenerateLyricsDialog {
                     title: 'AI 텍스트 검증 (DeepSeek)',
                     subtitle: deepSeekAvailable
                         ? '비문·무의미한 줄을 한 번 더 걸러요'
-                        : '환경변수 DEEPSEEK_API_KEY가 없어 사용할 수 없어요',
+                        : (deepSeekOffReason ??
+                              '환경변수 DEEPSEEK_API_KEY가 없어 사용할 수 없어요'),
                   ),
                 ],
               ),

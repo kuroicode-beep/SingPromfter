@@ -226,7 +226,7 @@ void main() {
 
   group('작곡 라우트 (v3.0.0)', () {
     test('POST /api/compose — 로컬AI 꺼짐이면 403 local_ai_disabled', () async {
-      // 기본 설정은 localAiEnabled=false — 게이트가 API도 막는지 검증.
+      // 기본 설정은 aiEnabled=false — 게이트가 API도 막는지 검증.
       final res = await router.dispatch(
         'POST',
         '/api/compose',
@@ -237,7 +237,8 @@ void main() {
     });
 
     test('POST /api/compose — 프롬프트가 없으면 422 empty_prompt', () async {
-      app.settings = app.settings.copyWith(localAiEnabled: true);
+      app.settings =
+          app.settings.copyWith(aiEnabled: true, localAiEnabled: true);
       final res = await router.dispatch(
         'POST',
         '/api/compose',
@@ -245,6 +246,18 @@ void main() {
       );
       expect(res.status, 422);
       expect((res.body['error'] as Map)['code'], 'empty_prompt');
+    });
+
+    test('POST /api/compose — 마스터가 꺼지면 로컬AI가 켜져 있어도 403', () async {
+      app.settings =
+          app.settings.copyWith(aiEnabled: false, localAiEnabled: true);
+      final res = await router.dispatch(
+        'POST',
+        '/api/compose',
+        body: {'prompt': 'calm ballad', 'mode': 'bgm', 'durationSec': 60},
+      );
+      expect(res.status, 403);
+      expect((res.body['error'] as Map)['code'], 'local_ai_disabled');
     });
 
     test('GET /api/compose·/api/compose/jobs — 빈 목록도 200', () async {
@@ -275,7 +288,9 @@ void main() {
     test('/api/state에 작곡 상태가 들어간다', () async {
       final res = await router.dispatch('GET', '/api/state');
       expect(res.body['activeComposeJobs'], 0);
+      expect(res.body['aiEnabled'], isFalse);
       expect(res.body['localAiEnabled'], isFalse);
+      expect(res.body['cloudAiEnabled'], isFalse);
       expect((res.body['tools'] as Map)['compose'], isA<Map<String, dynamic>>());
       expect((res.body['tools'] as Map)['bgm'], isA<Map<String, dynamic>>());
     });

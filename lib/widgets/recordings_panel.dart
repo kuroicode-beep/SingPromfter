@@ -1,4 +1,4 @@
-﻿// file: lib/widgets/recordings_panel.dart
+// file: lib/widgets/recordings_panel.dart
 //
 // 녹음 보관함 — 테이크 목록, 코멘트, 별점, 재생/삭제.
 import 'package:flutter/material.dart';
@@ -30,8 +30,10 @@ class RecordingsPanel extends StatelessWidget {
   final ValueChanged<RecordingTake> onExport;
 
   /// v3.0.0 음정 코치 — 채점과 AI 보정.
-  final ValueChanged<RecordingTake> onAnalyze;
-  final ValueChanged<RecordingTake> onCorrect;
+  /// v5.6.0부터 nullable — AI 기능이 꺼져 있으면 null이 오고 버튼이 사라진다
+  /// (반주 만들기·합치기 같은 ffmpeg 기능은 AI가 아니라서 항상 남는다).
+  final ValueChanged<RecordingTake>? onAnalyze;
+  final ValueChanged<RecordingTake>? onCorrect;
 
   /// v3.20.0 플레이어 — 재생 중 테이크의 위치/길이와 시크.
   final Duration playingPosition;
@@ -57,8 +59,8 @@ class RecordingsPanel extends StatelessWidget {
     required this.onDelete,
     required this.onMix,
     required this.onPlayMix,
-    required this.onAnalyze,
-    required this.onCorrect,
+    this.onAnalyze,
+    this.onCorrect,
     required this.onPlayAccompaniment,
     required this.onCutAccompaniment,
     required this.onMixSettings,
@@ -109,22 +111,24 @@ class RecordingsPanel extends StatelessWidget {
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: RecordingFilterMode.values.map((mode) {
-              final selected = filterMode == mode;
-              return Semantics(
-                button: true,
-                selected: selected,
-                label: mode.label,
-                child: FilterChip(
-                  label: Text(mode.label, style: AppTypography.body),
-                  selected: selected,
-                  showCheckmark: true,
-                  onSelected: (_) => onFilterModeChanged(mode),
-                  materialTapTargetSize: MaterialTapTargetSize.padded,
-                  visualDensity: VisualDensity.standard,
-                ),
-              );
-            }).toList(growable: false),
+            children: RecordingFilterMode.values
+                .map((mode) {
+                  final selected = filterMode == mode;
+                  return Semantics(
+                    button: true,
+                    selected: selected,
+                    label: mode.label,
+                    child: FilterChip(
+                      label: Text(mode.label, style: AppTypography.body),
+                      selected: selected,
+                      showCheckmark: true,
+                      onSelected: (_) => onFilterModeChanged(mode),
+                      materialTapTargetSize: MaterialTapTargetSize.padded,
+                      visualDensity: VisualDensity.standard,
+                    ),
+                  );
+                })
+                .toList(growable: false),
           ),
         ),
         const SizedBox(height: 8),
@@ -164,8 +168,12 @@ class RecordingsPanel extends StatelessWidget {
                       onDelete: () => onDelete(take),
                       onMix: () => onMix(take),
                       onPlayMix: () => onPlayMix(take),
-                      onAnalyze: () => onAnalyze(take),
-                      onCorrect: () => onCorrect(take),
+                      onAnalyze: onAnalyze == null
+                          ? null
+                          : () => onAnalyze!(take),
+                      onCorrect: onCorrect == null
+                          ? null
+                          : () => onCorrect!(take),
                       onPlayAccompaniment: () => onPlayAccompaniment(take),
                       onCutAccompaniment: () => onCutAccompaniment(take),
                       onMixSettings: () => onMixSettings(take),
@@ -301,8 +309,8 @@ class _TakeRow extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onMix;
   final VoidCallback onPlayMix;
-  final VoidCallback onAnalyze;
-  final VoidCallback onCorrect;
+  final VoidCallback? onAnalyze;
+  final VoidCallback? onCorrect;
   final VoidCallback onPlayAccompaniment;
   final VoidCallback onCutAccompaniment;
   final VoidCallback onMixSettings;
@@ -322,8 +330,8 @@ class _TakeRow extends StatelessWidget {
     required this.onDelete,
     required this.onMix,
     required this.onPlayMix,
-    required this.onAnalyze,
-    required this.onCorrect,
+    this.onAnalyze,
+    this.onCorrect,
     required this.onPlayAccompaniment,
     required this.onCutAccompaniment,
     required this.onMixSettings,
@@ -378,7 +386,10 @@ class _TakeRow extends StatelessWidget {
                     // 색만이 아니라 텍스트로도 상태를 알린다.
                     child: Text('보관', style: AppTypography.emphasis),
                   ),
-                Text(_formatDate(take.recordedAt), style: AppTypography.monoMuted),
+                Text(
+                  _formatDate(take.recordedAt),
+                  style: AppTypography.monoMuted,
+                ),
               ],
             ),
             const SizedBox(height: 4),
@@ -462,19 +473,20 @@ class _TakeRow extends StatelessWidget {
                   ),
                   child: Text(take.isKeep ? '보관 해제' : '보관'),
                 ),
-                OutlinedButton.icon(
-                  onPressed: onAnalyze,
-                  icon: const Icon(Icons.music_note),
-                  label: const Text('음정 체크'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(120, AppConstants.minTouchTarget),
-                    side: const BorderSide(
-                      color: AppColors.borderStrong,
-                      width: 2,
+                if (onAnalyze != null)
+                  OutlinedButton.icon(
+                    onPressed: onAnalyze,
+                    icon: const Icon(Icons.music_note),
+                    label: const Text('음정 체크'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(120, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
                     ),
                   ),
-                ),
-                if (!take.isCorrected)
+                if (onCorrect != null && !take.isCorrected)
                   OutlinedButton.icon(
                     onPressed: onCorrect,
                     icon: const Icon(Icons.auto_fix_high),
@@ -582,10 +594,7 @@ class _StarRating extends StatelessWidget {
             ),
           ),
         const SizedBox(width: 8),
-        Text(
-          rating == 0 ? '미평가' : '$rating점',
-          style: AppTypography.monoMuted,
-        ),
+        Text(rating == 0 ? '미평가' : '$rating점', style: AppTypography.monoMuted),
       ],
     );
   }

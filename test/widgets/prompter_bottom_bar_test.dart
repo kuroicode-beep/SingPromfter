@@ -13,6 +13,8 @@ import 'package:singpromfter_app/widgets/prompter_drawer.dart';
 
 import '../fakes/fake_playback.dart';
 
+Future<bool> _defaultStartSeparator() async => true;
+
 void main() {
   setUp(mockAudioChannels);
 
@@ -25,6 +27,11 @@ void main() {
     ValueChanged<bool>? onDrawerChanged,
     // 오버플로 검증은 재생바가 펼쳐진 상태가 대상이다(기본 숨김이므로 명시).
     PrompterSettings settings = const PrompterSettings(playbackBarOpen: true),
+    // AI가 꺼지면 화면이 이 두 개를 null로 넘긴다(AiGate) — 그때 조작판에서
+    // 'STT 가사 다시 생성' 버튼과 분리 서버 상태 칩이 사라져야 한다.
+    VoidCallback? onSttLyrics,
+    Future<bool> Function()? onStartSeparator = _defaultStartSeparator,
+    bool aiWiring = true,
   }) async {
     final fake = buildFakePlayback(song: fakeSong());
     await tester.pumpWidget(
@@ -66,7 +73,8 @@ void main() {
                 onToggleRecording: () {},
                 // v2.10.0에서 옮겨 온 두 개 — 이게 있을 때가 가장 넓다.
                 onAddSong: () {},
-                onStartSeparator: () async => true,
+                onStartSeparator: aiWiring ? onStartSeparator : null,
+                onSttLyrics: aiWiring ? (onSttLyrics ?? () {}) : null,
               ),
             ),
           ),
@@ -295,6 +303,25 @@ void main() {
     await tester.pump();
 
     expect(got?.playbackBarOpen, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
+  testWidgets('AI가 꺼지면 가사 다시 생성 버튼과 분리 서버 칩이 사라진다', (tester) async {
+    final fake = await pumpBar(tester, width: 720, aiWiring: false);
+
+    expect(find.text('가사 다시 생성'), findsNothing);
+    expect(find.textContaining('분리 서버'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    fake.dispose();
+  });
+
+  testWidgets('AI가 켜져 있으면 가사 다시 생성 버튼이 보인다', (tester) async {
+    final fake = await pumpBar(tester, width: 720);
+
+    expect(find.text('가사 다시 생성'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     fake.dispose();

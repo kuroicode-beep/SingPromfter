@@ -1,4 +1,4 @@
-﻿// file: lib/widgets/song_list_screen_content.dart
+// file: lib/widgets/song_list_screen_content.dart
 //
 // SongListScreen의 도메인 상태를 화면 패널 위젯들로 연결한다.
 import 'package:flutter/foundation.dart';
@@ -67,8 +67,10 @@ class SongListScreenContent extends StatelessWidget {
   final String separatorStatusLabel;
   final VoidCallback onImportLrcFile;
   final ValueChanged<RecordingTake> onMixTake;
-  final ValueChanged<RecordingTake> onAnalyzeTake;
-  final ValueChanged<RecordingTake> onCorrectTake;
+
+  /// AI 음정 코치 — 꺼져 있으면 null이 와서 녹음 탭 버튼이 사라진다.
+  final ValueChanged<RecordingTake>? onAnalyzeTake;
+  final ValueChanged<RecordingTake>? onCorrectTake;
   final ValueChanged<RecordingTake> onPlayTakeMix;
 
   /// 녹음 플레이어 — 재생 중 테이크의 위치/길이와 시크.
@@ -152,7 +154,8 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<Composition> onPlayComposition;
   final ValueChanged<Composition> onStopComposition;
   final void Function(Composition item, String newTitle) onRenameComposition;
-  final void Function(Composition item, {bool karaokeSet}) onRegisterComposition;
+  final void Function(Composition item, {bool karaokeSet})
+  onRegisterComposition;
   final ValueChanged<Composition> onAttachCompositionToSong;
   final ValueChanged<Composition> onExportComposition;
   final ValueChanged<Composition> onDeleteComposition;
@@ -223,7 +226,8 @@ class SongListScreenContent extends StatelessWidget {
     List<String> visibleIds,
     int oldIndex,
     int newIndex,
-  )? onDropSongOnSong;
+  )?
+  onDropSongOnSong;
   final VoidCallback? onDuetMix;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
@@ -280,8 +284,8 @@ class SongListScreenContent extends StatelessWidget {
     required this.separatorStatusLabel,
     required this.onImportLrcFile,
     required this.onMixTake,
-    required this.onAnalyzeTake,
-    required this.onCorrectTake,
+    this.onAnalyzeTake,
+    this.onCorrectTake,
     required this.onPlayTakeMix,
     this.takePosition = Duration.zero,
     this.takeDuration = Duration.zero,
@@ -461,9 +465,7 @@ class SongListScreenContent extends StatelessWidget {
       onFilterModeChanged: onListFilterModeChanged,
       sortMode: listSortMode,
       onSortModeChanged: onListSortModeChanged,
-      practiceCounts: SongSortService.practiceCountsFrom(
-        practiceSummaries,
-      ),
+      practiceCounts: SongSortService.practiceCountsFrom(practiceSummaries),
       pitchBySongId: _pitchBySongId(),
       onSelectTrack: onSelectTrack,
       onAddTrack: onAddTrack,

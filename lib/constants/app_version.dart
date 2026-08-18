@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.5.0';
+  static const String current = '5.6.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.6.0',
+      '2026-08-18',
+      'AI 기능 전체 끄기 스위치 — 설정 > AI·작곡 맨 위에서 한 번에 끄면 '
+          '가사 다시 생성·음정 체크·AI 보정·분리 서버 상태 칩이 화면에서 '
+          '사라지고(작곡 탭은 자리를 지킨 채 꺼짐 표시), AI 없이 쓸 수 있는 '
+          '기능만 남습니다. 프롬프터의 녹음 중·싱크 잠금 배지는 글자를 빼고 '
+          '아이콘만 남겨 가사를 덜 가립니다',
+    ),
     AppVersionEntry(
       '5.5.0',
       '2026-08-16',
@@ -242,8 +251,9 @@ class AppVersion {
     AppVersionEntry(
       '3.15.0',
       '2026-07-31',
-      '녹음 중(R) 배지 — 프롬프터 우하단에 ●+글자로 상시 표시(메인·무대 '
-          '공통, 무대는 EQ 밴드 위로 비킴). 잠금 배지와 같은 문법',
+      '녹음 중(R) 배지 — 프롬프터 우하단에 상시 표시(메인·무대 공통, '
+          '무대는 EQ 밴드 위로 비킴). 잠금 배지와 같은 문법 '
+          '(v5.6.0에서 글자를 빼고 아이콘만 남김)',
     ),
     AppVersionEntry(
       '3.14.1',

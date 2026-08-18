@@ -1,4 +1,4 @@
-﻿// file: lib/widgets/settings_panel.dart
+// file: lib/widgets/settings_panel.dart
 //
 // 백업·라이브러리 정리·무대 가사 표시·앱 화면·연습 기록·앱 정보 설정 화면.
 //
@@ -30,7 +30,15 @@ import 'prompter_space_background.dart'
     show spaceBackgroundLevelLabel, spaceBackgroundMaxLevel;
 
 /// 설정 분류 — 왼쪽 사이드 메뉴 항목. 순서가 곧 메뉴 순서다.
-enum SettingsCategory { data, recording, ai, display, training, shortcuts, info }
+enum SettingsCategory {
+  data,
+  recording,
+  ai,
+  display,
+  training,
+  shortcuts,
+  info,
+}
 
 extension SettingsCategoryInfo on SettingsCategory {
   String get label => switch (this) {
@@ -60,6 +68,7 @@ class SettingsPanel extends StatefulWidget {
 
   /// yt-dlp의 JS 챌린지 해석기(yt-dlp-ejs) 버전. 없으면 403 실패의 주원인.
   final String? ytDlpEjsVersion;
+
   /// 무대 가사 표시 설정 전체. showEqMeter 하나만 따로 받던 것을 대체한다 —
   /// 쓰기 경로가 둘이면 반드시 어긋난다.
   final PrompterSettings settings;
@@ -322,8 +331,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
           ),
           const SizedBox(height: 8),
           Theme(
-            data:
-                Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
               childrenPadding: const EdgeInsets.only(bottom: 8),
@@ -368,12 +376,13 @@ class _CategoryButton extends StatelessWidget {
         style: TextButton.styleFrom(
           minimumSize: const Size.fromHeight(AppConstants.minTouchTarget),
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          backgroundColor:
-              selected ? AppColors.selectedSurface : Colors.transparent,
-          foregroundColor:
-              selected ? AppColors.primary : AppColors.onSurfaceVariant,
-          shape:
-              RoundedRectangleBorder(borderRadius: AppShapes.controlRadius),
+          backgroundColor: selected
+              ? AppColors.selectedSurface
+              : Colors.transparent,
+          foregroundColor: selected
+              ? AppColors.primary
+              : AppColors.onSurfaceVariant,
+          shape: RoundedRectangleBorder(borderRadius: AppShapes.controlRadius),
           side: selected
               ? const BorderSide(color: AppColors.primaryContainer, width: 2)
               : BorderSide.none,
@@ -571,10 +580,7 @@ class _KeyDiagSectionState extends State<_KeyDiagSection> {
             child: Container(
               width: double.infinity,
               constraints: const BoxConstraints(minHeight: 56),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 border: Border.all(
@@ -643,10 +649,7 @@ class _StageDisplaySection extends StatelessWidget {
 
         Text('접근성 프리셋', style: AppTypography.body),
         const SizedBox(height: 6),
-        Text(
-          '고르면 글자 크기·줄 간격·글꼴이 함께 적용됩니다.',
-          style: AppTypography.bodyMuted,
-        ),
+        Text('고르면 글자 크기·줄 간격·글꼴이 함께 적용됩니다.', style: AppTypography.bodyMuted),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
@@ -676,11 +679,14 @@ class _StageDisplaySection extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (var i = PrompterLevels.minLevel.toInt();
-                i <= PrompterLevels.maxLevel.toInt();
-                i++)
+            for (
+              var i = PrompterLevels.minLevel.toInt();
+              i <= PrompterLevels.maxLevel.toInt();
+              i++
+            )
               _SelectChip(
-                label: '${PrompterLevels.fontSizeForLevel(i.toDouble()).round()}pt',
+                label:
+                    '${PrompterLevels.fontSizeForLevel(i.toDouble()).round()}pt',
                 selected: settings.customFontSizePt == null && level == i,
                 onTap: () => onChanged(
                   settings.copyWith(
@@ -699,9 +705,11 @@ class _StageDisplaySection extends StatelessWidget {
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (var i = PrompterLevels.minLevel.toInt();
-                i <= PrompterLevels.maxLevel.toInt();
-                i++)
+            for (
+              var i = PrompterLevels.minLevel.toInt();
+              i <= PrompterLevels.maxLevel.toInt();
+              i++
+            )
               _SelectChip(
                 label: PrompterLevels.lineHeightForLevel(
                   i.toDouble(),
@@ -748,10 +756,7 @@ class _StageDisplaySection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 6),
-        Text(
-          '줄 하이라이트는 앞·현재·뒤 세 줄만 크게 보여 줍니다.',
-          style: AppTypography.bodyMuted,
-        ),
+        Text('줄 하이라이트는 앞·현재·뒤 세 줄만 크게 보여 줍니다.', style: AppTypography.bodyMuted),
         const SizedBox(height: 8),
 
         _SettingSwitch(
@@ -791,9 +796,8 @@ class _StageDisplaySection extends StatelessWidget {
               _SelectChip(
                 label: spaceBackgroundLevelLabel(level),
                 selected: settings.spaceBackgroundLevel == level,
-                onTap: () => onChanged(
-                  settings.copyWith(spaceBackgroundLevel: level),
-                ),
+                onTap: () =>
+                    onChanged(settings.copyWith(spaceBackgroundLevel: level)),
               ),
           ],
         ),
@@ -1110,9 +1114,7 @@ class _PracticeRow extends StatelessWidget {
             const SizedBox(height: 2),
             Row(
               children: [
-                Expanded(
-                  child: Text(detail, style: AppTypography.monoMuted),
-                ),
+                Expanded(child: Text(detail, style: AppTypography.monoMuted)),
                 Text(
                   _PracticeLogSection._formatDate(summary.lastPracticedAt),
                   style: AppTypography.monoMuted,
@@ -1154,10 +1156,9 @@ class _RecordingSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // 저장된 장치가 목록에 없으면(장치가 뽑힘) 표시는 비워 두고 자동 선택에 맡긴다.
-    final selectedDevice =
-        devices.contains(settings.recordingDevice)
-            ? settings.recordingDevice
-            : null;
+    final selectedDevice = devices.contains(settings.recordingDevice)
+        ? settings.recordingDevice
+        : null;
     final gainPercent = (settings.recordingGain * 100).round();
 
     return Column(
@@ -1283,7 +1284,26 @@ class _AiFeatureSection extends StatelessWidget {
     required this.bgmStatusLabel,
   });
 
-  Future<void> _toggleLocalAi(BuildContext context, bool next) async {
+  /// AI 마스터 스위치. 켰는데 하위가 둘 다 꺼져 있으면 아무 일도 일어나지
+  /// 않아 사용자가 고장으로 읽는다 — 그래서 로컬을 함께 켠다(설치 안내를
+  /// 거친다). 클라우드는 가사가 외부로 나가므로 자동으로 켜지 않는다.
+  Future<void> _toggleMasterAi(BuildContext context, bool next) async {
+    if (!next) {
+      onChanged(settings.copyWith(aiEnabled: false));
+      return;
+    }
+    if (settings.localAiEnabled || settings.cloudAiEnabled) {
+      onChanged(settings.copyWith(aiEnabled: true));
+      return;
+    }
+    await _toggleLocalAi(context, true, alsoEnableMaster: true);
+  }
+
+  Future<void> _toggleLocalAi(
+    BuildContext context,
+    bool next, {
+    bool alsoEnableMaster = false,
+  }) async {
     if (!next) {
       onChanged(settings.copyWith(localAiEnabled: false));
       return;
@@ -1321,8 +1341,7 @@ class _AiFeatureSection extends StatelessWidget {
                 ),
                 _AiRequirementRow(
                   title: '프롬프트 다듬기 (Ollama)',
-                  detail:
-                      'Ollama(11434) + ollama pull ${settings.ollamaModel}',
+                  detail: 'Ollama(11434) + ollama pull ${settings.ollamaModel}',
                 ),
                 const Divider(height: 20),
                 Text('현재 상태', style: AppTypography.bodyMuted),
@@ -1353,7 +1372,12 @@ class _AiFeatureSection extends StatelessWidget {
       ),
     );
     if (confirmed == true) {
-      onChanged(settings.copyWith(localAiEnabled: true));
+      onChanged(
+        settings.copyWith(
+          localAiEnabled: true,
+          aiEnabled: alsoEnableMaster ? true : null,
+        ),
+      );
     }
   }
 
@@ -1367,9 +1391,9 @@ class _AiFeatureSection extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('클라우드 AI 기능 안내'),
         content: Text(
-          '현재 버전에는 클라우드 AI 기능이 없습니다.\n'
-          '향후 확장(클라우드 LLM 프롬프트 다듬기 등)을 위한 예약 스위치입니다.\n'
-          '켜 두어도 요금이 발생하지 않습니다.',
+          '가사 다시 생성의 텍스트 검증에 DeepSeek을 씁니다.\n'
+          '가사 텍스트가 외부 서버로 전송됩니다.\n'
+          '환경변수 DEEPSEEK_API_KEY가 있어야 실제로 동작합니다.',
           style: AppTypography.body,
         ),
         actions: [
@@ -1398,25 +1422,48 @@ class _AiFeatureSection extends StatelessWidget {
         const SizedBox(height: 8),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
+          title: Text('AI 기능 전체 사용', style: AppTypography.listTitle),
+          subtitle: Text(
+            settings.aiEnabled
+                ? '켜짐 — 아래에서 로컬·클라우드를 따로 켤 수 있습니다'
+                : '꺼짐 — AI 없이 쓸 수 있는 기능만 화면에 남습니다',
+            style: AppTypography.bodyMuted,
+          ),
+          value: settings.aiEnabled,
+          onChanged: (v) => _toggleMasterAi(context, v),
+        ),
+        const Divider(height: 24),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
           title: Text('로컬AI 사용', style: AppTypography.body),
           subtitle: Text(
-            settings.localAiEnabled
-                ? '켜짐 — 보컬 분리·작곡·프롬프트 다듬기 사용 가능'
-                : '꺼짐 — 작곡 탭과 AI 보컬 분리가 비활성화됩니다',
+            !settings.aiEnabled
+                ? '위 [AI 기능 전체 사용]을 먼저 켜 주세요'
+                : (settings.localAiEnabled
+                      ? '켜짐 — 보컬 분리·작곡·프롬프트 다듬기 사용 가능'
+                      : '꺼짐 — 작곡 탭과 AI 보컬 분리가 비활성화됩니다'),
             style: AppTypography.bodyMuted,
           ),
           value: settings.localAiEnabled,
-          onChanged: (v) => _toggleLocalAi(context, v),
+          onChanged: settings.aiEnabled
+              ? (v) => _toggleLocalAi(context, v)
+              : null,
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: Text('클라우드AI 사용', style: AppTypography.body),
           subtitle: Text(
-            '향후 확장용 (현재 클라우드 AI 기능 없음)',
+            !settings.aiEnabled
+                ? '위 [AI 기능 전체 사용]을 먼저 켜 주세요'
+                : (settings.cloudAiEnabled
+                      ? '켜짐 — 가사 검증에 DeepSeek 사용(가사가 외부로 전송됩니다)'
+                      : '꺼짐 — 가사 다시 생성의 AI 텍스트 검증이 비활성화됩니다'),
             style: AppTypography.bodyMuted,
           ),
           value: settings.cloudAiEnabled,
-          onChanged: (v) => _toggleCloudAi(context, v),
+          onChanged: settings.aiEnabled
+              ? (v) => _toggleCloudAi(context, v)
+              : null,
         ),
       ],
     );
@@ -1489,15 +1536,17 @@ class _ComposeSettingsSectionState extends State<_ComposeSettingsSection> {
       if (models == null) {
         _checkResult = 'Ollama(11434)에 연결할 수 없습니다. Ollama 실행을 확인해 주세요.';
       } else if (models.isEmpty) {
-        _checkResult =
-            "설치된 모델이 없습니다. 터미널에서 'ollama pull $wanted'를 실행해 주세요.";
+        _checkResult = "설치된 모델이 없습니다. 터미널에서 'ollama pull $wanted'를 실행해 주세요.";
       } else if (wanted.isNotEmpty &&
-          models.any((m) => m == wanted || m.startsWith('$wanted-') ||
-              m.split(':').first == wanted)) {
+          models.any(
+            (m) =>
+                m == wanted ||
+                m.startsWith('$wanted-') ||
+                m.split(':').first == wanted,
+          )) {
         _checkResult = "'$wanted' 확인됨 — 사용 가능합니다.";
       } else {
-        _checkResult =
-            "'$wanted'가 없습니다. 설치된 모델: ${models.take(5).join(', ')}";
+        _checkResult = "'$wanted'가 없습니다. 설치된 모델: ${models.take(5).join(', ')}";
       }
     });
   }
@@ -1559,4 +1608,3 @@ class _ComposeSettingsSectionState extends State<_ComposeSettingsSection> {
     );
   }
 }
-

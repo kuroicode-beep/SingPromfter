@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import '../models/prompter_display_mode.dart';
 import '../services/song_sort_service.dart';
@@ -72,11 +72,17 @@ class PrompterSettings {
   /// 녹음 입력 볼륨(0.0~2.0). 캡처 시점에 파일에 구워진다.
   final double recordingGain;
 
+  /// AI 기능 전체 마스터 스위치. 끄면 로컬·클라우드 구분 없이 AI가 전부 멈추고
+  /// AI 없이 쓸 수 있는 기능만 화면에 남는다. 하위 두 스위치는 이것이 켜져
+  /// 있을 때만 의미가 있다 — 호출부는 raw 필드가 아니라 아래 파생 게터를 읽는다.
+  final bool aiEnabled;
+
   /// 로컬 AI 기능(보컬 분리·작곡·프롬프트 다듬기) 사용 여부. 기본 꺼짐 —
   /// SAW 서버가 없어도 앱이 온전하도록, 켤 때 설치 안내를 거친다.
   final bool localAiEnabled;
 
-  /// 클라우드 AI 기능 사용 여부. 기본 꺼짐 (향후 확장용 예약).
+  /// 클라우드 AI 기능(DeepSeek 가사 검증) 사용 여부. 기본 꺼짐 —
+  /// 가사 텍스트가 외부로 나가므로 로컬과 따로 관리한다.
   final bool cloudAiEnabled;
 
   /// 프롬프트 다듬기에 쓸 Ollama 모델 이름.
@@ -108,6 +114,7 @@ class PrompterSettings {
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
     this.recordingGain = 1.0,
+    this.aiEnabled = false,
     this.localAiEnabled = false,
     this.cloudAiEnabled = false,
     this.ollamaModel = 'gemma4:12b',
@@ -118,6 +125,13 @@ class PrompterSettings {
 
   double get effectiveLineHeight =>
       PrompterLevels.lineHeightForLevel(lineHeightLevel);
+
+  /// 로컬 AI가 실제로 동작하는 상태인가. 마스터가 꺼져 있으면 하위 스위치가
+  /// 켜져 있어도 false다. 화면·컨트롤러·제어 API는 전부 이 게터만 읽는다.
+  bool get localAiActive => aiEnabled && localAiEnabled;
+
+  /// 클라우드 AI(DeepSeek)가 실제로 동작하는 상태인가.
+  bool get cloudAiActive => aiEnabled && cloudAiEnabled;
 
   PrompterSettings copyWith({
     double? fontSizeLevel,
@@ -145,6 +159,7 @@ class PrompterSettings {
     bool? showSyllableSweep,
     bool? controlsDrawerOpen,
     double? recordingGain,
+    bool? aiEnabled,
     bool? localAiEnabled,
     bool? cloudAiEnabled,
     String? ollamaModel,
@@ -166,8 +181,7 @@ class PrompterSettings {
           : (customFontSizePt ?? this.customFontSizePt),
       lastSelectedTrackSlotBySong:
           lastSelectedTrackSlotBySong ?? this.lastSelectedTrackSlotBySong,
-      pitchSemitonesBySong:
-          pitchSemitonesBySong ?? this.pitchSemitonesBySong,
+      pitchSemitonesBySong: pitchSemitonesBySong ?? this.pitchSemitonesBySong,
       trainingCourseStart: trainingCourseStart ?? this.trainingCourseStart,
       trainingVoiceRange: trainingVoiceRange ?? this.trainingVoiceRange,
       spaceBackgroundLevel: spaceBackgroundLevel ?? this.spaceBackgroundLevel,
@@ -186,6 +200,7 @@ class PrompterSettings {
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
       controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
       recordingGain: recordingGain ?? this.recordingGain,
+      aiEnabled: aiEnabled ?? this.aiEnabled,
       localAiEnabled: localAiEnabled ?? this.localAiEnabled,
       cloudAiEnabled: cloudAiEnabled ?? this.cloudAiEnabled,
       ollamaModel: ollamaModel ?? this.ollamaModel,
@@ -263,6 +278,7 @@ class PrompterSettings {
     'showSyllableSweep': showSyllableSweep,
     'controlsDrawerOpen': controlsDrawerOpen,
     'recordingGain': recordingGain,
+    'aiEnabled': aiEnabled,
     'localAiEnabled': localAiEnabled,
     'cloudAiEnabled': cloudAiEnabled,
     'ollamaModel': ollamaModel,
@@ -307,21 +323,25 @@ class PrompterSettings {
       trainingCourseStart: json['trainingCourseStart'] as String?,
       trainingVoiceRange: json['trainingVoiceRange'] as String? ?? 'male',
       // v4.1의 bool(spaceBackground)에서 이관 — false만 끄기로 존중한다.
-      spaceBackgroundLevel: (json['spaceBackgroundLevel'] as num?)?.toInt() ??
+      spaceBackgroundLevel:
+          (json['spaceBackgroundLevel'] as num?)?.toInt() ??
           (json['spaceBackground'] == false ? 0 : 1),
-      folderOrder: (json['folderOrder'] as List?)
-              ?.whereType<String>()
-              .toList(growable: false) ??
+      folderOrder:
+          (json['folderOrder'] as List?)?.whereType<String>().toList(
+            growable: false,
+          ) ??
           const [],
-      expandedFolders: (json['expandedFolders'] as List?)
-              ?.whereType<String>()
-              .toList(growable: false) ??
+      expandedFolders:
+          (json['expandedFolders'] as List?)?.whereType<String>().toList(
+            growable: false,
+          ) ??
           const [],
       exportFolder: (json['exportFolder'] as String?)?.trim().isNotEmpty == true
           ? (json['exportFolder'] as String).trim()
           : 'C:\\Downloads',
       // recordingDeviceName은 v3.0.0(작곡 라인)의 옛 키 — 폴백으로 흡수한다.
-      recordingDevice: json['recordingDevice'] as String? ??
+      recordingDevice:
+          json['recordingDevice'] as String? ??
           json['recordingDeviceName'] as String?,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
       queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
@@ -335,8 +355,16 @@ class PrompterSettings {
       showEqMeter: json['showEqMeter'] as bool? ?? true,
       showSyllableSweep: json['showSyllableSweep'] as bool? ?? true,
       controlsDrawerOpen: json['controlsDrawerOpen'] as bool? ?? false,
-      recordingGain:
-          ((json['recordingGain'] as num?)?.toDouble() ?? 1.0).clamp(0.0, 2.0),
+      recordingGain: ((json['recordingGain'] as num?)?.toDouble() ?? 1.0).clamp(
+        0.0,
+        2.0,
+      ),
+      // 마스터 스위치는 v5.6.0 신설. 옛 설정에는 키가 없으므로 하위 둘 중
+      // 하나라도 켜져 있었으면 켜진 것으로 승계한다 — 업데이트했더니 AI가
+      // 통째로 사라지는 사고를 막는 지점이다.
+      aiEnabled:
+          json['aiEnabled'] as bool? ??
+          (json['localAiEnabled'] == true || json['cloudAiEnabled'] == true),
       localAiEnabled: json['localAiEnabled'] as bool? ?? false,
       cloudAiEnabled: json['cloudAiEnabled'] as bool? ?? false,
       ollamaModel: (json['ollamaModel'] as String?)?.trim().isNotEmpty == true

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
@@ -7,7 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show KeyDownEvent, KeyEvent, LogicalKeyboardKey;
+import 'package:flutter/services.dart'
+    show KeyDownEvent, KeyEvent, LogicalKeyboardKey;
 
 import '../constants/app_constants.dart';
 import '../controllers/app_controller.dart';
@@ -68,6 +69,7 @@ import '../widgets/prompter_keyboard_scope.dart';
 import '../widgets/prompter_space_background.dart'
     show nextSpaceBackgroundLevel, spaceBackgroundLevelLabel;
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
+import '../utils/ai_gate.dart';
 
 class SongListScreen extends StatefulWidget {
   const SongListScreen({super.key});
@@ -96,9 +98,8 @@ class _SongListScreenState extends State<SongListScreen> {
   final _guideAudio = GuideAudioService();
   late final _trainingSession = TrainingSessionController(
     audio: _guideAudio,
-    voiceRange: () => TrainingVoiceRange.fromStorage(
-      _settings.trainingVoiceRange,
-    ),
+    voiceRange: () =>
+        TrainingVoiceRange.fromStorage(_settings.trainingVoiceRange),
     onStepCompleted: (stepId) async {
       await _dailyGoals.markStepDone(stepId);
       if (mounted) setState(() {});
@@ -212,9 +213,8 @@ class _SongListScreenState extends State<SongListScreen> {
     _playback.state.addListener(_onPlaybackStateChanged);
     _playback.lineIndex.addListener(_onPlaybackStateChanged);
     _importJobs.addListener(_onPlaybackStateChanged);
-    _recording = RecordingController(
-      pathBuilder: _buildRecordingPath,
-    )..addListener(_onPlaybackStateChanged);
+    _recording = RecordingController(pathBuilder: _buildRecordingPath)
+      ..addListener(_onPlaybackStateChanged);
     // 캡처 즉사(장치 열기 실패 등)를 사용자에게 바로 알린다 — 유령 '녹음 중'
     // 상태로 남아 파일 없이 끝나던 실사고 방지(v5.4.1).
     _recording.onError = _showSnack;
@@ -327,7 +327,7 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _updateSettings(PrompterSettings next) async {
     await _app.updateSettings(next);
     // 로컬AI를 끄면 작곡 탭이 비활성화되므로 그 화면에 남지 않게 한다.
-    if (!next.localAiEnabled &&
+    if (!next.localAiActive &&
         _destination == AppDestination.compose &&
         mounted) {
       setState(() => _destination = AppDestination.home);
@@ -456,7 +456,8 @@ class _SongListScreenState extends State<SongListScreen> {
       backingTrackSlot: take.backingTrackSlot,
       pitchSemitones: take.pitchSemitones,
       alignOffsetMs: 0,
-      comment: 'AI 보정'
+      comment:
+          'AI 보정'
           '${result.timingFixedMs != 0 ? ' · 박자 ${(result.timingFixedMs.abs() / 1000).toStringAsFixed(1)}초 ${result.timingFixedMs > 0 ? '당김' : '밀음'}' : ''}',
       correctedFrom: take.id,
     );
@@ -635,7 +636,7 @@ class _SongListScreenState extends State<SongListScreen> {
     final result = await TakeMixDialog.show(
       context,
       take: take,
-      localAiEnabled: _settings.localAiEnabled,
+      localAiEnabled: _settings.localAiActive,
     );
     if (result == null || !mounted) return;
     await _recordingLibrary.update(result.take);
@@ -652,7 +653,7 @@ class _SongListScreenState extends State<SongListScreen> {
 
   /// 분리 서버(8771)로 테이크 보컬을 정리한다 — 스피커 녹음의 반주 제거용.
   Future<void> _separateTakeVocal(RecordingTake take) async {
-    if (!_settings.localAiEnabled) {
+    if (!_settings.localAiActive) {
       _showSnack('설정에서 로컬AI를 켜면 사용할 수 있습니다.');
       return;
     }
@@ -667,12 +668,9 @@ class _SongListScreenState extends State<SongListScreen> {
         return;
       }
       final sepName = '${take.id}_sep.wav';
-      final destPath =
-          '${(await _recordingLibrary.directory()).path}/$sepName';
+      final destPath = '${(await _recordingLibrary.directory()).path}/$sepName';
       await File(result.vocalsPath!).copy(destPath);
-      await _recordingLibrary.update(
-        take.copyWith(separatedFileName: sepName),
-      );
+      await _recordingLibrary.update(take.copyWith(separatedFileName: sepName));
       if (!mounted) return;
       setState(() {});
       _showSnack('보컬을 정리했습니다. 다시 합치면 정리본이 쓰입니다.');
@@ -688,9 +686,11 @@ class _SongListScreenState extends State<SongListScreen> {
     final devices = await _recording.refreshDevices();
     if (!mounted) return;
     setState(() {});
-    _showSnack(devices.isEmpty
-        ? '입력 장치를 찾지 못했습니다. 마이크 연결과 ffmpeg 설치를 확인해 주세요.'
-        : '입력 장치 ${devices.length}개를 찾았습니다.');
+    _showSnack(
+      devices.isEmpty
+          ? '입력 장치를 찾지 못했습니다. 마이크 연결과 ffmpeg 설치를 확인해 주세요.'
+          : '입력 장치 ${devices.length}개를 찾았습니다.',
+    );
   }
 
   /// 설정 패널 — 마이크 테스트 토글.
@@ -706,9 +706,7 @@ class _SongListScreenState extends State<SongListScreen> {
     if (_settings.recordingDevice != null) {
       _recording.deviceName = _settings.recordingDevice;
     }
-    final ok = await _recording.startLevelProbe(
-      gain: _settings.recordingGain,
-    );
+    final ok = await _recording.startLevelProbe(gain: _settings.recordingGain);
     if (!mounted) return;
     if (!ok) {
       _showSnack('마이크 테스트를 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
@@ -737,7 +735,8 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
 
     // 믹스가 없으면 먼저 만든다(반주가 있을 때만).
-    if (!take.hasMix && (take.hasAccompaniment || take.sourceAudioPath != null)) {
+    if (!take.hasMix &&
+        (take.hasAccompaniment || take.sourceAudioPath != null)) {
       await _mixTake(take);
     }
     // 믹스 생성으로 테이크가 갱신됐을 수 있으니 최신본을 다시 찾는다.
@@ -773,16 +772,13 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
     if (!mounted) return;
-    _showSnack(copied == 0
-        ? '내보낼 파일이 없습니다.'
-        : '$copied개 파일을 내보냈습니다: $folder');
+    _showSnack(copied == 0 ? '내보낼 파일이 없습니다.' : '$copied개 파일을 내보냈습니다: $folder');
   }
 
   Future<void> _playTakeMix(RecordingTake take) async {
     final mixed = take.mixedFileName;
     if (mixed == null || mixed.isEmpty) return;
-    final path =
-        '${(await _recordingLibrary.directory()).path}/$mixed';
+    final path = '${(await _recordingLibrary.directory()).path}/$mixed';
     final ok = await _takePlayer.playFile(path);
     if (!mounted) return;
     if (!ok) {
@@ -902,7 +898,8 @@ class _SongListScreenState extends State<SongListScreen> {
     final candidates = _songs
         .where(
           (s) =>
-              s.availableTrackSlots.length < AppConstants.backingTrackSlots.length,
+              s.availableTrackSlots.length <
+              AppConstants.backingTrackSlots.length,
         )
         .toList();
     if (candidates.isEmpty) {
@@ -929,8 +926,10 @@ class _SongListScreenState extends State<SongListScreen> {
     if (picked == null || !mounted) return;
 
     final usedSlots = picked.availableTrackSlots.toSet();
-    final freeSlot = AppConstants.backingTrackSlots
-        .firstWhere((s) => !usedSlots.contains(s), orElse: () => -1);
+    final freeSlot = AppConstants.backingTrackSlots.firstWhere(
+      (s) => !usedSlots.contains(s),
+      orElse: () => -1,
+    );
     if (freeSlot < 0) {
       _showSnack('이 곡에는 빈 슬롯이 없습니다.');
       return;
@@ -1149,9 +1148,9 @@ class _SongListScreenState extends State<SongListScreen> {
     if (trimmed.isEmpty) return;
     final current = [
       ..._settings.folderOrder,
-      ...Song.folderNames(_songs).where(
-        (f) => !_settings.folderOrder.contains(f),
-      ),
+      ...Song.folderNames(
+        _songs,
+      ).where((f) => !_settings.folderOrder.contains(f)),
     ];
     if (current.contains(trimmed)) {
       _showSnack('"$trimmed" 폴더가 이미 있습니다.');
@@ -1258,8 +1257,9 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _startTrainingSession() async {
     final routine = VocalRoutines.byId(_dailyGoals.today().routineId);
     final start = DateTime.tryParse(_settings.trainingCourseStart ?? '');
-    final week =
-        start == null ? null : VocalCourse.weekFor(start, DateTime.now());
+    final week = start == null
+        ? null
+        : VocalCourse.weekFor(start, DateTime.now());
     await _trainingSession.start(routine, courseWeekNumber: week?.number);
   }
 
@@ -1395,8 +1395,7 @@ class _SongListScreenState extends State<SongListScreen> {
     }
 
     final accName = '${take.id}_acc.m4a';
-    final outputPath =
-        '${(await _recordingLibrary.directory()).path}/$accName';
+    final outputPath = '${(await _recordingLibrary.directory()).path}/$accName';
     final result = await TakeMixService().cutAccompaniment(
       sourcePath: sourcePath,
       outputPath: outputPath,
@@ -1457,9 +1456,7 @@ class _SongListScreenState extends State<SongListScreen> {
           autofocus: true,
           maxLines: 4,
           style: AppTypography.body,
-          decoration: const InputDecoration(
-            hintText: '이번 녹음에서 느낀 점을 적어 두세요',
-          ),
+          decoration: const InputDecoration(hintText: '이번 녹음에서 느낀 점을 적어 두세요'),
         ),
         actions: [
           TextButton(
@@ -1601,7 +1598,11 @@ class _SongListScreenState extends State<SongListScreen> {
     final options = await RegenerateLyricsDialog.show(
       context,
       hasExistingLyrics: (song.lrcFileName ?? '').isNotEmpty,
-      deepSeekAvailable: _app.deepSeekLyrics.available,
+      deepSeekAvailable:
+          _app.deepSeekLyrics.available && _settings.cloudAiActive,
+      deepSeekOffReason: _settings.cloudAiActive
+          ? null
+          : '설정 > AI·작곡에서 클라우드AI를 켜면 사용할 수 있습니다.',
       hasSourceUrl: (song.sourceUrl ?? '').trim().isNotEmpty,
     );
     if (options == null) return;
@@ -1825,10 +1826,12 @@ class _SongListScreenState extends State<SongListScreen> {
     if (cached != null || !autoFetch) return;
 
     final result = switch (kind) {
-      YoutubeChartKind.domestic =>
-        await _ytClient.mostPopularTop100(koreanOnly: true),
-      YoutubeChartKind.global =>
-        await _ytClient.mostPopularTop100(regionCode: 'US'),
+      YoutubeChartKind.domestic => await _ytClient.mostPopularTop100(
+        koreanOnly: true,
+      ),
+      YoutubeChartKind.global => await _ytClient.mostPopularTop100(
+        regionCode: 'US',
+      ),
       YoutubeChartKind.karaoke => await _ytClient.karaokeChannelPopular(),
       YoutubeChartKind.decade => const YoutubeFetchResult.ok([]),
     };
@@ -2008,11 +2011,12 @@ class _SongListScreenState extends State<SongListScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('개인이 저작권을 소유한 링크만 사용해야 합니다.',
-                style: AppTypography.body),
+            Text('개인이 저작권을 소유한 링크만 사용해야 합니다.', style: AppTypography.body),
             const SizedBox(height: 8),
-            Text('개인적 용도의 사용에 대한 책임은 사용자 본인에게 있습니다.',
-                style: AppTypography.body),
+            Text(
+              '개인적 용도의 사용에 대한 책임은 사용자 본인에게 있습니다.',
+              style: AppTypography.body,
+            ),
           ],
         ),
         actions: [
@@ -2044,7 +2048,7 @@ class _SongListScreenState extends State<SongListScreen> {
       toolMissingReason: _ytDlpMissingReason,
       separatorStatusLabel: _separatorStatusLabel,
       separatorOnline: _separatorOnline,
-      localAiEnabled: _settings.localAiEnabled,
+      localAiEnabled: _settings.localAiActive,
     );
     if (choice == null || !mounted) return;
     switch (choice) {
@@ -2101,7 +2105,7 @@ class _SongListScreenState extends State<SongListScreen> {
       toolMissingReason: _ytDlpMissingReason,
       separatorStatusLabel: _separatorStatusLabel,
       separatorOnline: _separatorOnline,
-      localAiEnabled: _settings.localAiEnabled,
+      localAiEnabled: _settings.localAiActive,
     );
     if (choice == null) return;
     await _startYoutubeImport(
@@ -2336,21 +2340,21 @@ class _SongListScreenState extends State<SongListScreen> {
   @override
   Widget build(BuildContext context) {
     final snapshot = _playback.snapshot;
+    // AI 진입점의 숨김·라벨 정책은 전부 AiGate 한 곳에서 결정한다.
+    final gate = AiGate(_settings);
     return PrompterKeyboardScope(
       // 재생·녹음·싱크 단축키는 재생 화면이 보이는 탭(홈·즐겨찾기)에서만.
       // 곡 검색·설정 등 다른 탭에서 R·T·Space가 먹으면 사고다.
       // 전체화면 무대는 같은 actions를 자기 스코프에서 소비한다.
       // 트레이닝 탭은 따라하기 세션 중에만 켜지고, overrideHandler가
       // Space·Home만 세션 제어로 받고 나머지 기본 매핑은 차단한다.
-      enabled: _destination == AppDestination.home ||
+      enabled:
+          _destination == AppDestination.home ||
           _destination == AppDestination.favorites ||
-          (_destination == AppDestination.training &&
-              _trainingSession.active),
+          (_destination == AppDestination.training && _trainingSession.active),
       overrideHandler: _handleTrainingKey,
       onToggleSpaceBackground: () {
-        final next = nextSpaceBackgroundLevel(
-          _settings.spaceBackgroundLevel,
-        );
+        final next = nextSpaceBackgroundLevel(_settings.spaceBackgroundLevel);
         _updateSettings(_settings.copyWith(spaceBackgroundLevel: next));
         _showSnack('우주 배경: ${spaceBackgroundLevelLabel(next)}');
       },
@@ -2364,7 +2368,7 @@ class _SongListScreenState extends State<SongListScreen> {
       },
       child: SongListScreenContent(
         loading: _loading,
-        onStartSeparator: _app.ensureSeparatorOnline,
+        onStartSeparator: gate.local ? _app.ensureSeparatorOnline : null,
         destination: _destination,
         onDestinationChanged: _changeDestination,
         songs: _songs,
@@ -2391,8 +2395,8 @@ class _SongListScreenState extends State<SongListScreen> {
         separatorStatusLabel: _separatorStatusLabel,
         onImportLrcFile: _importLrcFile,
         onMixTake: _mixTake,
-        onAnalyzeTake: _analyzeTake,
-        onCorrectTake: _correctTake,
+        onAnalyzeTake: gate.local ? _analyzeTake : null,
+        onCorrectTake: gate.local ? _correctTake : null,
         onPlayTakeMix: _playTakeMix,
         takePosition: _takePosition,
         takeDuration: _takeDuration,
@@ -2401,7 +2405,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onAdjustLyricsOffset: _adjustLyricsOffset,
         onAutoAlignLyrics: _autoAlignLyrics,
         onAnchorFirstLine: _anchorFirstLine,
-        onSttLyrics: _regenerateLyrics,
+        onSttLyrics: gate.local ? _regenerateLyrics : null,
         onEditLyricsLine: _editLyricsLine,
         lineEditRequest: _lineEditRequest,
         pitchSemitones: _selectedSong == null
@@ -2472,11 +2476,10 @@ class _SongListScreenState extends State<SongListScreen> {
         onExportComposition: _exportComposition,
         onDeleteComposition: _deleteComposition,
         bgmPresetsLoader: _app.bgmCompose.presets,
-        disabledDestinations: _settings.localAiEnabled
+        disabledDestinations: gate.composeTab == AiVisibility.shown
             ? const <AppDestination>{}
             : const {AppDestination.compose},
-        onDisabledDestinationTap: (_) =>
-            _showSnack('설정에서 로컬AI를 켜면 사용할 수 있습니다.'),
+        onDisabledDestinationTap: (_) => _showSnack(AiGate.offReason),
         onCheckOllamaModels: _app.ollama.listModels,
         todayGoal: _dailyGoals.today(),
         trainingStreak: _dailyGoals.streak(),

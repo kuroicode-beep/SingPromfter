@@ -74,9 +74,55 @@ void main() {
       final defaults = PrompterSettings.fromJson(const {});
       expect(defaults.recordingDevice, isNull);
       expect(defaults.recordingGain, 1.0);
+      expect(defaults.aiEnabled, isFalse);
       expect(defaults.localAiEnabled, isFalse);
       expect(defaults.cloudAiEnabled, isFalse);
       expect(defaults.ollamaModel, 'gemma4:12b');
+    });
+
+    test('v5.6.0 AI 마스터 스위치가 왕복 보존된다', () {
+      const original = PrompterSettings(
+        aiEnabled: true,
+        localAiEnabled: true,
+        cloudAiEnabled: false,
+      );
+      final restored = PrompterSettings.decode(
+        PrompterSettings.encode(original),
+      );
+      expect(restored.aiEnabled, isTrue);
+      expect(restored.localAiActive, isTrue);
+      expect(restored.cloudAiActive, isFalse);
+    });
+
+    test('마스터가 꺼지면 하위가 켜져 있어도 파생 게터는 false', () {
+      const s = PrompterSettings(
+        aiEnabled: false,
+        localAiEnabled: true,
+        cloudAiEnabled: true,
+      );
+      expect(s.localAiActive, isFalse);
+      expect(s.cloudAiActive, isFalse);
+    });
+
+    test('옛 설정 마이그레이션 — 마스터 키가 없어도 AI를 잃지 않는다', () {
+      // v5.5.0까지의 저장 데이터에는 aiEnabled 키가 없다. 로컬을 켜 뒀던
+      // 사용자가 업데이트 후 AI를 통째로 잃으면 안 된다.
+      final legacyOn = PrompterSettings.fromJson(const {
+        'localAiEnabled': true,
+      });
+      expect(legacyOn.aiEnabled, isTrue);
+      expect(legacyOn.localAiActive, isTrue);
+
+      final legacyCloudOn = PrompterSettings.fromJson(const {
+        'cloudAiEnabled': true,
+      });
+      expect(legacyCloudOn.aiEnabled, isTrue);
+
+      final legacyOff = PrompterSettings.fromJson(const {
+        'localAiEnabled': false,
+        'cloudAiEnabled': false,
+      });
+      expect(legacyOff.aiEnabled, isFalse);
     });
 
     test('녹음 게인은 0~2로 제한하고 빈 모델명은 기본값으로', () {

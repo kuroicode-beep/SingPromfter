@@ -1,4 +1,4 @@
-﻿// file: lib/services/control_server.dart
+// file: lib/services/control_server.dart
 //
 // 로컬 제어 API — 127.0.0.1:8772 루프백 전용 HTTP 서버.
 //
@@ -43,8 +43,7 @@ class ControlResponse {
         'error': {'code': code, 'message': message},
       });
 
-  static ControlResponse notFound() =>
-      error(404, 'not_found', '해당 경로가 없습니다.');
+  static ControlResponse notFound() => error(404, 'not_found', '해당 경로가 없습니다.');
 }
 
 /// 순수 라우터 — HttpServer 없이 dispatch만 테스트할 수 있다.
@@ -78,7 +77,9 @@ class ControlRouter {
         .where((p) => p.isNotEmpty)
         .toList(growable: false);
     // 모든 경로는 /api/... 형태다.
-    if (parts.isEmpty || parts.first != 'api') return ControlResponse.notFound();
+    if (parts.isEmpty || parts.first != 'api') {
+      return ControlResponse.notFound();
+    }
     final rest = parts.sublist(1);
 
     switch ((method, rest)) {
@@ -135,7 +136,8 @@ class ControlRouter {
           // 않게. 자동 기동이 가능하면 파이프라인이 알아서 켠다.
           mode = MrSourceMode.asIs;
           plan = const ImportPlan(makeOriginal: true, makeInstrumental: false);
-          note = '분리 서버가 꺼져 있어 원곡만 등록합니다. '
+          note =
+              '분리 서버가 꺼져 있어 원곡만 등록합니다. '
               '서버를 켠 뒤 [+반주]로 MR을 추가해 주세요.';
         }
         final outcome = await app.enqueueImport(
@@ -207,6 +209,15 @@ class ControlRouter {
       // 분리·전사가 겹치면 수 분 걸린다. MCP·배치 정리의 입구.
       case ('POST', ['songs', final String id, 'lyrics', 'regenerate']):
         if (app.songById(id) == null) return _songNotFound();
+        // AI가 꺼져 있으면 여기서 끊는다 — 화면만 막으면 이 경로로 들어와
+        // 분리·전사가 돌고 GPU를 쓴다(작곡 라우트와 같은 규칙).
+        if (!app.settings.localAiActive) {
+          return ControlResponse.error(
+            403,
+            'local_ai_disabled',
+            '설정에서 AI 기능을 켜야 사용할 수 있습니다.',
+          );
+        }
         final ok = await app.regenerateLyrics(
           songId: id,
           useVocalStem: body['useVocalStem'] as bool? ?? true,
@@ -296,10 +307,7 @@ class ControlRouter {
         if (slot == null) {
           return ControlResponse.error(422, 'bad_slot', '슬롯 번호가 잘못됐습니다.');
         }
-        final updated = await app.removeTrackFromSong(
-          songId: id,
-          slot: slot,
-        );
+        final updated = await app.removeTrackFromSong(songId: id, slot: slot);
         if (updated == null) {
           return ControlResponse.error(
             404,
@@ -557,8 +565,7 @@ class ControlRouter {
         final library = RecordingLibraryService();
         await library.load();
         return ControlResponse.ok({
-          'takes':
-              library.takes.map(_recordingJson).toList(growable: false),
+          'takes': library.takes.map(_recordingJson).toList(growable: false),
         });
 
       default:
@@ -602,7 +609,11 @@ class ControlRouter {
       'activeComposeJobs': app.composeJobs.jobs
           .where((j) => !j.status.isFinished)
           .length,
-      'localAiEnabled': app.settings.localAiEnabled,
+      // aiEnabled는 마스터 스위치 원값, localAiEnabled는 마스터까지 반영한
+      // 실효값이다 — 클라이언트는 "지금 로컬 AI를 부를 수 있나"만 보면 된다.
+      'aiEnabled': app.settings.aiEnabled,
+      'localAiEnabled': app.settings.localAiActive,
+      'cloudAiEnabled': app.settings.cloudAiActive,
       'tools': {
         'ytDlp': {
           'found': app.ytDlpAvailable,
@@ -715,14 +726,14 @@ class ControlServer {
   Future<void> start() async {
     if (_server != null) return;
     try {
-      final server = await HttpServer.bind(
-        InternetAddress.loopbackIPv4,
-        port,
-      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
       _server = server;
-      server.listen(_handle, onError: (Object e) {
-        debugPrint('제어 서버 오류: $e');
-      });
+      server.listen(
+        _handle,
+        onError: (Object e) {
+          debugPrint('제어 서버 오류: $e');
+        },
+      );
       debugPrint('제어 서버 시작: http://127.0.0.1:$port');
     } catch (e) {
       // 포트 충돌 등 — 앱은 정상 동작하고 제어 API만 꺼진다.
@@ -756,7 +767,11 @@ class ControlServer {
 
     request.response
       ..statusCode = response.status
-      ..headers.contentType = ContentType('application', 'json', charset: 'utf-8')
+      ..headers.contentType = ContentType(
+        'application',
+        'json',
+        charset: 'utf-8',
+      )
       ..write(jsonEncode(response.body));
     await request.response.close();
   }
