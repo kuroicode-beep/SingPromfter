@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.5.0';
+  static const String current = '5.5.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.5.1',
+      '2026-08-18',
+      '싱크 잠금 배지를 우측 끝 자물쇠 아이콘 하나로 축소 — 자물쇠+"싱크 잠금" '
+          '글자 배지가 커서 가사를 가린다는 실사용 피드백. 뜻은 툴팁과 '
+          '스크린리더 라벨이 그대로 말해 줍니다',
+    ),
     AppVersionEntry(
       '5.5.0',
       '2026-08-16',

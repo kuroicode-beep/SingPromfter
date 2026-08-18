@@ -407,11 +407,11 @@ class _PrompterScreenState extends State<PrompterScreen> {
                 ),
               ),
             if (_controlsVisible) _buildTopBar(),
-            // 싱크 잠금(L) 배지 — 우상단(좌상단은 가사와 겹쳐 거슬림),
-            // 상단 바가 열려 있으면 그 아래로 비킨다.
+            // 싱크 잠금(L) 배지 — 우측 끝의 작은 자물쇠 하나(글자 배지는
+            // 덩치가 커서 가사를 가렸다), 상단 바가 열려 있으면 그 아래로.
             Positioned(
               top: _controlsVisible ? 68 : 12,
-              right: 12,
+              right: 4,
               child: SyncLockBadge(locked: widget.playback.syncLockedView),
             ),
             // 녹음 중(R) 배지 — 우하단, EQ 밴드 위로 비킨다.
