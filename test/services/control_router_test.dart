@@ -41,6 +41,38 @@ void main() {
     updatedAt: DateTime(2026, 1, 1),
   );
 
+  group('가사 다시 생성 라우트 — AI 게이트', () {
+    test('AI가 꺼져 있으면 403 local_ai_disabled', () async {
+      app.songs = [song('a', '밤편지')];
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/a/lyrics/regenerate',
+      );
+      expect(res.status, 403);
+      expect((res.body['error'] as Map)['code'], 'local_ai_disabled');
+    });
+
+    test('마스터가 꺼지면 로컬AI가 켜져 있어도 403 — UI만 막으면 여기로 우회된다', () async {
+      app.songs = [song('a', '밤편지')];
+      app.settings =
+          app.settings.copyWith(aiEnabled: false, localAiEnabled: true);
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/a/lyrics/regenerate',
+      );
+      expect(res.status, 403);
+      expect((res.body['error'] as Map)['code'], 'local_ai_disabled');
+    });
+
+    test('없는 곡은 게이트보다 먼저 404', () async {
+      final res = await router.dispatch(
+        'POST',
+        '/api/songs/nope/lyrics/regenerate',
+      );
+      expect(res.status, 404);
+    });
+  });
+
   test('없는 경로는 404', () async {
     final res = await router.dispatch('GET', '/api/nope');
     expect(res.status, 404);
