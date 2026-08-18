@@ -2,6 +2,7 @@
 //
 // 좌측 목록의 제자리 이름 바꾸기 — 폴더 이름과 곡 제목을 더블클릭하면
 // 그 자리에 입력칸이 뜨고, Enter로 확정한다.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/models/song.dart';
