@@ -12,6 +12,7 @@ import '../constants/app_constants.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import '../utils/key_label.dart';
+import 'inline_name_editor.dart';
 
 class SongTile extends StatelessWidget {
   final Song song;
@@ -33,6 +34,13 @@ class SongTile extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onToggleFavorite;
 
+  /// 제목 더블클릭 이름 바꾸기. true면 제목 자리에 입력칸이 뜬다.
+  /// 셋 다 없으면 제목은 그냥 글자다(즐겨찾기 화면 등).
+  final bool renaming;
+  final VoidCallback? onRenameStart;
+  final ValueChanged<String>? onRenameSubmit;
+  final VoidCallback? onRenameCancel;
+
   const SongTile({
     super.key,
     required this.song,
@@ -48,6 +56,10 @@ class SongTile extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onToggleFavorite,
+    this.renaming = false,
+    this.onRenameStart,
+    this.onRenameSubmit,
+    this.onRenameCancel,
   });
 
   /// 제목 아래 한 줄 요약. 가수 → 반주 → 가사 → 키 → 연습 순.
@@ -65,6 +77,35 @@ class SongTile extends StatelessWidget {
     return parts.join(' · ');
   }
 
+  /// 제목 칸. 더블클릭 이름 바꾸기를 받는 곳이기도 하다 — 행 전체가
+  /// 아니라 제목에만 걸어, 다른 자리를 누르면 선택이 바로 먹는다.
+  Widget _buildTitle() {
+    final style = AppTypography.body.copyWith(
+      color: selected ? AppColors.primary : AppColors.onSurface,
+    );
+    if (renaming && onRenameSubmit != null && onRenameCancel != null) {
+      return InlineNameEditor(
+        initial: song.title,
+        semanticsLabel: '곡 제목 수정',
+        style: style,
+        onSubmit: onRenameSubmit!,
+        onCancel: onRenameCancel!,
+      );
+    }
+    final title = Text(
+      song.title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: style,
+    );
+    if (onRenameStart == null) return title;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: onRenameStart,
+      child: Tooltip(message: '더블클릭하면 제목을 고칩니다', child: title),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final meta = _metaLine();
@@ -74,7 +115,8 @@ class SongTile extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onSelect,
+          // 이름을 고치는 중에는 행 탭이 선택으로 새지 않게 잠근다.
+          onTap: renaming ? null : onSelect,
           borderRadius: BorderRadius.circular(6),
           child: Container(
             // 선택 표시는 왼쪽 막대가 아니라 네 변 전체 테두리 —
@@ -106,16 +148,7 @@ class SongTile extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            song.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.body.copyWith(
-                              color: selected
-                                  ? AppColors.primary
-                                  : AppColors.onSurface,
-                            ),
-                          ),
+                          _buildTitle(),
                           Text(
                             meta,
                             maxLines: 1,

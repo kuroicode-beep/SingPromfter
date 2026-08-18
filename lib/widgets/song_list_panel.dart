@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
+import 'inline_name_editor.dart';
 import 'song_tile.dart';
 
 class SongListPanel extends StatefulWidget {
@@ -68,6 +69,13 @@ class SongListPanel extends StatefulWidget {
   /// null이면 드래그 손잡이를 그리지 않는다.
   final void Function(String songId, String folder)? onMoveSongToFolder;
 
+  /// 폴더 이름을 더블클릭해 고쳤을 때. null이면 더블클릭을 받지 않는다.
+  /// 다듬은 이름이 비었거나 그대로면 부르지 않는다.
+  final void Function(String oldName, String newName)? onRenameFolder;
+
+  /// 곡 제목을 더블클릭해 고쳤을 때. 규약은 [onRenameFolder]와 같다.
+  final void Function(Song song, String newTitle)? onRenameSong;
+
   /// 곡을 다른 곡 위에 떨어뜨렸을 때(트리 모드의 순서 바꾸기).
   /// visibleIds는 화면에 보이는 순서, 인덱스 규약은 [onReorder]와 같다
   /// (newIndex는 끌린 곡을 뺀 목록 기준의 보정값).
@@ -110,6 +118,8 @@ class SongListPanel extends StatefulWidget {
     this.onCreateFolder,
     this.onMoveFolder,
     this.onMoveSongToFolder,
+    this.onRenameFolder,
+    this.onRenameSong,
     this.onDropSongOnSong,
   });
 
@@ -124,6 +134,47 @@ class _SongListPanelState extends State<SongListPanel> {
   /// 드래그 중인 곡. 폴더 헤더가 받을 준비를 하고, 폴더 소속 곡이면
   /// 맨 위에 '폴더에서 꺼내기' 놓기 자리가 나타난다.
   Song? _draggingSong;
+
+  /// 지금 이름을 고치는 중인 폴더/곡. 한 번에 하나만 열린다.
+  String? _renamingFolder;
+  String? _renamingSongId;
+
+  void _startRenameFolder(String name) {
+    setState(() {
+      _renamingFolder = name;
+      _renamingSongId = null;
+    });
+  }
+
+  void _startRenameSong(Song song) {
+    setState(() {
+      _renamingSongId = song.id;
+      _renamingFolder = null;
+    });
+  }
+
+  void _cancelRename() {
+    setState(() {
+      _renamingFolder = null;
+      _renamingSongId = null;
+    });
+  }
+
+  /// 확정. 빈 이름과 제자리 이름은 조용히 접는다 — 실수로 지웠을 때
+  /// 이름이 사라지지 않게 하는 마지막 방어선이다.
+  void _submitFolderRename(String oldName, String value) {
+    final next = value.trim();
+    _cancelRename();
+    if (next.isEmpty || next == oldName) return;
+    widget.onRenameFolder?.call(oldName, next);
+  }
+
+  void _submitSongRename(Song song, String value) {
+    final next = value.trim();
+    _cancelRename();
+    if (next.isEmpty || next == song.title) return;
+    widget.onRenameSong?.call(song, next);
+  }
 
   /// 제어형이면 설정값을, 아니면 로컬 상태를 쓴다.
   Set<String> get _expanded =>
@@ -257,6 +308,12 @@ class _SongListPanelState extends State<SongListPanel> {
       onEdit: () => widget.onEdit(song),
       onDelete: () => widget.onDelete(song),
       onToggleFavorite: () => widget.onToggleFavorite(song),
+      renaming: _renamingSongId == song.id,
+      onRenameStart: widget.onRenameSong == null
+          ? null
+          : () => _startRenameSong(song),
+      onRenameSubmit: (value) => _submitSongRename(song, value),
+      onRenameCancel: _cancelRename,
     );
   }
 
@@ -379,6 +436,12 @@ class _SongListPanelState extends State<SongListPanel> {
             count: members.length,
             open: open,
             onTap: () => _toggleFolder(name),
+            renaming: _renamingFolder == name,
+            onRenameStart: widget.onRenameFolder == null
+                ? null
+                : () => _startRenameFolder(name),
+            onRenameSubmit: (value) => _submitFolderRename(name, value),
+            onRenameCancel: _cancelRename,
             onMoveUp: moveFolder == null || f == 0
                 ? null
                 : () => moveFolder(folders, name, -1),
@@ -642,6 +705,12 @@ class _FolderHeader extends StatelessWidget {
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
 
+  /// 이름 더블클릭 수정. renaming이면 이름 자리에 입력칸이 뜬다.
+  final bool renaming;
+  final VoidCallback? onRenameStart;
+  final ValueChanged<String>? onRenameSubmit;
+  final VoidCallback? onRenameCancel;
+
   const _FolderHeader({
     required this.name,
     required this.count,
@@ -649,7 +718,33 @@ class _FolderHeader extends StatelessWidget {
     required this.onTap,
     this.onMoveUp,
     this.onMoveDown,
+    this.renaming = false,
+    this.onRenameStart,
+    this.onRenameSubmit,
+    this.onRenameCancel,
   });
+
+  /// 이름 칸. 더블클릭 수정을 이름에만 걸어, 헤더의 다른 자리를 누르면
+  /// 폴더 여닫기가 바로 먹는다.
+  Widget _buildName() {
+    final style = AppTypography.body.copyWith(fontWeight: FontWeight.w700);
+    if (renaming && onRenameSubmit != null && onRenameCancel != null) {
+      return InlineNameEditor(
+        initial: name,
+        semanticsLabel: '폴더 이름 수정',
+        style: style,
+        onSubmit: onRenameSubmit!,
+        onCancel: onRenameCancel!,
+      );
+    }
+    final label = Text(name, style: style, overflow: TextOverflow.ellipsis);
+    if (onRenameStart == null) return label;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onDoubleTap: onRenameStart,
+      child: Tooltip(message: '더블클릭하면 폴더 이름을 고칩니다', child: label),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -659,7 +754,8 @@ class _FolderHeader extends StatelessWidget {
       expanded: open,
       label: '폴더 $name, $count곡',
       child: InkWell(
-        onTap: onTap,
+        // 이름을 고치는 중에는 행 탭이 폴더를 여닫지 않게 잠근다.
+        onTap: renaming ? null : onTap,
         child: Container(
           constraints: const BoxConstraints(
             minHeight: AppConstants.minTouchTarget,
@@ -674,15 +770,7 @@ class _FolderHeader extends StatelessWidget {
                 color: AppColors.textPrimary,
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  name,
-                  style: AppTypography.body.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+              Expanded(child: _buildName()),
               if (showMove) ...[
                 IconButton(
                   onPressed: onMoveUp,

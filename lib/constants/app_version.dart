@@ -12,9 +12,17 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.5.1';
+  static const String current = '5.6.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.6.0',
+      '2026-08-18',
+      '좌측 목록에서 폴더 이름과 곡 제목을 더블클릭해 그 자리에서 고칩니다 — '
+          '이름 하나 바꾸자고 수정 창을 여닫던 번거로움 해소. 탐색기와 같은 '
+          '문법(열리면 전체 선택, Enter 확정, Esc 취소, 다른 곳을 누르면 확정)이고, '
+          '폴더는 이름을 바꾸면 그 안의 곡·표시 순서·펼침 상태가 함께 따라옵니다',
+    ),
     AppVersionEntry(
       '5.5.1',
       '2026-08-18',
