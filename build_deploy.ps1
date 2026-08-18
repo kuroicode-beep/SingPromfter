@@ -10,6 +10,10 @@ $release = Join-Path $root 'build\windows\x64\runner\Release'
 $verFile = Join-Path $root 'lib\constants\app_version.dart'
 $version = ([regex]::Match((Get-Content $verFile -Raw), "current\s*=\s*'([^']+)'")).Groups[1].Value
 if (-not $version) { throw 'cannot read version from lib/constants/app_version.dart' }
+
+# guard: pubspec version must match AppVersion.current (they drifted 5.2.0 vs 5.5.0 once)
+$pubVer = ([regex]::Match((Get-Content (Join-Path $root 'pubspec.yaml') -Raw), '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)')).Groups[1].Value
+if ($pubVer -ne $version) { throw "version mismatch: pubspec.yaml=$pubVer, app_version.dart=$version" }
 Write-Host "[1/4] building SingPromfter v$version ..."
 
 # stop a running instance so the exe is not locked
