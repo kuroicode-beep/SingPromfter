@@ -290,10 +290,10 @@ class PrompterPanel extends StatelessWidget {
                         ),
                       ),
                     // 싱크 잠금(L) 배지 — "눌렸는지 모르겠다"는 실사용 요청.
-                    // 좌상단은 가사 첫 글자와 겹쳐 거슬린다는 피드백으로 우상단.
+                    // 글자까지 얹으니 가사를 가려서, 우측 끝 자물쇠 하나로.
                     Positioned(
                       top: 10,
-                      right: 10,
+                      right: 4,
                       child: SyncLockBadge(locked: playback.syncLockedView),
                     ),
                     // 녹음 중(R) 배지 — 우하단.

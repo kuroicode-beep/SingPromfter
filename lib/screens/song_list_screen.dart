@@ -1183,6 +1183,63 @@ class _SongListScreenState extends State<SongListScreen> {
     setState(() {});
   }
 
+  /// 폴더 이름 바꾸기 — 목록에서 폴더 이름을 더블클릭하면 온다.
+  /// 설정의 표시 순서·펼침 상태와 그 폴더에 든 곡을 함께 옮긴다.
+  Future<void> _renameFolder(String oldName, String newName) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty || trimmed == oldName) return;
+    final current = [
+      ..._settings.folderOrder,
+      ...Song.folderNames(_songs).where(
+        (f) => !_settings.folderOrder.contains(f),
+      ),
+    ];
+    if (current.contains(trimmed)) {
+      _showSnack('"$trimmed" 폴더가 이미 있습니다.');
+      return;
+    }
+
+    // 곡 저장은 순차로 — 겹치면 낡은 스냅샷이 디스크에 남는다.
+    var moved = 0;
+    final members = _songs
+        .where((s) => s.folder == oldName)
+        .toList(growable: false);
+    for (final song in members) {
+      final updated = await _app.updateSongFields(song.id, folder: trimmed);
+      if (updated != null) moved++;
+    }
+
+    final order = [
+      for (final f in current)
+        if (f == oldName) trimmed else f,
+    ];
+    final expanded = [
+      for (final f in _settings.expandedFolders)
+        if (f == oldName) trimmed else f,
+    ];
+    await _updateSettings(
+      _settings.copyWith(folderOrder: order, expandedFolders: expanded),
+    );
+    if (!mounted) return;
+    setState(() {});
+    _showSnack(
+      moved == 0
+          ? '폴더 이름을 "$trimmed"(으)로 바꿨습니다'
+          : '폴더 이름을 "$trimmed"(으)로 바꿨습니다 — 곡 $moved개도 함께',
+    );
+  }
+
+  /// 곡 제목 바꾸기 — 목록에서 제목을 더블클릭하면 온다.
+  /// 같은 제목이 이미 있으면 컨트롤러가 막고 이유를 알린다.
+  Future<void> _renameSong(Song song, String newTitle) async {
+    final trimmed = newTitle.trim();
+    if (trimmed.isEmpty || trimmed == song.title) return;
+    final updated = await _app.updateSongFields(song.id, title: trimmed);
+    if (!mounted) return;
+    setState(() {});
+    if (updated != null) _showSnack('제목을 "$trimmed"(으)로 바꿨습니다');
+  }
+
   /// 곡을 드래그해 폴더에 떨어뜨렸을 때. folder가 ''이면 폴더에서 꺼낸다.
   Future<void> _moveSongToFolder(String songId, String folder) async {
     final updated = await _app.updateSongFields(songId, folder: folder);
@@ -2529,6 +2586,8 @@ class _SongListScreenState extends State<SongListScreen> {
         onCreateFolder: _createFolder,
         onMoveFolder: _moveFolder,
         onMoveSongToFolder: _moveSongToFolder,
+        onRenameFolder: _renameFolder,
+        onRenameSong: _renameSong,
         onDropSongOnSong: _dropSongOnSong,
         onDuetMix: _duetMix,
         onExportBackup: _exportBackup,

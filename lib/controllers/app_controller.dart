@@ -2216,7 +2216,7 @@ class AppController extends ChangeNotifier {
       );
       if (!rendered.success || rendered.path == null) return null;
 
-      return attachTrackToSong(
+      return await attachTrackToSong(
         songId: song.id,
         slot: targetSlot,
         sourcePath: rendered.path!,
