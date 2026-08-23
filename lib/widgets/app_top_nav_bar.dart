@@ -1,4 +1,4 @@
-﻿// file: lib/widgets/app_top_nav_bar.dart
+// file: lib/widgets/app_top_nav_bar.dart
 //
 // 상단 로고·탭·곡 등록 버튼을 한 줄로 제공하는 메인 네비게이션 바.
 import 'package:flutter/material.dart';
@@ -16,16 +16,24 @@ class AppTopNavBar extends StatelessWidget {
   final Set<AppDestination> disabled;
   final ValueChanged<AppDestination>? onDisabledTap;
 
+  /// 이 플랫폼에 아예 없는 화면 — 목록에서 뺀다. '(꺼짐)' 라벨을 붙이는
+  /// [disabled]와 다르다: 저건 설정에서 켤 수 있고 이건 켤 방법이 없다.
+  /// 켤 수 없는 탭이 자리만 지키면 사용자는 켜는 방법을 찾아 헤맨다.
+  /// null이면 플랫폼 기본값([unavailableDestinations])을 쓴다.
+  final Set<AppDestination>? unavailable;
+
   const AppTopNavBar({
     super.key,
     required this.destination,
     required this.onDestinationChanged,
     this.disabled = const {},
     this.onDisabledTap,
+    this.unavailable,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hidden = unavailable ?? unavailableDestinations;
     return Material(
       color: AppColors.surfaceContainer,
       child: Container(
@@ -36,7 +44,11 @@ class AppTopNavBar extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.mic_external_on, color: AppColors.primary, size: 26),
+            const Icon(
+              Icons.mic_external_on,
+              color: AppColors.primary,
+              size: 26,
+            ),
             const SizedBox(width: 8),
             Text('SingPromfter', style: AppTypography.listTitle),
             const SizedBox(width: 16),
@@ -46,6 +58,7 @@ class AppTopNavBar extends StatelessWidget {
                 child: Row(
                   // 목적지 목록을 순회해 만든다 — 화면이 늘어도 여기는 그대로다.
                   children: AppDestination.values
+                      .where((d) => !hidden.contains(d))
                       .map(
                         (d) => _TopNavTab(
                           label: d.label,
@@ -99,21 +112,28 @@ class _TopNavTab extends StatelessWidget {
             onPressed: onTap,
             style: TextButton.styleFrom(
               minimumSize: const Size(72, AppConstants.minTouchTarget),
-              backgroundColor:
-                  selected ? AppColors.selectedSurface : Colors.transparent,
-              foregroundColor:
-                  selected ? AppColors.primary : AppColors.onSurfaceVariant,
-              shape:
-                  RoundedRectangleBorder(borderRadius: AppShapes.controlRadius),
+              backgroundColor: selected
+                  ? AppColors.selectedSurface
+                  : Colors.transparent,
+              foregroundColor: selected
+                  ? AppColors.primary
+                  : AppColors.onSurfaceVariant,
+              shape: RoundedRectangleBorder(
+                borderRadius: AppShapes.controlRadius,
+              ),
               side: selected
-                  ? const BorderSide(color: AppColors.primaryContainer, width: 2)
+                  ? const BorderSide(
+                      color: AppColors.primaryContainer,
+                      width: 2,
+                    )
                   : BorderSide.none,
             ),
             child: Text(
               enabled ? label : '$label(꺼짐)',
               style: AppTypography.body.copyWith(
-                color:
-                    selected ? AppColors.primary : AppColors.onSurfaceVariant,
+                color: selected
+                    ? AppColors.primary
+                    : AppColors.onSurfaceVariant,
               ),
             ),
           ),

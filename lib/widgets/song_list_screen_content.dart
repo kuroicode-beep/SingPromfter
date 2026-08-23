@@ -208,7 +208,9 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<String>? onYoutubeGenreChanged;
   final VoidCallback? onLoadYoutubeDecadeChart;
   final ValueChanged<YoutubeVideo>? onYoutubePreview;
-  final VoidCallback onAddSong;
+
+  /// 곡 추가(유튜브 링크). 모바일에는 다운로드 수단이 없어 null이 온다.
+  final VoidCallback? onAddSong;
   final VoidCallback? onExportTrack;
   final List<int> queueLengths;
   final int activeQueueSlot;
@@ -392,7 +394,7 @@ class SongListScreenContent extends StatelessWidget {
     this.onYoutubeGenreChanged,
     this.onLoadYoutubeDecadeChart,
     this.onYoutubePreview,
-    required this.onAddSong,
+    this.onAddSong,
     this.onExportTrack,
     this.queueLengths = const [0, 0, 0],
     this.activeQueueSlot = 0,

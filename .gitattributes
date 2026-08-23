@@ -1,0 +1,4 @@
+# gradlew는 리눅스 CI에서 실행되는 셸 스크립트다 — CRLF로 체크아웃되면
+# "bad interpreter"로 죽는다. 줄바꿈을 LF로 못박는다.
+android/gradlew text eol=lf
+*.jar binary

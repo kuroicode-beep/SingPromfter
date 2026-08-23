@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/prompter_display_mode.dart';
 import '../services/song_sort_service.dart';
 import '../utils/pitch_math.dart';
+import '../utils/platform_capabilities.dart';
 import '../theme/prompter_levels.dart';
 
 class PrompterSettings {
@@ -128,7 +129,11 @@ class PrompterSettings {
 
   /// 로컬 AI가 실제로 동작하는 상태인가. 마스터가 꺼져 있으면 하위 스위치가
   /// 켜져 있어도 false다. 화면·컨트롤러·제어 API는 전부 이 게터만 읽는다.
-  bool get localAiActive => aiEnabled && localAiEnabled;
+  ///
+  /// 모바일에서는 설정과 무관하게 false다 — 폰의 127.0.0.1에는 PC의 SAW
+  /// 서버가 없다. PC 설정을 백업으로 옮겨 와도 켜지지 않아야 한다.
+  bool get localAiActive =>
+      aiEnabled && localAiEnabled && PlatformCapabilities.hasLocalAi;
 
   /// 클라우드 AI(DeepSeek)가 실제로 동작하는 상태인가.
   bool get cloudAiActive => aiEnabled && cloudAiEnabled;

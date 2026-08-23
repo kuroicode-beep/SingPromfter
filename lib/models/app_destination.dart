@@ -6,6 +6,8 @@
 // 홈 / 검색 / 유튜브 / 즐겨찾기 / 트레이닝 / 녹음 / 작곡 / 가져오기 이력 / 도움말 / 설정
 import 'package:flutter/material.dart';
 
+import '../utils/platform_capabilities.dart';
+
 enum AppDestination {
   home,
   search,
@@ -49,3 +51,20 @@ extension AppDestinationInfo on AppDestination {
   /// 스크린 리더용 라벨.
   String get semanticsLabel => '$label 화면';
 }
+
+/// 이 플랫폼에서 아예 쓸 수 없어 탭 목록에서 빼는 화면들.
+///
+/// 설정에서 켤 수 있는 것과 구분한다 — 작곡 탭은 PC에서 '작곡(꺼짐)'으로
+/// 자리를 지키지만, 모바일에서는 켤 방법 자체가 없으므로 감춘다.
+Set<AppDestination> get unavailableDestinations => {
+  // 녹음은 ffmpeg DirectShow(Windows 전용)에 묶여 있다.
+  if (!PlatformCapabilities.hasDeviceRecording) AppDestination.recordings,
+  // 유튜브 검색은 되지만 가져오기(yt-dlp)가 안 된다 — 반쪽짜리 탭을
+  // 남기면 "검색은 되는데 왜 못 가져오지"가 된다. 이력 탭도 함께 뺀다.
+  if (!PlatformCapabilities.hasExternalTools) ...{
+    AppDestination.youtube,
+    AppDestination.jobs,
+  },
+  // 로컬 AI 서버는 PC에 있다.
+  if (!PlatformCapabilities.hasLocalAi) AppDestination.compose,
+};

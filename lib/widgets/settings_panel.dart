@@ -25,6 +25,7 @@ import '../services/app_display_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/key_label.dart';
+import '../utils/platform_capabilities.dart';
 import 'preset_btn.dart';
 import 'prompter_space_background.dart'
     show spaceBackgroundLevelLabel, spaceBackgroundMaxLevel;
@@ -133,10 +134,23 @@ class SettingsPanel extends StatefulWidget {
   State<SettingsPanel> createState() => _SettingsPanelState();
 }
 
+/// 이 플랫폼에서 켤 수 없는 설정 분류 — 메뉴에서 뺀다.
+/// 마이크 녹음(ffmpeg dshow)과 로컬 AI 서버는 모바일에 없다.
+Set<SettingsCategory> get _unavailableCategories => {
+  if (!PlatformCapabilities.hasDeviceRecording) SettingsCategory.recording,
+  if (!PlatformCapabilities.hasLocalAi) SettingsCategory.ai,
+};
+
 class _SettingsPanelState extends State<SettingsPanel> {
   /// 설정이 12섹션까지 길어져 분류별 사이드 메뉴로 나눴다(v5.1.0).
   /// 선택은 화면 상태로만 두고 저장하지 않는다 — 항상 첫 분류에서 시작.
   SettingsCategory _category = SettingsCategory.data;
+
+  /// 메뉴에서 뺀 분류가 선택돼 있으면(백업 복원 등) 첫 분류로 되돌린다.
+  SettingsCategory get _safeCategory =>
+      _unavailableCategories.contains(_category)
+      ? SettingsCategory.data
+      : _category;
 
   @override
   Widget build(BuildContext context) {
@@ -149,14 +163,15 @@ class _SettingsPanelState extends State<SettingsPanel> {
             padding: const EdgeInsets.fromLTRB(12, 16, 8, 16),
             children: [
               for (final c in SettingsCategory.values)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: _CategoryButton(
-                    category: c,
-                    selected: _category == c,
-                    onTap: () => setState(() => _category = c),
+                if (!_unavailableCategories.contains(c))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: _CategoryButton(
+                      category: c,
+                      selected: _safeCategory == c,
+                      onTap: () => setState(() => _category = c),
+                    ),
                   ),
-                ),
             ],
           ),
         ),
@@ -164,7 +179,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
         Expanded(
           child: ListView(
             // 분류가 바뀌면 새 리스트로 취급해 스크롤을 맨 위로 되돌린다.
-            key: ValueKey(_category),
+            key: ValueKey(_safeCategory),
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: _sections(context),
           ),
@@ -174,7 +189,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
   }
 
   List<Widget> _sections(BuildContext context) {
-    switch (_category) {
+    switch (_safeCategory) {
       case SettingsCategory.data:
         return [
           Text('데이터 관리', style: AppTypography.listTitle),
@@ -197,70 +212,76 @@ class _SettingsPanelState extends State<SettingsPanel> {
             subtitle: '사용하지 않는 파일·임시 항목 정리, 중복 제목 확인',
             onTap: widget.onRunMaintenance,
           ),
-          _SettingsTile(
-            icon: Icons.drive_file_move_outlined,
-            title: 'MR 내보내기 폴더',
-            subtitle: widget.settings.exportFolder,
-            onTap: () async {
-              final picked = await FilePicker.platform.getDirectoryPath(
-                dialogTitle: 'MR 내보내기 폴더 선택',
-                initialDirectory: widget.settings.exportFolder,
-              );
-              if (picked == null || picked.trim().isEmpty) return;
-              widget.onSettingsChanged(
-                widget.settings.copyWith(exportFolder: picked.trim()),
-              );
-            },
-          ),
-          const SizedBox(height: 24),
-          Text('외부 도구', style: AppTypography.listTitle),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Text('yt-dlp ', style: AppTypography.bodyMuted),
-              Expanded(
-                child: Text(
-                  widget.ytDlpVersion == null
-                      ? '찾을 수 없음'
-                      : '버전 ${widget.ytDlpVersion}',
-                  style: AppTypography.mono,
+          // 임의 폴더로 파일을 쓰는 기능. 모바일은 Scoped Storage라 못 한다.
+          if (PlatformCapabilities.hasFreeFileExport)
+            _SettingsTile(
+              icon: Icons.drive_file_move_outlined,
+              title: 'MR 내보내기 폴더',
+              subtitle: widget.settings.exportFolder,
+              onTap: () async {
+                final picked = await FilePicker.platform.getDirectoryPath(
+                  dialogTitle: 'MR 내보내기 폴더 선택',
+                  initialDirectory: widget.settings.exportFolder,
+                );
+                if (picked == null || picked.trim().isEmpty) return;
+                widget.onSettingsChanged(
+                  widget.settings.copyWith(exportFolder: picked.trim()),
+                );
+              },
+            ),
+          // 외부 도구(yt-dlp·분리 서버)는 모바일에 설치할 방법이 없다 —
+          // 상태만 보여 주면 "찾을 수 없음"을 고치려 헤매게 된다.
+          if (PlatformCapabilities.hasExternalTools) ...[
+            const SizedBox(height: 24),
+            Text('외부 도구', style: AppTypography.listTitle),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Text('yt-dlp ', style: AppTypography.bodyMuted),
+                Expanded(
+                  child: Text(
+                    widget.ytDlpVersion == null
+                        ? '찾을 수 없음'
+                        : '버전 ${widget.ytDlpVersion}',
+                    style: AppTypography.mono,
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Text('JS 해석기 ', style: AppTypography.bodyMuted),
-              Expanded(
-                child: Text(
-                  widget.ytDlpEjsVersion == null
-                      ? '없음 — 유튜브 403 실패의 주원인'
-                      : '버전 ${widget.ytDlpEjsVersion} (yt-dlp-ejs)',
-                  style: AppTypography.mono,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            widget.ytDlpEjsVersion == null
-                ? '유튜브 다운로드에는 JS 해석기가 필요합니다 — '
-                      'pip install yt-dlp-ejs 로 설치한 뒤 앱을 다시 시작해 주세요.'
-                : '유튜브 가져오기가 갑자기 실패하면 오래된 yt-dlp가 원인일 수 '
-                      '있습니다. 특정 영상만 403이면 같은 곡의 다른 영상으로 '
-                      '시도해 보세요.',
-            style: AppTypography.bodyMuted,
-          ),
-          _SettingsTile(
-            icon: Icons.system_update_alt,
-            title: 'yt-dlp 업데이트 실행',
-            subtitle: 'yt-dlp -U 로 최신 버전을 받습니다',
-            onTap: widget.onUpdateYtDlp,
-          ),
-          if (widget.separatorStatusLabel.isNotEmpty) ...[
+              ],
+            ),
             const SizedBox(height: 4),
-            Text(widget.separatorStatusLabel, style: AppTypography.bodyMuted),
+            Row(
+              children: [
+                Text('JS 해석기 ', style: AppTypography.bodyMuted),
+                Expanded(
+                  child: Text(
+                    widget.ytDlpEjsVersion == null
+                        ? '없음 — 유튜브 403 실패의 주원인'
+                        : '버전 ${widget.ytDlpEjsVersion} (yt-dlp-ejs)',
+                    style: AppTypography.mono,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              widget.ytDlpEjsVersion == null
+                  ? '유튜브 다운로드에는 JS 해석기가 필요합니다 — '
+                        'pip install yt-dlp-ejs 로 설치한 뒤 앱을 다시 시작해 주세요.'
+                  : '유튜브 가져오기가 갑자기 실패하면 오래된 yt-dlp가 원인일 수 '
+                        '있습니다. 특정 영상만 403이면 같은 곡의 다른 영상으로 '
+                        '시도해 보세요.',
+              style: AppTypography.bodyMuted,
+            ),
+            _SettingsTile(
+              icon: Icons.system_update_alt,
+              title: 'yt-dlp 업데이트 실행',
+              subtitle: 'yt-dlp -U 로 최신 버전을 받습니다',
+              onTap: widget.onUpdateYtDlp,
+            ),
+            if (widget.separatorStatusLabel.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(widget.separatorStatusLabel, style: AppTypography.bodyMuted),
+            ],
           ],
         ];
       case SettingsCategory.recording:

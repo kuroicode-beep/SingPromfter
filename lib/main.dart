@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:singpromfter_app/screens/song_list_screen.dart';
 import 'package:window_manager/window_manager.dart';
 import 'services/app_capture.dart';
+import 'utils/platform_capabilities.dart';
 import 'services/app_display_controller.dart';
 import 'theme/app_theme.dart';
 import 'widgets/newline_shortcut_scope.dart';
@@ -13,7 +12,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 보더리스 풀스크린 — 노래방 프롬프터답게 화면 전체를 쓴다.
   // 창 조작이 필요하면 F11로 창 모드를 오갈 수 있다(아래 토글).
-  if (Platform.isWindows) {
+  // 모바일에는 창이 없다 — 대신 시스템 UI를 감춰 같은 효과를 낸다.
+  if (PlatformCapabilities.hasWindowControl) {
     await windowManager.ensureInitialized();
     await windowManager.waitUntilReadyToShow(
       const WindowOptions(
@@ -25,6 +25,11 @@ Future<void> main() async {
         await windowManager.focus();
       },
     );
+  }
+  if (PlatformCapabilities.isMobile) {
+    // 상태바·내비게이션바를 감춰 가사에 화면을 다 준다.
+    // sticky라 가장자리를 쓸어 올리면 잠깐 나왔다 다시 숨는다.
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
   await AppDisplayController.load();
   SystemChrome.setPreferredOrientations([
@@ -60,7 +65,7 @@ class _SingPromfterAppState extends State<SingPromfterApp> {
   bool _handleKey(KeyEvent event) {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.f11 &&
-        Platform.isWindows) {
+        PlatformCapabilities.hasWindowControl) {
       () async {
         final full = await windowManager.isFullScreen();
         await windowManager.setFullScreen(!full);

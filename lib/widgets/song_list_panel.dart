@@ -1,4 +1,4 @@
-﻿// file: lib/widgets/song_list_panel.dart
+// file: lib/widgets/song_list_panel.dart
 //
 // 등록된 곡 목록을 표시하는 패널. 검색·필터는 제어형이라 화면을 전환해도
 // 상태가 유지된다.
@@ -9,6 +9,7 @@ import '../models/song.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/platform_capabilities.dart';
 import 'song_tile.dart';
 
 class SongListPanel extends StatefulWidget {
@@ -77,7 +78,8 @@ class SongListPanel extends StatefulWidget {
     List<String> visibleIds,
     int oldIndex,
     int newIndex,
-  )? onDropSongOnSong;
+  )?
+  onDropSongOnSong;
 
   const SongListPanel({
     super.key,
@@ -157,19 +159,29 @@ class _SongListPanelState extends State<SongListPanel> {
   @override
   Widget build(BuildContext context) {
     if (songs.isEmpty) {
-      return const Column(
+      // 모바일에는 유튜브 가져오기(yt-dlp)가 없다 — PC에서 만든 백업을
+      // 들여오는 게 곡을 넣는 길이다. 안내가 실제 수단과 어긋나면
+      // 사용자는 없는 버튼을 찾아 헤맨다.
+      final hint = PlatformCapabilities.hasExternalTools
+          ? '상단 [곡 추가]에 유튜브 링크를 붙여넣으면\n반주와 가사까지 자동으로 준비됩니다'
+          : 'PC에서 만든 백업 파일을 설정 > 데이터 > [백업 가져오기]로\n들여오면 곡과 가사가 그대로 옮겨집니다';
+      return Column(
         children: [
           Expanded(
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.queue_music, size: 40, color: AppColors.border),
-                  SizedBox(height: 10),
+                  const Icon(
+                    Icons.queue_music,
+                    size: 40,
+                    color: AppColors.border,
+                  ),
+                  const SizedBox(height: 10),
                   Text('등록된 곡이 없습니다', style: AppTypography.body),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
-                    '상단 [곡 추가]에 유튜브 링크를 붙여넣으면\n반주와 가사까지 자동으로 준비됩니다',
+                    hint,
                     style: AppTypography.caption,
                     textAlign: TextAlign.center,
                   ),
@@ -212,7 +224,10 @@ class _SongListPanelState extends State<SongListPanel> {
                 if (widget.onCreateFolder != null)
                   IconButton(
                     onPressed: widget.onCreateFolder,
-                    icon: const Icon(Icons.create_new_folder_outlined, size: 22),
+                    icon: const Icon(
+                      Icons.create_new_folder_outlined,
+                      size: 22,
+                    ),
                     tooltip: '새 폴더',
                     constraints: const BoxConstraints(
                       minWidth: AppConstants.minTouchTarget,
@@ -414,10 +429,7 @@ class _SongListPanelState extends State<SongListPanel> {
       }
     }
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 8),
-      children: rows,
-    );
+    return ListView(padding: const EdgeInsets.only(bottom: 8), children: rows);
   }
 
   /// 곡 타일 + 왼쪽 드래그 손잡이. 손잡이만 드래그를 받아 타일의
@@ -585,7 +597,6 @@ class _SongListPanelState extends State<SongListPanel> {
     );
   }
 
-
   Widget _buildSortDropdown() {
     return Semantics(
       label: '정렬 방식',
@@ -618,13 +629,15 @@ class _SongListPanelState extends State<SongListPanel> {
       child: Wrap(
         spacing: 4,
         runSpacing: 4,
-        children: _chips.map((entry) {
-          return _FilterChipSmall(
-            label: entry.$1,
-            selected: filterMode == entry.$2,
-            onTap: () => widget.onFilterModeChanged?.call(entry.$2),
-          );
-        }).toList(growable: false),
+        children: _chips
+            .map((entry) {
+              return _FilterChipSmall(
+                label: entry.$1,
+                selected: filterMode == entry.$2,
+                onTap: () => widget.onFilterModeChanged?.call(entry.$2),
+              );
+            })
+            .toList(growable: false),
       ),
     );
   }

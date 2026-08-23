@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 릴리즈 빌드에도 반드시 있어야 한다. debug/profile 매니페스트에만
+         있으면 개발 중에는 멀쩡하고 릴리즈 APK에서만 모든 네트워크가 죽는다
+         (LRCLIB 가사·유튜브 검색·PC 동기화가 전부 여기에 걸린다). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>

@@ -70,6 +70,7 @@ import '../widgets/prompter_space_background.dart'
     show nextSpaceBackgroundLevel, spaceBackgroundLevelLabel;
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../utils/ai_gate.dart';
+import '../utils/platform_capabilities.dart';
 
 class SongListScreen extends StatefulWidget {
   const SongListScreen({super.key});
@@ -305,11 +306,16 @@ class _SongListScreenState extends State<SongListScreen> {
     if (savedDevice != null && savedDevice.isNotEmpty) {
       _recording.deviceName = savedDevice;
     }
-    unawaited(_recording.refreshDevices());
+    // 마이크 장치 열거는 ffmpeg DirectShow라 모바일에서는 시도하지 않는다.
+    if (PlatformCapabilities.hasDeviceRecording) {
+      unawaited(_recording.refreshDevices());
+    }
     // MCP 제어 API — 루프백 전용, 실패해도 앱 동작에 영향 없음.
-    await _controlServer.start();
-    // 설정 화면의 입력 장치 목록을 미리 채워 둔다(실패해도 무시).
-    unawaited(_recording.refreshDevices());
+    // 모바일은 백그라운드 수명이 보장되지 않고 PC에서 폰 루프백에 닿지도
+    // 못한다 — 서버를 띄우지 않는다.
+    if (PlatformCapabilities.hasControlServer) {
+      await _controlServer.start();
+    }
   }
 
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
@@ -495,11 +501,11 @@ class _SongListScreenState extends State<SongListScreen> {
       final stem = '${song.title}_${track.label}'
           .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
           .trim();
-      var dest = File('${dir.path}\\$stem.mp3');
+      var dest = File('${dir.path}${Platform.pathSeparator}$stem.mp3');
       // 같은 이름이 있으면 덮어쓰지 않고 번호를 붙인다.
       var n = 2;
       while (dest.existsSync()) {
-        dest = File('${dir.path}\\$stem ($n).mp3');
+        dest = File('${dir.path}${Platform.pathSeparator}$stem ($n).mp3');
         n++;
       }
       await File(sourcePath).copy(dest.path);
@@ -2521,8 +2527,13 @@ class _SongListScreenState extends State<SongListScreen> {
         onYoutubePreview: _previewYoutube,
         onSearchFilterModeChanged: (value) =>
             setState(() => _searchFilterMode = value),
-        onAddSong: _addSong,
-        onExportTrack: _exportCurrentTrack,
+        // 곡 추가는 유튜브 링크 → yt-dlp 다운로드가 전부다. 모바일에는
+        // 그 경로가 없으므로 버튼 자체를 감춘다(백업 반입으로 대체).
+        onAddSong: PlatformCapabilities.hasExternalTools ? _addSong : null,
+        // 임의 폴더로 파일을 쓰는 기능 — 모바일은 Scoped Storage라 불가.
+        onExportTrack: PlatformCapabilities.hasFreeFileExport
+            ? _exportCurrentTrack
+            : null,
         queueLengths: [for (final q in _app.queueSlots) q.length],
         activeQueueSlot: _app.activeQueueSlot,
         onSelectQueueSlot: (i) => _app.switchQueueSlot(i),
