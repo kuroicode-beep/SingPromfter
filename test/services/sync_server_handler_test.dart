@@ -36,6 +36,37 @@ void main() {
     });
   });
 
+  group('반주 파일명 안전성', () {
+    test('경로 구분자와 상위 참조는 거부한다', () {
+      for (final bad in [
+        '',
+        '   ',
+        '.',
+        '..',
+        '../secret.txt',
+        'sub/dir.mp3',
+        r'C:\Windows\win.ini',
+      ]) {
+        expect(
+          SyncServerHandler.isSafeTrackName(bad),
+          isFalse,
+          reason: bad,
+        );
+      }
+    });
+
+    test('제목에 말줄임표가 든 파일명은 통과한다 — 실측 오탐 3건', () {
+      // '..'를 통째로 막았더니 이런 곡의 반주가 전부 404로 실패했다.
+      for (final ok in [
+        '아마도 그건.. - 최용준 - (가사有)_mr1.mp3',
+        '그때 그날.._orig.mp3',
+        'song.name.with.dots_mr2.mp3',
+      ]) {
+        expect(SyncServerHandler.isSafeTrackName(ok), isTrue, reason: ok);
+      }
+    });
+  });
+
   group('페어링 코드', () {
     test('헷갈리는 글자(0·O·1·I·L)를 쓰지 않는다 — 손으로 옮겨 적는 값이다', () {
       for (final ch in ['0', 'O', '1', 'I', 'L']) {

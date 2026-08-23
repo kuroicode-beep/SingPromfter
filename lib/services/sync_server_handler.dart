@@ -37,6 +37,19 @@ class SyncServerHandler {
   /// 동기화 경로만 허용한다 — 나머지는 같은 PC에서만.
   static bool allowedFromRemote(String path) => handles(path);
 
+  /// 파일명이 경로가 아닌 '이름'인가.
+  ///
+  /// 🔴 '..'가 들어 있다고 막으면 안 된다 — 곡 제목에 말줄임표가 들어간
+  /// 파일("아마도 그건.. - 최용준_mr1.mp3")이 통째로 거부된다(실측 3건).
+  /// 막아야 하는 건 경로 구분자와 상위 디렉터리 참조 자체다.
+  static bool isSafeTrackName(String fileName) {
+    final name = fileName.trim();
+    if (name.isEmpty) return false;
+    if (name.contains('/') || name.contains(r'\')) return false;
+    if (name == '.' || name == '..') return false;
+    return true;
+  }
+
   /// 매니페스트를 만든다. 반주 파일이 실제로 있는 것만 싣는다.
   Future<SyncManifest> buildManifest() async {
     final songs = app.songs;
@@ -72,12 +85,10 @@ class SyncServerHandler {
   /// 반주 파일 하나를 찾는다. 매니페스트에 실린 파일만 내준다 —
   /// 임의 경로 요청으로 PC의 다른 파일을 읽어 가지 못하게.
   Future<File?> resolveTrackFile(String fileName) async {
+    if (!isSafeTrackName(fileName)) return null;
     final safe = fileName.trim();
-    if (safe.isEmpty) return null;
-    // 경로 탈출 차단. 파일명만 받는다.
-    if (safe.contains('/') || safe.contains(r'\') || safe.contains('..')) {
-      return null;
-    }
+    // 진짜 방어선은 이것 — 등록된 반주 파일명과 정확히 같아야 한다.
+    // 경로 문자열을 아무리 꾸며도 목록에 없으면 통과하지 못한다.
     final known = app.songs.any(
       (s) => s.backingTracks.any((t) => t.fileName == safe),
     );
