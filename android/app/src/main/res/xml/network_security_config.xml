@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PC 동기화는 같은 와이파이의 평문 HTTP다(사설 IP:8772). 안드로이드는 기본적으로
+  cleartext를 막으므로 열어 줘야 한다.
+
+  🔴 대역으로 제한하지 못한다: network-security-config의 <domain>은 호스트명·IP
+  리터럴만 받고 CIDR을 지원하지 않는다. PC의 사설 IP는 공유기가 바꿀 수 있어
+  미리 적어 둘 수도 없다. 그래서 cleartext 자체는 열되, 앱이 평문으로 요청하는
+  곳은 사용자가 직접 입력한 동기화 주소 한 곳뿐이다(LRCLIB·YouTube·DeepSeek은
+  전부 https). 나머지 통신의 안전성은 그대로다.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

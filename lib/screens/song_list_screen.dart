@@ -71,6 +71,8 @@ import '../widgets/prompter_space_background.dart'
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../utils/ai_gate.dart';
 import '../utils/platform_capabilities.dart';
+import '../services/sync_client.dart';
+import '../widgets/sync_section.dart';
 
 class SongListScreen extends StatefulWidget {
   const SongListScreen({super.key});
@@ -330,8 +332,41 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _applyAccessibilityPreset(String preset) =>
       _updateSettings(PrompterSettingsService.preset(_settings, preset));
 
+  /// PC에서 곡을 받아온다(폰 전용). 주소·코드는 다이얼로그에서 받는다.
+  Future<void> _pullFromPc() async {
+    await SyncPullDialog.show(
+      context,
+      initialAddress: _settings.syncServerAddress,
+      onPull: (address, code) async {
+        final outcome = await SyncClient().pull(
+          address: address,
+          pairingCode: code,
+        );
+        if (outcome.ok) {
+          // 성공한 주소는 기억해 둔다 — 매번 IP를 외워 적게 하지 않는다.
+          await _updateSettings(
+            _settings.copyWith(syncServerAddress: address.trim()),
+          );
+          // 받은 곡을 화면에 반영한다(백업 반입과 같은 흐름).
+          final songs = await _repo.loadSongs();
+          if (mounted) setState(() => _songs = songs);
+          final next = _selectedSong ?? (songs.isNotEmpty ? songs.first : null);
+          if (next != null) await _loadSong(next);
+        }
+        return outcome.message;
+      },
+    );
+  }
+
   Future<void> _updateSettings(PrompterSettings next) async {
+    final syncChanged =
+        next.syncServerEnabled != _settings.syncServerEnabled;
     await _app.updateSettings(next);
+    // 동기화 토글은 바인딩 주소를 바꾼다 — 재기동하지 않으면 다음 실행에야
+    // 반영된다(껐는데 LAN에 열려 있는 상태가 더 위험하다).
+    if (syncChanged && PlatformCapabilities.hasControlServer) {
+      await _controlServer.applySettings();
+    }
     // 로컬AI를 끄면 작곡 탭이 비활성화되므로 그 화면에 남지 않게 한다.
     if (!next.localAiActive &&
         _destination == AppDestination.compose &&
@@ -2565,6 +2600,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onSettingsChanged: _updateSettings,
         onCustomFontSize: _showCustomFontSizeDialog,
         onAccessibilityPreset: _applyAccessibilityPreset,
+        onPullFromPc: PlatformCapabilities.isMobile ? _pullFromPc : null,
         onMessage: _showSnack,
         onClearQueue: _clearQueue,
         onReorderQueue: _reorderQueue,

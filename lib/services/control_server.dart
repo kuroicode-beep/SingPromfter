@@ -25,6 +25,7 @@ import '../models/mr_source_mode.dart';
 import '../models/recording_take.dart';
 import '../models/song.dart';
 import 'app_capture.dart';
+import 'sync_server_handler.dart';
 import 'recording_library_service.dart';
 
 /// 라우팅 결과 — 상태코드와 JSON 본문.
@@ -710,35 +711,69 @@ class ControlRouter {
   };
 }
 
-/// 루프백 HTTP 서버. bind 실패는 앱 동작에 영향을 주지 않는다(로그만).
+/// 제어 API HTTP 서버.
+///
+/// 기본은 루프백 전용이다. 설정에서 폰 동기화를 켜면 LAN(anyIPv4)으로
+/// 나가되, 원격 연결에는 /api/sync/* 만 허용하고 페어링 토큰을 요구한다 —
+/// 곡 삭제·재생 조작이 LAN에 열리면 안 된다.
+///
+/// bind 실패는 앱 동작에 영향을 주지 않는다(로그만).
 class ControlServer {
   static const int defaultPort = 8772;
 
+  final AppController _app;
   final ControlRouter _router;
+  final SyncServerHandler _sync;
   final int port;
   HttpServer? _server;
 
+  /// 지금 서버가 LAN에 열려 있나. 설정이 바뀌면 재기동해야 한다.
+  bool _boundToLan = false;
+
   ControlServer(AppController app, {this.port = defaultPort})
-    : _router = ControlRouter(app);
+    : _app = app,
+      _router = ControlRouter(app),
+      _sync = SyncServerHandler(app);
 
   bool get running => _server != null;
 
+  bool get boundToLan => _boundToLan;
+
   Future<void> start() async {
     if (_server != null) return;
+    final wantLan = _app.settings.syncServerEnabled;
     try {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+      final server = await HttpServer.bind(
+        wantLan ? InternetAddress.anyIPv4 : InternetAddress.loopbackIPv4,
+        port,
+      );
       _server = server;
+      _boundToLan = wantLan;
       server.listen(
         _handle,
         onError: (Object e) {
           debugPrint('제어 서버 오류: $e');
         },
       );
-      debugPrint('제어 서버 시작: http://127.0.0.1:$port');
+      debugPrint(
+        '제어 서버 시작: http://${wantLan ? "0.0.0.0" : "127.0.0.1"}:$port',
+      );
     } catch (e) {
       // 포트 충돌 등 — 앱은 정상 동작하고 제어 API만 꺼진다.
       debugPrint('제어 서버를 열지 못했습니다(포트 $port): $e');
     }
+  }
+
+  /// 설정(동기화 켬/끔)이 바뀌었을 때 바인딩을 다시 잡는다.
+  /// 이걸 부르지 않으면 토글이 다음 실행에야 반영된다.
+  Future<void> applySettings() async {
+    if (_server == null) {
+      await start();
+      return;
+    }
+    if (_boundToLan == _app.settings.syncServerEnabled) return;
+    await stop();
+    await start();
   }
 
   Future<void> stop() async {
@@ -747,6 +782,36 @@ class ControlServer {
   }
 
   Future<void> _handle(HttpRequest request) async {
+    final remote = request.connectionInfo?.remoteAddress;
+    final isLoopback = remote == null || remote.isLoopback;
+
+    // 원격(LAN) 연결은 동기화 경로만 쓸 수 있다.
+    if (!isLoopback && !SyncServerHandler.allowedFromRemote(request.uri.path)) {
+      request.response
+        ..statusCode = 403
+        ..headers.contentType = ContentType(
+          'application',
+          'json',
+          charset: 'utf-8',
+        )
+        ..write(
+          jsonEncode({
+            'ok': false,
+            'error': {
+              'code': 'remote_forbidden',
+              'message': '이 경로는 같은 PC에서만 사용할 수 있습니다.',
+            },
+          }),
+        );
+      await request.response.close();
+      return;
+    }
+
+    // 동기화 경로는 바이너리 응답이 있어 라우터(JSON)로 보내지 않는다.
+    if (SyncServerHandler.handles(request.uri.path)) {
+      if (await _sync.handle(request)) return;
+    }
+
     Map<String, dynamic>? body;
     try {
       final raw = await utf8.decoder.bind(request).join();

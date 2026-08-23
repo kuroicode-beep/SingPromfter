@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.6.0';
+  static const String current = '5.7.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.7.0',
+      '2026-08-18',
+      '안드로이드 지원 — 폰에서 곡 목록·프롬프터·트레이닝·도움말을 쓸 수 있습니다. '
+          'PC에서 [설정 > 데이터 > 폰으로 곡 보내기]를 켜고 나오는 주소·페어링 '
+          '코드를 폰에 입력하면 같은 와이파이로 곡과 가사를 받아옵니다(PC가 '
+          '정본, 바뀐 파일만 받습니다). 폰에서 쓸 수 없는 기능(유튜브 가져오기·'
+          '녹음·작곡·AI)은 화면에서 아예 빠집니다. 앱 아이콘도 새로 만들었습니다',
+    ),
     AppVersionEntry(
       '5.6.0',
       '2026-08-18',

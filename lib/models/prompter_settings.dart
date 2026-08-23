@@ -89,6 +89,16 @@ class PrompterSettings {
   /// 프롬프트 다듬기에 쓸 Ollama 모델 이름.
   final String ollamaModel;
 
+  /// 폰 동기화 서버를 LAN에 열지. 기본 꺼짐 — 켤 때만 제어 API가 루프백
+  /// 밖으로 나간다. 켜져 있어도 /api/sync/* 외 경로는 원격에서 거부한다.
+  final bool syncServerEnabled;
+
+  /// 폰이 서버에 붙을 때 쓰는 페어링 코드. 서버를 켤 때 새로 만든다.
+  final String syncPairingCode;
+
+  /// 폰에서 마지막으로 붙었던 PC 주소(예: 192.168.0.5:8772). 재입력을 줄인다.
+  final String syncServerAddress;
+
   const PrompterSettings({
     this.fontSizeLevel = 3,
     this.lineHeightLevel = 3,
@@ -119,6 +129,9 @@ class PrompterSettings {
     this.localAiEnabled = false,
     this.cloudAiEnabled = false,
     this.ollamaModel = 'gemma4:12b',
+    this.syncServerEnabled = false,
+    this.syncPairingCode = '',
+    this.syncServerAddress = '',
   });
 
   double get effectiveFontSizePt =>
@@ -168,6 +181,9 @@ class PrompterSettings {
     bool? localAiEnabled,
     bool? cloudAiEnabled,
     String? ollamaModel,
+    bool? syncServerEnabled,
+    String? syncPairingCode,
+    String? syncServerAddress,
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
     bool clearRecordingDevice = false,
@@ -209,6 +225,9 @@ class PrompterSettings {
       localAiEnabled: localAiEnabled ?? this.localAiEnabled,
       cloudAiEnabled: cloudAiEnabled ?? this.cloudAiEnabled,
       ollamaModel: ollamaModel ?? this.ollamaModel,
+      syncServerEnabled: syncServerEnabled ?? this.syncServerEnabled,
+      syncPairingCode: syncPairingCode ?? this.syncPairingCode,
+      syncServerAddress: syncServerAddress ?? this.syncServerAddress,
     );
   }
 
@@ -287,6 +306,9 @@ class PrompterSettings {
     'localAiEnabled': localAiEnabled,
     'cloudAiEnabled': cloudAiEnabled,
     'ollamaModel': ollamaModel,
+    'syncServerEnabled': syncServerEnabled,
+    'syncPairingCode': syncPairingCode,
+    'syncServerAddress': syncServerAddress,
   };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
@@ -375,6 +397,9 @@ class PrompterSettings {
       ollamaModel: (json['ollamaModel'] as String?)?.trim().isNotEmpty == true
           ? (json['ollamaModel'] as String).trim()
           : 'gemma4:12b',
+      syncServerEnabled: json['syncServerEnabled'] as bool? ?? false,
+      syncPairingCode: (json['syncPairingCode'] as String?)?.trim() ?? '',
+      syncServerAddress: (json['syncServerAddress'] as String?)?.trim() ?? '',
     );
   }
 

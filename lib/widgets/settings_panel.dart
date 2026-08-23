@@ -26,6 +26,7 @@ import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/key_label.dart';
 import '../utils/platform_capabilities.dart';
+import 'sync_section.dart';
 import 'preset_btn.dart';
 import 'prompter_space_background.dart'
     show spaceBackgroundLevelLabel, spaceBackgroundMaxLevel;
@@ -104,6 +105,9 @@ class SettingsPanel extends StatefulWidget {
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
 
+  /// 폰에서 PC 동기화를 여는 콜백. 데스크탑에서는 null이다.
+  final VoidCallback? onPullFromPc;
+
   const SettingsPanel({
     super.key,
     this.practiceSummaries = const [],
@@ -128,6 +132,7 @@ class SettingsPanel extends StatefulWidget {
     required this.onRunMaintenance,
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
+    this.onPullFromPc,
   });
 
   @override
@@ -282,6 +287,25 @@ class _SettingsPanelState extends State<SettingsPanel> {
               const SizedBox(height: 4),
               Text(widget.separatorStatusLabel, style: AppTypography.bodyMuted),
             ],
+          ],
+          // PC ↔ 폰 곡 동기화. 보내는 쪽(PC)과 받는 쪽(폰)의 얼굴이 다르다.
+          if (showSyncServerSection) ...[
+            const SizedBox(height: 24),
+            SyncServerSection(
+              settings: widget.settings,
+              onChanged: widget.onSettingsChanged,
+            ),
+          ],
+          if (showSyncPullTile && widget.onPullFromPc != null) ...[
+            const SizedBox(height: 24),
+            Text('PC에서 곡 받기', style: AppTypography.listTitle),
+            const SizedBox(height: 8),
+            _SettingsTile(
+              icon: Icons.sync_alt,
+              title: 'PC에서 곡 받기',
+              subtitle: '같은 와이파이의 PC에서 곡·가사를 받아옵니다',
+              onTap: widget.onPullFromPc!,
+            ),
           ],
         ];
       case SettingsCategory.recording:

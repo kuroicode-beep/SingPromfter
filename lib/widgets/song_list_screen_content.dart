@@ -252,6 +252,9 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<PrompterSettings> onSettingsChanged;
   final VoidCallback onCustomFontSize;
   final ValueChanged<String> onAccessibilityPreset;
+
+  /// 폰에서 PC 동기화를 여는 콜백. 데스크탑에서는 null이다.
+  final VoidCallback? onPullFromPc;
   final ValueChanged<String> onMessage;
   final VoidCallback onClearQueue;
   final void Function(int oldIndex, int newIndex) onReorderQueue;
@@ -428,6 +431,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onSettingsChanged,
     required this.onCustomFontSize,
     required this.onAccessibilityPreset,
+    this.onPullFromPc,
     required this.onMessage,
     required this.onClearQueue,
     required this.onReorderQueue,
@@ -741,6 +745,7 @@ class SongListScreenContent extends StatelessWidget {
         onRunMaintenance: onRunMaintenance,
         onCustomFontSize: onCustomFontSize,
         onAccessibilityPreset: onAccessibilityPreset,
+        onPullFromPc: onPullFromPc,
         recordingDevices: recordingDevices,
         onRefreshRecordingDevices: onRefreshRecordingDevices,
         micTesting: micTesting,
