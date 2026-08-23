@@ -25,6 +25,7 @@ import '../models/mr_source_mode.dart';
 import '../models/recording_take.dart';
 import '../models/song.dart';
 import 'app_capture.dart';
+import 'sync_discovery.dart';
 import 'sync_server_handler.dart';
 import 'recording_library_service.dart';
 
@@ -730,6 +731,14 @@ class ControlServer {
   /// 지금 서버가 LAN에 열려 있나. 설정이 바뀌면 재기동해야 한다.
   bool _boundToLan = false;
 
+  /// 폰이 PC를 스스로 찾게 해 주는 UDP 응답기. 동기화가 켜져 있을 때만
+  /// 답한다(응답 조건은 매 패킷마다 확인한다).
+  late final SyncDiscoveryResponder _discovery = SyncDiscoveryResponder(
+    enabled: () => _app.settings.syncServerEnabled,
+    appVersion: () => AppVersion.current,
+    apiPort: port,
+  );
+
   ControlServer(AppController app, {this.port = defaultPort})
     : _app = app,
       _router = ControlRouter(app),
@@ -758,6 +767,9 @@ class ControlServer {
       debugPrint(
         '제어 서버 시작: http://${wantLan ? "0.0.0.0" : "127.0.0.1"}:$port',
       );
+      if (wantLan) {
+        await _discovery.start();
+      }
     } catch (e) {
       // 포트 충돌 등 — 앱은 정상 동작하고 제어 API만 꺼진다.
       debugPrint('제어 서버를 열지 못했습니다(포트 $port): $e');
@@ -776,7 +788,10 @@ class ControlServer {
     await start();
   }
 
+
   Future<void> stop() async {
+    // 탐색 응답기도 함께 내린다 — 껐는데 "나 여기 있다"고 답하면 안 된다.
+    _discovery.stop();
     await _server?.close(force: true);
     _server = null;
   }

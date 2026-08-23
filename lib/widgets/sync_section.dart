@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 
 import '../constants/app_constants.dart';
 import '../models/prompter_settings.dart';
+import '../services/sync_discovery.dart';
 import '../services/sync_server_handler.dart';
 import '../theme/app_theme.dart';
 import '../utils/platform_capabilities.dart';
@@ -158,10 +159,7 @@ class _CopyRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        SizedBox(
-          width: 96,
-          child: Text(label, style: AppTypography.bodyMuted),
-        ),
+        SizedBox(width: 96, child: Text(label, style: AppTypography.bodyMuted)),
         Expanded(
           child: SelectableText(
             value,
@@ -223,7 +221,58 @@ class _SyncPullDialogState extends State<SyncPullDialog> {
   );
   final TextEditingController _code = TextEditingController();
   bool _busy = false;
+  bool _scanning = false;
   String? _result;
+
+  /// 같은 와이파이의 PC를 찾아 주소를 채운다 — IP를 외워 적지 않게.
+  /// 하나면 바로 채우고, 여럿이면 골라 달라고 한다.
+  Future<void> _findPc() async {
+    setState(() {
+      _scanning = true;
+      _result = null;
+    });
+    final found = await const SyncDiscoveryScanner().scan();
+    if (!mounted) return;
+    setState(() => _scanning = false);
+
+    if (found.isEmpty) {
+      setState(() {
+        _result =
+            'PC를 찾지 못했습니다. PC에서 [폰으로 곡 보내기]를 켰는지, '
+            '같은 와이파이인지 확인해 주세요.';
+      });
+      return;
+    }
+    if (found.length == 1) {
+      setState(() {
+        _addr.text = found.first.address;
+        _result = '${found.first.name} 을(를) 찾았습니다.';
+      });
+      return;
+    }
+    final picked = await showDialog<DiscoveredPc>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('PC 고르기'),
+        children: [
+          for (final pc in found)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop(pc),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Text(
+                  '${pc.name}\n${pc.address}',
+                  style: AppTypography.body,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() => _addr.text = picked.address);
+    }
+  }
 
   @override
   void dispose() {
@@ -261,13 +310,34 @@ class _SyncPullDialogState extends State<SyncPullDialog> {
               style: AppTypography.bodyMuted,
             ),
             const SizedBox(height: 14),
-            TextField(
-              controller: _addr,
-              enabled: !_busy,
-              decoration: const InputDecoration(
-                labelText: 'PC 주소',
-                hintText: '192.168.0.5:8772',
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _addr,
+                    enabled: !_busy && !_scanning,
+                    decoration: const InputDecoration(
+                      labelText: 'PC 주소',
+                      hintText: '192.168.0.5:8772',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: (_busy || _scanning) ? null : _findPc,
+                  icon: _scanning
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.wifi_find),
+                  label: Text(_scanning ? '찾는 중' : 'PC 찾기'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(110, AppConstants.minTouchTarget),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 10),
             TextField(
