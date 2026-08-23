@@ -193,7 +193,14 @@ class SyncPullDialog extends StatefulWidget {
   final String initialAddress;
 
   /// 실제 수신은 화면이 넘겨준다(테스트에서 가짜를 넣는다).
-  final Future<String> Function(String address, String code) onPull;
+  /// 세 번째 인자로 진행률 통로를 넘겨받는다 — 반주가 크면 몇 분씩 걸려서
+  /// 숫자가 안 움직이면 사용자가 멈춘 줄 안다.
+  final Future<String> Function(
+    String address,
+    String code,
+    void Function(int done, int total, String? current) onProgress,
+  )
+  onPull;
 
   const SyncPullDialog({
     super.key,
@@ -204,7 +211,12 @@ class SyncPullDialog extends StatefulWidget {
   static Future<void> show(
     BuildContext context, {
     required String initialAddress,
-    required Future<String> Function(String address, String code) onPull,
+    required Future<String> Function(
+      String address,
+      String code,
+      void Function(int done, int total, String? current) onProgress,
+    )
+    onPull,
   }) => showDialog<void>(
     context: context,
     builder: (_) =>
@@ -223,6 +235,9 @@ class _SyncPullDialogState extends State<SyncPullDialog> {
   bool _busy = false;
   bool _scanning = false;
   String? _result;
+  int _done = 0;
+  int _total = 0;
+  String? _current;
 
   /// 같은 와이파이의 PC를 찾아 주소를 채운다 — IP를 외워 적지 않게.
   /// 하나면 바로 채우고, 여럿이면 골라 달라고 한다.
@@ -285,11 +300,26 @@ class _SyncPullDialogState extends State<SyncPullDialog> {
     setState(() {
       _busy = true;
       _result = null;
+      _done = 0;
+      _total = 0;
+      _current = null;
     });
-    final message = await widget.onPull(_addr.text, _code.text);
+    final message = await widget.onPull(_addr.text, _code.text, (
+      done,
+      total,
+      current,
+    ) {
+      if (!mounted) return;
+      setState(() {
+        _done = done;
+        _total = total;
+        _current = current;
+      });
+    });
     if (!mounted) return;
     setState(() {
       _busy = false;
+      _current = null;
       _result = message;
     });
   }
@@ -351,9 +381,27 @@ class _SyncPullDialogState extends State<SyncPullDialog> {
             ),
             if (_busy) ...[
               const SizedBox(height: 16),
-              const LinearProgressIndicator(),
+              // 전체 개수를 알기 전(목록 받는 중)에는 불확정 막대를 쓴다.
+              LinearProgressIndicator(
+                value: _total > 0 ? _done / _total : null,
+                minHeight: 8,
+              ),
               const SizedBox(height: 8),
-              Text('받는 중… 반주 파일이 크면 시간이 걸립니다', style: AppTypography.bodyMuted),
+              Text(
+                _total == 0
+                    ? '곡 목록을 받는 중…'
+                    : '반주 받는 중 $_done / $_total',
+                style: AppTypography.body,
+              ),
+              if (_current != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _current!,
+                  style: AppTypography.bodyMuted,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ],
             if (_result != null) ...[
               const SizedBox(height: 14),

@@ -337,11 +337,12 @@ class _SongListScreenState extends State<SongListScreen> {
     await SyncPullDialog.show(
       context,
       initialAddress: _settings.syncServerAddress,
-      onPull: (address, code) async {
+      onPull: (address, code, onProgress) async {
         final outcome = await SyncClient().pull(
           address: address,
           pairingCode: code,
           pendingFavorites: _settings.pendingFavorites,
+          onProgress: onProgress,
           onPushed: () {
             // 올라간 것만 비운다. 실패하면 남겨 다음에 다시 시도한다.
             _updateSettings(_settings.copyWith(pendingFavorites: const {}));

@@ -111,12 +111,14 @@ class SyncClient {
 
   /// PC에서 곡을 받아 로컬 라이브러리를 PC 상태로 맞춘다.
   ///
-  /// [onProgress]는 (받은 파일 수, 전체 파일 수)를 알린다.
+  /// [onProgress]는 (받은 파일 수, 전체 파일 수, 지금 받는 파일명)을 알린다.
+  /// 파일명까지 주는 이유: 반주가 크면 몇 분씩 걸려서, 숫자만 멈춰 있으면
+  /// 사용자가 멈춘 줄 안다.
   Future<SyncOutcome> pull({
     required String address,
     required String pairingCode,
     Map<String, bool> pendingFavorites = const {},
-    void Function(int done, int total)? onProgress,
+    void Function(int done, int total, String? current)? onProgress,
     void Function()? onPushed,
   }) async {
     final base = normalizeBase(address);
@@ -192,10 +194,11 @@ class SyncClient {
       manifest: manifest,
       localStats: localStats,
     );
-    onProgress?.call(0, downloads.length);
+    onProgress?.call(0, downloads.length, null);
 
     var done = 0;
     for (final item in downloads) {
+      onProgress?.call(done, downloads.length, item.fileName);
       try {
         final res = await _http
             .get(
@@ -214,7 +217,7 @@ class SyncClient {
         final file = File('${dir.path}/${item.fileName}');
         await file.writeAsBytes(res.bodyBytes);
         done++;
-        onProgress?.call(done, downloads.length);
+        onProgress?.call(done, downloads.length, item.fileName);
       } catch (e) {
         debugPrint('반주 받기 실패(${item.fileName}): $e');
       }
