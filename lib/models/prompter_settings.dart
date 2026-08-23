@@ -99,6 +99,11 @@ class PrompterSettings {
   /// 폰에서 마지막으로 붙었던 PC 주소(예: 192.168.0.5:8772). 재입력을 줄인다.
   final String syncServerAddress;
 
+  /// 폰에서 바꿨지만 아직 PC에 올리지 못한 즐겨찾기(songId → 켬/끔).
+  /// 동기화는 PC가 정본이라, 이걸 안 남기면 폰에서 누른 별이 다음 동기화에
+  /// 그냥 덮인다. 올리고 나면 비운다.
+  final Map<String, bool> pendingFavorites;
+
   const PrompterSettings({
     this.fontSizeLevel = 3,
     this.lineHeightLevel = 3,
@@ -132,6 +137,7 @@ class PrompterSettings {
     this.syncServerEnabled = false,
     this.syncPairingCode = '',
     this.syncServerAddress = '',
+    this.pendingFavorites = const {},
   });
 
   double get effectiveFontSizePt =>
@@ -184,6 +190,7 @@ class PrompterSettings {
     bool? syncServerEnabled,
     String? syncPairingCode,
     String? syncServerAddress,
+    Map<String, bool>? pendingFavorites,
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
     bool clearRecordingDevice = false,
@@ -228,6 +235,7 @@ class PrompterSettings {
       syncServerEnabled: syncServerEnabled ?? this.syncServerEnabled,
       syncPairingCode: syncPairingCode ?? this.syncPairingCode,
       syncServerAddress: syncServerAddress ?? this.syncServerAddress,
+      pendingFavorites: pendingFavorites ?? this.pendingFavorites,
     );
   }
 
@@ -309,6 +317,7 @@ class PrompterSettings {
     'syncServerEnabled': syncServerEnabled,
     'syncPairingCode': syncPairingCode,
     'syncServerAddress': syncServerAddress,
+    'pendingFavorites': pendingFavorites,
   };
 
   factory PrompterSettings.fromJson(Map<String, dynamic> json) {
@@ -400,6 +409,12 @@ class PrompterSettings {
       syncServerEnabled: json['syncServerEnabled'] as bool? ?? false,
       syncPairingCode: (json['syncPairingCode'] as String?)?.trim() ?? '',
       syncServerAddress: (json['syncServerAddress'] as String?)?.trim() ?? '',
+      pendingFavorites: {
+        for (final e in (json['pendingFavorites'] as Map?)?.entries ??
+            const <MapEntry<dynamic, dynamic>>[])
+          if (e.key is String && e.value is bool)
+            e.key as String: e.value as bool,
+      },
     );
   }
 

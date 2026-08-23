@@ -15,6 +15,7 @@ import 'dart:io';
 import '../constants/app_version.dart';
 import '../controllers/app_controller.dart';
 import '../repository/lrc_store.dart';
+import '../repository/practice_log_store.dart';
 import '../repository/song_repository.dart';
 import 'sync_protocol.dart';
 
@@ -23,9 +24,16 @@ class SyncServerHandler {
   final SongRepository _repo;
   final LrcStore _lrcStore;
 
-  SyncServerHandler(this.app, {SongRepository? repo, LrcStore? lrcStore})
-    : _repo = repo ?? SongRepository.instance,
-      _lrcStore = lrcStore ?? LrcStore();
+  final PracticeLogStore _practiceStore;
+
+  SyncServerHandler(
+    this.app, {
+    SongRepository? repo,
+    LrcStore? lrcStore,
+    PracticeLogStore? practiceStore,
+  }) : _repo = repo ?? SongRepository.instance,
+       _lrcStore = lrcStore ?? LrcStore(),
+       _practiceStore = practiceStore ?? PracticeLogStore();
 
   static const String tokenHeader = 'x-sync-token';
   static const String pathPrefix = '/api/sync/';
@@ -99,6 +107,25 @@ class SyncServerHandler {
     return await file.exists() ? file : null;
   }
 
+  /// 폰이 올린 변경분을 반영하고 저장한다.
+  Future<SyncMergeResult> applyPush(SyncPushPayload payload) async {
+    final sessions = await _practiceStore.load();
+    final result = SyncMerger.merge(
+      songs: app.songs,
+      sessions: sessions,
+      payload: payload,
+    );
+    // 바뀐 게 없으면 파일을 다시 쓰지 않는다 — songs.json은 핫 파일이다.
+    if (result.favoritesApplied > 0) {
+      app.songs = result.songs;
+      await _repo.saveSongs(result.songs);
+    }
+    if (result.sessionsAdded > 0) {
+      await _practiceStore.save(result.sessions);
+    }
+    return result;
+  }
+
   /// 요청 하나를 처리한다. 처리했으면 true.
   Future<bool> handle(HttpRequest request) async {
     final path = request.uri.path;
@@ -145,6 +172,36 @@ class SyncServerHandler {
           ..headers.contentLength = await file.length();
         await request.response.addStream(file.openRead());
         await request.response.close();
+        return true;
+
+      // 폰이 만든 변경분(즐겨찾기·연습기록)을 받아 얹는다.
+      // 곡·가사·반주는 여전히 PC가 정본이라 여기서 건드리지 않는다.
+      case '${pathPrefix}push':
+        if (request.method != 'POST') {
+          await _json(request, 405, {
+            'ok': false,
+            'error': {'code': 'method_not_allowed', 'message': 'POST만 됩니다.'},
+          });
+          return true;
+        }
+        final body = await utf8.decoder.bind(request).join();
+        Map<String, dynamic> json;
+        try {
+          final decoded = body.trim().isEmpty ? <String, dynamic>{} : jsonDecode(body);
+          json = decoded is Map<String, dynamic> ? decoded : {};
+        } catch (_) {
+          await _json(request, 422, {
+            'ok': false,
+            'error': {'code': 'bad_json', 'message': '본문을 해석하지 못했습니다.'},
+          });
+          return true;
+        }
+        final result = await applyPush(SyncPushPayload.fromJson(json));
+        await _json(request, 200, {
+          'ok': true,
+          'favoritesApplied': result.favoritesApplied,
+          'sessionsAdded': result.sessionsAdded,
+        });
         return true;
 
       default:

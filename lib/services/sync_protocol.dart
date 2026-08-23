@@ -5,6 +5,7 @@
 // 여기에는 파일 시스템도 HTTP도 없다 — 매니페스트를 만들고, 받은 매니페스트와
 // 로컬 상태를 비교해 "무엇을 받을지"만 계산한다. 그래야 pumpWidget이나 서버
 // 없이 델타 규칙을 테스트할 수 있다.
+import '../models/practice_session.dart';
 import '../models/song.dart';
 
 /// 매니페스트 포맷 버전. 폰이 모르는 상위 버전을 만나면 받지 않는다.
@@ -144,4 +145,112 @@ class SyncPlanner {
   /// 받을 파일들의 총 바이트 — 진행률·안내에 쓴다.
   static int totalBytes(List<SyncDownload> downloads) =>
       downloads.fold(0, (sum, d) => sum + d.size);
+}
+
+/// 폰이 PC로 올려보내는 변경분(역방향).
+///
+/// 곡·가사·반주는 여전히 PC가 정본이다. 폰이 만드는 값만 올린다 —
+/// 즐겨찾기 토글과 연습기록. 둘 다 폰에서만 생기는 정보라 PC를 덮어쓰는
+/// 게 아니라 보태는 쪽이다.
+class SyncPushPayload {
+  /// 폰에서 바꾼 즐겨찾기만 담는다(songId → 켬/끔). 전체 목록을 보내면
+  /// PC에서 끈 즐겨찾기를 폰이 되살려 버린다.
+  final Map<String, bool> favorites;
+
+  /// 폰에서 쌓인 연습기록 전부. 병합은 id 기준이라 중복은 무시된다.
+  final List<PracticeSession> practiceSessions;
+
+  const SyncPushPayload({
+    this.favorites = const {},
+    this.practiceSessions = const [],
+  });
+
+  bool get isEmpty => favorites.isEmpty && practiceSessions.isEmpty;
+
+  Map<String, dynamic> toJson() => {
+    'version': kSyncProtocolVersion,
+    'favorites': favorites,
+    'practiceSessions': [for (final s in practiceSessions) s.toJson()],
+  };
+
+  static SyncPushPayload fromJson(Map<String, dynamic> json) {
+    final favs = <String, bool>{};
+    final rawFavs = json['favorites'];
+    if (rawFavs is Map) {
+      rawFavs.forEach((k, v) {
+        if (k is String && v is bool) favs[k] = v;
+      });
+    }
+    final sessions = <PracticeSession>[];
+    final rawSessions = json['practiceSessions'];
+    if (rawSessions is List) {
+      for (final raw in rawSessions) {
+        if (raw is! Map) continue;
+        try {
+          sessions.add(
+            PracticeSession.fromJson(raw.cast<String, dynamic>()),
+          );
+        } catch (_) {
+          // 한 건이 깨져도 나머지는 살린다.
+        }
+      }
+    }
+    return SyncPushPayload(favorites: favs, practiceSessions: sessions);
+  }
+}
+
+/// 역방향 병합 결과 — 무엇이 실제로 바뀌었는지.
+class SyncMergeResult {
+  final List<Song> songs;
+  final List<PracticeSession> sessions;
+  final int favoritesApplied;
+  final int sessionsAdded;
+
+  const SyncMergeResult({
+    required this.songs,
+    required this.sessions,
+    required this.favoritesApplied,
+    required this.sessionsAdded,
+  });
+}
+
+class SyncMerger {
+  SyncMerger._();
+
+  /// 폰이 올린 변경분을 PC 상태에 얹는다.
+  ///
+  /// - 즐겨찾기: 값이 실제로 다를 때만 바꾼다(같은 값이면 저장도 하지 않는다).
+  ///   모르는 곡 id는 조용히 무시한다 — PC에서 지운 곡일 수 있다.
+  /// - 연습기록: id 기준 합집합. 같은 회차를 두 번 보내도 늘지 않는다.
+  static SyncMergeResult merge({
+    required List<Song> songs,
+    required List<PracticeSession> sessions,
+    required SyncPushPayload payload,
+  }) {
+    var applied = 0;
+    final nextSongs = [
+      for (final song in songs)
+        if (payload.favorites.containsKey(song.id) &&
+            payload.favorites[song.id] != song.isFavorite)
+          () {
+            applied++;
+            return song.copyWith(isFavorite: payload.favorites[song.id]);
+          }()
+        else
+          song,
+    ];
+
+    final known = {for (final s in sessions) s.id};
+    final added = [
+      for (final s in payload.practiceSessions)
+        if (!known.contains(s.id)) s,
+    ];
+
+    return SyncMergeResult(
+      songs: nextSongs,
+      sessions: [...sessions, ...added],
+      favoritesApplied: applied,
+      sessionsAdded: added.length,
+    );
+  }
 }

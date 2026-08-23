@@ -341,6 +341,11 @@ class _SongListScreenState extends State<SongListScreen> {
         final outcome = await SyncClient().pull(
           address: address,
           pairingCode: code,
+          pendingFavorites: _settings.pendingFavorites,
+          onPushed: () {
+            // 올라간 것만 비운다. 실패하면 남겨 다음에 다시 시도한다.
+            _updateSettings(_settings.copyWith(pendingFavorites: const {}));
+          },
         );
         if (outcome.ok) {
           // 성공한 주소는 기억해 둔다 — 매번 IP를 외워 적게 하지 않는다.
@@ -2203,7 +2208,22 @@ class _SongListScreenState extends State<SongListScreen> {
     ),
   );
 
-  Future<void> _toggleFavorite(Song song) => _app.toggleFavorite(song);
+  Future<void> _toggleFavorite(Song song) async {
+    await _app.toggleFavorite(song);
+    // 폰은 PC를 정본으로 삼아 덮어쓴다 — 여기서 누른 별을 따로 적어 두지
+    // 않으면 다음 동기화에 그냥 사라진다. 올리고 나면 비운다.
+    if (!PlatformCapabilities.isMobile) return;
+    final next = _app.songById(song.id);
+    if (next == null) return;
+    await _updateSettings(
+      _settings.copyWith(
+        pendingFavorites: {
+          ..._settings.pendingFavorites,
+          song.id: next.isFavorite,
+        },
+      ),
+    );
+  }
 
   Future<void> _exportBackup() async {
     final result = await _backupService.exportAll();

@@ -94,6 +94,29 @@ void main() {
       expect(restored.cloudAiActive, isFalse);
     });
 
+    test('v5.7.0 동기화 필드가 왕복 보존된다', () {
+      const original = PrompterSettings(
+        syncServerEnabled: true,
+        syncPairingCode: 'AB2C3D',
+        syncServerAddress: '192.168.0.5:8772',
+        pendingFavorites: {'s1': true, 's2': false},
+      );
+      final restored = PrompterSettings.decode(
+        PrompterSettings.encode(original),
+      );
+      expect(restored.syncServerEnabled, isTrue);
+      expect(restored.syncPairingCode, 'AB2C3D');
+      expect(restored.syncServerAddress, '192.168.0.5:8772');
+      expect(restored.pendingFavorites, {'s1': true, 's2': false});
+    });
+
+    test('옛 설정에는 동기화 키가 없다 — 기본값으로 뜬다', () {
+      final defaults = PrompterSettings.fromJson(const {});
+      expect(defaults.syncServerEnabled, isFalse);
+      expect(defaults.syncPairingCode, '');
+      expect(defaults.pendingFavorites, isEmpty);
+    });
+
     test('마스터가 꺼지면 하위가 켜져 있어도 파생 게터는 false', () {
       const s = PrompterSettings(
         aiEnabled: false,

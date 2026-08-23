@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/song.dart';
 import '../repository/lrc_store.dart';
+import '../repository/practice_log_store.dart';
 import '../repository/song_repository.dart';
 import 'sync_protocol.dart';
 
@@ -43,10 +44,53 @@ class SyncClient {
   final SongRepository _repo;
   final LrcStore _lrcStore;
 
-  SyncClient({http.Client? client, SongRepository? repo, LrcStore? lrcStore})
-    : _http = client ?? http.Client(),
-      _repo = repo ?? SongRepository.instance,
-      _lrcStore = lrcStore ?? LrcStore();
+  final PracticeLogStore _practiceStore;
+
+  SyncClient({
+    http.Client? client,
+    SongRepository? repo,
+    LrcStore? lrcStore,
+    PracticeLogStore? practiceStore,
+  }) : _http = client ?? http.Client(),
+       _repo = repo ?? SongRepository.instance,
+       _lrcStore = lrcStore ?? LrcStore(),
+       _practiceStore = practiceStore ?? PracticeLogStore();
+
+  /// 폰에서 만든 변경분을 PC로 올린다.
+  ///
+  /// 🔴 받기(pull)보다 **먼저** 불러야 한다. 순서가 뒤바뀌면 폰이 누른 별과
+  /// 방금 한 연습기록이 PC 상태로 덮인 뒤에 올라가 아무 효과가 없다.
+  ///
+  /// 실패해도 받기는 계속한다 — 올리기가 안 된다고 곡을 못 받을 이유는 없다.
+  /// 대신 [pendingFavorites]를 비우지 않아 다음 동기화에서 다시 시도한다.
+  Future<bool> push({
+    required Uri base,
+    required String code,
+    required Map<String, bool> pendingFavorites,
+  }) async {
+    try {
+      final sessions = await _practiceStore.load();
+      final payload = SyncPushPayload(
+        favorites: pendingFavorites,
+        practiceSessions: sessions,
+      );
+      if (payload.isEmpty) return true;
+      final res = await _http
+          .post(
+            base.replace(path: '/api/sync/push'),
+            headers: {
+              'x-sync-token': code,
+              'content-type': 'application/json; charset=utf-8',
+            },
+            body: utf8.encode(jsonEncode(payload.toJson())),
+          )
+          .timeout(const Duration(seconds: 30));
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('동기화 올리기 실패: $e');
+      return false;
+    }
+  }
 
   /// 입력받은 주소를 정규화한다. 사용자는 "192.168.0.5"만 적기도 하고
   /// "http://192.168.0.5:8772/"까지 적기도 한다 — 둘 다 받는다.
@@ -71,7 +115,9 @@ class SyncClient {
   Future<SyncOutcome> pull({
     required String address,
     required String pairingCode,
+    Map<String, bool> pendingFavorites = const {},
     void Function(int done, int total)? onProgress,
+    void Function()? onPushed,
   }) async {
     final base = normalizeBase(address);
     if (base == null) {
@@ -80,6 +126,15 @@ class SyncClient {
     final code = pairingCode.trim().toUpperCase();
     if (code.isEmpty) {
       return const SyncOutcome.failure('페어링 코드를 입력해 주세요.');
+    }
+
+    // 받기 전에 폰의 변경분을 먼저 올린다 — 순서가 뒤바뀌면 덮인다.
+    if (await push(
+      base: base,
+      code: code,
+      pendingFavorites: pendingFavorites,
+    )) {
+      onPushed?.call();
     }
 
     final SyncManifest manifest;

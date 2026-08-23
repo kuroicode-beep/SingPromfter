@@ -13,6 +13,8 @@ void main() {
         isTrue,
       );
       expect(SyncServerHandler.allowedFromRemote('/api/sync/file'), isTrue);
+      // 역방향 올리기도 같은 관문을 쓴다 — 토큰 검사는 handle()이 한다.
+      expect(SyncServerHandler.allowedFromRemote('/api/sync/push'), isTrue);
     });
 
     test('곡 조작·재생·상태 경로는 원격에서 막힌다', () {
