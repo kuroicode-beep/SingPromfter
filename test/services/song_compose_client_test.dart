@@ -26,6 +26,14 @@ void main() {
 
     test('길이는 180~600초 하드 제한으로 잘라 보낸다', () {
       expect(buildSongBody(prompt: 'p', durationSec: 60)['duration'], 180.0);
+    });
+
+    test('chords는 지정 시에만 실린다 — 게이트웨이 코드 락 계약', () {
+      final withChords =
+          buildSongBody(prompt: 'p', durationSec: 240, chords: 'minor6415');
+      expect(withChords['chords'], 'minor6415');
+      final without = buildSongBody(prompt: 'p', durationSec: 240);
+      expect(without.containsKey('chords'), isFalse);
       expect(buildSongBody(prompt: 'p', durationSec: 900)['duration'], 600.0);
     });
 

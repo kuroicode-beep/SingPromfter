@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.7.0';
+  static const String current = '5.8.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.8.0',
+      '2026-08-24',
+      '작곡 코드 진행 락 — 코드진행 입력이 작곡 서버의 코드 락으로 직접 '
+          '연결됩니다. 서버가 코드 진행을 프롬프트 맨 앞에 고정해 반주가 '
+          '코드 밖 음을 짚는 음이탈을 막습니다. 음역 상한·화성 가드·추론 '
+          '스텝 20 등 서버 공통 규칙도 자동 적용됩니다. 생성 곡 기록에 '
+          '코드 진행이 함께 저장됩니다',
+    ),
     AppVersionEntry(
       '5.7.0',
       '2026-08-23',

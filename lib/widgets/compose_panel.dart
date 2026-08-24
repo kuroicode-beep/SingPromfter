@@ -180,6 +180,7 @@ class _ComposePanelState extends State<ComposePanel> {
       lyrics: _mode == ComposeMode.vocal ? _lyricsController.text.trim() : '',
       vocalType: _mode == ComposeMode.vocal ? _vocalType : '',
       genre: _mode == ComposeMode.vocal ? _genreController.text.trim() : '',
+      chords: _mode == ComposeMode.vocal ? _chordsController.text.trim() : '',
       bpm: int.tryParse(_bpmController.text.trim()),
       durationSec: _durationSec,
       seed: int.tryParse(_seedController.text.trim()) ?? -1,

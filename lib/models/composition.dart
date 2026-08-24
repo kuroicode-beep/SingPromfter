@@ -36,6 +36,7 @@ class Composition {
 
   /// 추가 장르 태그(영문).
   final String genre;
+  final String chords; // 코드 진행 (락 기록)
 
   final int? bpm;
   final int durationSec;
@@ -62,6 +63,7 @@ class Composition {
     this.lyrics = '',
     this.vocalType = '',
     this.genre = '',
+    this.chords = '',
     this.bpm,
     required this.durationSec,
     this.seed = -1,
@@ -95,6 +97,7 @@ class Composition {
       lyrics: lyrics,
       vocalType: vocalType,
       genre: genre,
+      chords: chords,
       bpm: bpm,
       durationSec: durationSec,
       seed: seed ?? this.seed,
@@ -115,6 +118,7 @@ class Composition {
     'lyrics': lyrics,
     'vocalType': vocalType,
     'genre': genre,
+    'chords': chords,
     'bpm': bpm,
     'durationSec': durationSec,
     'seed': seed,
@@ -135,6 +139,7 @@ class Composition {
       lyrics: json['lyrics'] as String? ?? '',
       vocalType: json['vocalType'] as String? ?? '',
       genre: json['genre'] as String? ?? '',
+      chords: json['chords'] as String? ?? '',
       bpm: (json['bpm'] as num?)?.toInt(),
       durationSec: (json['durationSec'] as num?)?.toInt() ?? 0,
       seed: (json['seed'] as num?)?.toInt() ?? -1,
