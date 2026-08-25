@@ -502,6 +502,10 @@ class ControlRouter {
           lyrics: (body['lyrics'] as String?)?.trim() ?? '',
           vocalType: (body['vocalType'] as String?)?.trim() ?? '',
           genre: (body['genre'] as String?)?.trim() ?? '',
+          chords: (body['chords'] as String?)?.trim() ?? '',
+          singer: (body['singer'] as String?)?.trim().isNotEmpty == true
+              ? (body['singer'] as String).trim()
+              : 'auto',
           bpm: (body['bpm'] as num?)?.toInt(),
           durationSec: (body['durationSec'] as num?)?.toInt() ?? 210,
           seed: (body['seed'] as num?)?.toInt() ?? -1,

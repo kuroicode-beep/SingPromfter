@@ -33,6 +33,19 @@ const promptMaxChars = 300;
 /// 가사 권장 최대 길이(구조 태그 포함). 10분 곡 기준 현실 상한.
 const lyricsMaxChars = 2000;
 
+/// 검증된 코드진행 별칭 — 게이트웨이 KNOWN_PROGRESSIONS 와 같은 값.
+/// 보컬곡은 코드진행이 필수다(고정 제작 포맷, 2026-08-25) — 코드 락이
+/// 반주 음이탈을 막는 핵심 장치라 비우고 생성할 수 없다.
+const chordPresetChoices = [
+  ('ballad4536', '왕도진행 (발라드)'),
+  ('kballad2165', '감성 발라드'),
+  ('minor6415', '단조 발라드'),
+  ('kpop1465', 'K-pop 몽환'),
+  ('pop1645', '팝 스탠다드'),
+  ('canon', '캐논'),
+  ('royal', '로열로드'),
+];
+
 /// 템포 느낌 선택지 — 조합 프롬프트에 들어갈 한국어 표현.
 const tempoFeelChoices = [
   ('', '지정 안 함'),
@@ -120,6 +133,7 @@ class _ComposePanelState extends State<ComposePanel> {
   ComposeMode _mode = ComposeMode.bgm;
   int _durationSec = bgmDurationChoices[1];
   String _vocalType = '';
+  bool _useSinger = true; // 전속 가수 참조 (남/녀 고정 목소리)
   String _tempoFeel = '';
   String _preset = '';
   String _modelSize = 'medium';
@@ -181,6 +195,7 @@ class _ComposePanelState extends State<ComposePanel> {
       vocalType: _mode == ComposeMode.vocal ? _vocalType : '',
       genre: _mode == ComposeMode.vocal ? _genreController.text.trim() : '',
       chords: _mode == ComposeMode.vocal ? _chordsController.text.trim() : '',
+      singer: _mode == ComposeMode.vocal && _useSinger ? 'auto' : 'off',
       bpm: int.tryParse(_bpmController.text.trim()),
       durationSec: _durationSec,
       seed: int.tryParse(_seedController.text.trim()) ?? -1,
@@ -297,7 +312,8 @@ class _ComposePanelState extends State<ComposePanel> {
         ),
         const SizedBox(height: 4),
         Text(
-          'SAW의 ACE-Step 1.5 터보(보컬곡)와 MusicGen(BGM)으로 곡을 만듭니다.',
+          'SAW의 ACE-Step 1.5 XL(보컬곡)과 MusicGen(BGM)으로 곡을 만듭니다. '
+          '보컬곡은 음역·화성 관문과 금지 스타일 차단이 서버에서 자동 적용됩니다.',
           style: AppTypography.bodyMuted,
         ),
         const SizedBox(height: 16),
@@ -430,6 +446,22 @@ class _ComposePanelState extends State<ComposePanel> {
             );
           }).toList(growable: false),
         ),
+        const SizedBox(height: 8),
+        // 전속 가수 참조 — SVIL 고정 남/녀 목소리(reference_audio)를 서버가 자동 첨부.
+        // 색 있는 패널 컨테이너 안이라 잉크 표면을 따로 깔아야 한다.
+        Material(
+          type: MaterialType.transparency,
+          child: CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _useSinger,
+            onChanged: (v) => setState(() => _useSinger = v ?? true),
+            title: Text('전속 가수 목소리 사용', style: AppTypography.body),
+            subtitle: Text(
+              '곡마다 같은 남/녀 가수 목소리로 부릅니다 (보컬색 따라 자동 선택)',
+              style: AppTypography.bodyMuted,
+            ),
+          ),
+        ),
       ],
       const SizedBox(height: 12),
       Text('템포', style: AppTypography.bodyMuted),
@@ -526,11 +558,37 @@ class _ComposePanelState extends State<ComposePanel> {
         controller: _chordsController,
         style: AppTypography.body,
         onChanged: (_) => setState(() {}),
-        decoration: const InputDecoration(
-          labelText: '코드진행 (선택)',
-          hintText: '예: C-G-Am-F, 캐논 진행',
+        decoration: InputDecoration(
+          labelText: isVocal ? '코드진행 (보컬곡 필수)' : '코드진행 (선택)',
+          hintText: '예: C - G - Am - F, 또는 아래 검증된 진행 선택',
         ),
       ),
+      if (isVocal) ...[
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: chordPresetChoices.map((choice) {
+            final (alias, label) = choice;
+            return ChoiceChip(
+              label: Text(label, style: AppTypography.body),
+              selected: _chordsController.text.trim() == alias,
+              onSelected: (_) => setState(() {
+                _chordsController.text = alias;
+              }),
+            );
+          }).toList(growable: false),
+        ),
+        if (_chordsController.text.trim().isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '보컬곡은 코드진행이 필수입니다 — 코드 락이 반주 음이탈을 막습니다. '
+              '위에서 하나를 고르거나 직접 입력해 주세요.',
+              style: AppTypography.body.copyWith(color: AppColors.danger),
+            ),
+          ),
+      ],
       const SizedBox(height: 12),
       TextField(
         controller: _promptController,
@@ -676,8 +734,12 @@ class _ComposePanelState extends State<ComposePanel> {
         spacing: 8,
         runSpacing: 8,
         children: [
+          // 보컬곡은 코드진행 없이는 생성 불가 (고정 제작 포맷) — 버튼을 잠근다.
           FilledButton.icon(
-            onPressed: () => widget.onGenerate(_buildRequest()),
+            onPressed:
+                isVocal && _chordsController.text.trim().isEmpty
+                    ? null
+                    : () => widget.onGenerate(_buildRequest()),
             icon: const Icon(Icons.play_circle_fill),
             label: const Text('생성 시작'),
             style: FilledButton.styleFrom(
@@ -687,8 +749,10 @@ class _ComposePanelState extends State<ComposePanel> {
             ),
           ),
           OutlinedButton.icon(
-            onPressed: () =>
-                widget.onGenerateVariations(_buildRequest(), 3),
+            onPressed:
+                isVocal && _chordsController.text.trim().isEmpty
+                    ? null
+                    : () => widget.onGenerateVariations(_buildRequest(), 3),
             icon: const Icon(Icons.shuffle),
             label: const Text('변주 3개 생성'),
             style: OutlinedButton.styleFrom(

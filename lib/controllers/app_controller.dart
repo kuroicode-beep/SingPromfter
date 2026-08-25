@@ -2428,13 +2428,14 @@ class AppController extends ChangeNotifier {
         vocalType: request.vocalType,
         genre: request.genre,
         chords: request.chords,
+        singer: request.singer,
         bpm: request.bpm,
         seed: request.seed,
       ),
     );
 
-    // 게이트웨이 잡 타임아웃(20분)보다 여유 있게 25분까지 기다린다.
-    final deadline = DateTime.now().add(const Duration(minutes: 25));
+    // 게이트웨이 잡 타임아웃(XL 40분)보다 여유 있게 45분까지 기다린다.
+    final deadline = DateTime.now().add(const Duration(minutes: 45));
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(seconds: 5));
       if (isCancelled() || _disposed) return; // 폴링 포기 — 서버는 계속될 수 있다.
@@ -2472,7 +2473,7 @@ class AppController extends ChangeNotifier {
             : '${status.detail} · 경과 $mm:$ss',
       );
     }
-    throw Exception('곡 생성이 25분 안에 끝나지 않았어요. SAW 엔진 콘솔을 확인해 주세요.');
+    throw Exception('곡 생성이 45분 안에 끝나지 않았어요. SAW 엔진 콘솔을 확인해 주세요.');
   }
 
   /// BGM — 블로킹 생성 후 서버가 지우기 전에 즉시 파일 확보.

@@ -12,9 +12,20 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.8.0';
+  static const String current = '5.9.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.9.0',
+      '2026-08-25',
+      '작곡 워크플로우 정본 반영 — 보컬곡 엔진이 ACE-Step 1.5 XL(4B)로 '
+          '바뀌고, 전속 가수 목소리(남/녀 고정 참조)를 기본으로 사용합니다'
+          '(끌 수 있음). 보컬곡은 코드진행이 필수가 됐습니다 — 검증된 진행 '
+          '7종(왕도진행·캐논 등)을 버튼으로 고르거나 직접 입력하며, 비우면 '
+          '생성 버튼이 잠깁니다. 찬송가·급전조·음이탈 같은 금지 스타일 차단이 '
+          '서버에서 자동 적용되고, XL 생성 시간에 맞춰 대기 한도가 45분으로 '
+          '늘었습니다',
+    ),
     AppVersionEntry(
       '5.8.0',
       '2026-08-24',

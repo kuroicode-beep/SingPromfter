@@ -1,7 +1,7 @@
 // file: lib/services/song_compose_client.dart
 //
 // SVIL 작곡 게이트웨이(127.0.0.1:8774) 클라이언트 — 보컬곡 생성.
-// 게이트웨이는 ACE-Step 1.5 터보 엔진(:8001)에 위임하는 잡 기반 서버라
+// 게이트웨이는 ACE-Step 1.5 XL 엔진(:8001)에 위임하는 잡 기반 서버라
 // 제출(job_id) → 상태 폴링(detail·경과) → 완료 시 파일 확보 순서로 쓴다.
 // 산출물은 서버가 보존하지만, /output HTTP로 즉시 복사해 자립시킨다.
 import 'dart:convert';
@@ -19,6 +19,7 @@ Map<String, dynamic> buildSongBody({
   String vocalType = '',
   String genre = '',
   String chords = '',
+  String singer = 'auto',
   int? bpm,
   int seed = -1,
   String format = 'mp3',
@@ -30,6 +31,8 @@ Map<String, dynamic> buildSongBody({
     'duration': durationSec.clamp(180, 600).toDouble(),
     'genre': genre,
     'vocal': vocalType,
+    // 전속 가수 참조 — auto(보컬 성별 따라 자동)/off. 게이트웨이가 참조 파일을 관리한다.
+    'singer': singer,
     if (chords.isNotEmpty) 'chords': chords,
     if (bpm != null && bpm > 0) 'bpm': bpm,
     'seed': seed,

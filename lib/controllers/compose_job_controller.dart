@@ -38,6 +38,8 @@ class ComposeRequest {
   // 코드 진행 — 게이트웨이가 캡션 맨 앞에 락으로 박는다(반주 음이탈 대책, 2026-08-24).
   // 프롬프트 문장에 접는 것과 별개로 필드로도 보내야 락이 확정 발동한다.
   final String chords;
+  // 전속 가수 참조 — 'auto'(보컬 성별 따라 자동, 기본) | 'off'. (2026-08-25 워크플로우)
+  final String singer;
   final int? bpm;
   final int durationSec;
   final int seed;
@@ -54,6 +56,7 @@ class ComposeRequest {
     this.vocalType = '',
     this.genre = '',
     this.chords = '',
+    this.singer = 'auto',
     this.bpm,
     required this.durationSec,
     this.seed = -1,
@@ -77,6 +80,7 @@ class ComposeRequest {
       vocalType: vocalType,
       genre: genre,
       chords: chords,
+      singer: singer,
       bpm: bpm,
       durationSec: durationSec,
       seed: seed ?? this.seed,
