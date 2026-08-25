@@ -2542,6 +2542,7 @@ class AppController extends ChangeNotifier {
         vocalType: request.vocalType,
         genre: request.genre,
         chords: request.chords,
+        singer: request.singer,
         bpm: request.bpm,
         durationSec: request.durationSec,
         seed: seed,
