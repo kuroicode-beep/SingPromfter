@@ -132,8 +132,9 @@ class _ComposePanelState extends State<ComposePanel> {
 
   ComposeMode _mode = ComposeMode.bgm;
   int _durationSec = bgmDurationChoices[1];
-  String _vocalType = '';
-  bool _useSinger = true; // 전속 가수 참조 (남/녀 고정 목소리)
+  String _vocalType = 'female'; // 기본 여성 (2026-08-26 청취 판정)
+  // 전속 가수 참조 — 2026-08-26 보류(기본 꺼짐): 참조 전사가 보컬 드리프트 용의자.
+  bool _useSinger = false;
   String _tempoFeel = '';
   String _preset = '';
   String _modelSize = 'medium';
@@ -454,7 +455,7 @@ class _ComposePanelState extends State<ComposePanel> {
           child: CheckboxListTile(
             contentPadding: EdgeInsets.zero,
             value: _useSinger,
-            onChanged: (v) => setState(() => _useSinger = v ?? true),
+            onChanged: (v) => setState(() => _useSinger = v ?? false),
             title: Text('전속 가수 목소리 사용', style: AppTypography.body),
             subtitle: Text(
               '곡마다 같은 남/녀 가수 목소리로 부릅니다 (보컬색 따라 자동 선택)',
