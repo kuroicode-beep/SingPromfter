@@ -26,6 +26,14 @@ if ($exists) {
 }
 
 try {
+    # gh-pages 를 통째로 비우기 전에 CNAME(커스텀 도메인)을 살려 둔다. 2026-08-30 추가 —
+    # site\ 에 CNAME 이 없는 저장소는 이걸 안 하면 배포할 때마다 도메인이 끊긴다.
+    $cnamePath = Join-Path $work "CNAME"
+    $cnameKeep = $null
+    if ((Test-Path $cnamePath) -and -not (Test-Path (Join-Path $src "CNAME"))) {
+        $cnameKeep = (Get-Content $cnamePath -Raw).Trim()
+    }
+
     Get-ChildItem $work -Force |
         Where-Object { $_.Name -ne ".git" } |
         Remove-Item -Recurse -Force
@@ -33,6 +41,10 @@ try {
     Remove-Item (Join-Path $work "README.md") -Force -ErrorAction SilentlyContinue
     if (-not (Test-Path (Join-Path $work ".nojekyll"))) {
         New-Item -ItemType File (Join-Path $work ".nojekyll") | Out-Null
+    }
+    if ($cnameKeep) {
+        [IO.File]::WriteAllText($cnamePath, $cnameKeep, [Text.UTF8Encoding]::new($false))
+        Write-Host "CNAME 보존: $cnameKeep  (영구 반영하려면 site\CNAME 으로 옮길 것)"
     }
 
     Push-Location $work
@@ -43,6 +55,12 @@ try {
     } else {
         git commit -m ("Publish site " + (Get-Date -Format "yyyy-MM-dd HH:mm")) | Out-Null
         git push origin gh-pages
+        # push 가 거부됐는데 「배포 완료」를 찍던 결함(2026-08-30 실측). 종료코드를 반드시 본다.
+        # 거부되면 대개 원격이 앞선 것이다 — git fetch 후 gh-pages 를 원격 끝점에 맞추고 다시 돌린다.
+        if ($LASTEXITCODE -ne 0) {
+            Pop-Location
+            throw "push 실패 (exit $LASTEXITCODE) — 배포되지 않았다."
+        }
         Write-Host "배포 완료."
     }
     Pop-Location
