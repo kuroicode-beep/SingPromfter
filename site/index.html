@@ -147,6 +147,9 @@
   .qr-meta span { color: var(--text-sub); font-size: 0.97rem; }
   @media (max-width: 560px) { .support-card { justify-content: center; text-align: center; } .qr-meta { align-items: center; } }
 
+  /* 터치 타겟 — 실측 25.9px 였다 (2026-08-30). 푸터 링크는 독립적으로 누르는 대상이라
+     컴팩트 기준 34px 를 채운다. 본문 문장 속 인라인 링크는 줄 흐름이 깨지므로 제외. */
+  footer a { display: inline-block; min-height: 34px; line-height: 34px; }
   footer { border-top: 1px solid var(--border); padding: 32px 0 48px; color: var(--text-sub); font-size: 0.9rem; text-align: center; }
   .foot-rows { display: flex; flex-direction: column; gap: 8px; align-items: center; margin: 0 0 20px; }
   .foot-rows .row { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; justify-content: center; }
@@ -320,6 +323,8 @@ winget install yt-dlp.yt-dlp</pre>
       <div class="row"><span class="k" data-i18n="foot_contact"></span><a href="mailto:kuroicode@gmail.com">kuroicode@gmail.com</a></div>
       <div class="row"><span class="k" data-i18n="foot_blog"></span><a href="https://blog.svil.dev/" target="_blank" rel="noopener">인블루의 로그 보관소</a></div>
       <div class="row"><span class="k" data-i18n="foot_home"></span><a href="https://svil.dev/" target="_blank" rel="noopener">SVIL</a></div>
+      <div class="row"><span class="k" data-i18n="foot_privacy_k"></span><a href="https://svil.dev/privacy" target="_blank" rel="noopener" data-i18n="foot_privacy"></a></div>
+      <div class="row"><span class="k" data-i18n="foot_terms_k"></span><a href="https://svil.dev/terms" target="_blank" rel="noopener" data-i18n="foot_terms"></a></div>
       <div class="row"><span class="k" data-i18n="foot_youtube"></span><a href="https://www.youtube.com/@SVIL-LAB" target="_blank" rel="noopener">@SVIL-LAB</a></div>
       <div class="row"><span class="k" data-i18n="foot_github"></span><a href="https://github.com/kuroicode-beep" target="_blank" rel="noopener">kuroicode-beep</a></div>
     </div>
@@ -412,6 +417,7 @@ const I18N = {
     support_toss_hint: "Scan the QR with the Toss app (Korea) to send a tip.",
     svil_mission: "Singularity Visual Intelligence Lab: research and development to improve AI accessibility for people with low vision.",
     foot_contact: "Contact", foot_blog: "Blog", foot_home: "Homepage",
+    foot_privacy_k: "Privacy", foot_privacy: "Privacy Policy", foot_terms_k: "Terms", foot_terms: "Terms of Service",
     foot_youtube: "YouTube", foot_github: "GitHub",
   },
   ko: {
@@ -494,6 +500,7 @@ const I18N = {
     support_toss_hint: "토스 앱으로 QR을 스캔하면 바로 후원할 수 있어요.",
     svil_mission: "Singularity Visual Intelligence Lab: 저시력 시각장애인의 AI 접근성을 높이기 위한 연구와 개발을 합니다.",
     foot_contact: "협업 문의", foot_blog: "블로그", foot_home: "홈페이지",
+    foot_privacy_k: "개인정보", foot_privacy: "개인정보처리방침", foot_terms_k: "약관", foot_terms: "이용약관",
     foot_youtube: "유튜브", foot_github: "GitHub",
   },
   ja: {
@@ -576,6 +583,7 @@ const I18N = {
     support_toss_hint: "Toss アプリ(韓国)で QR をスキャンして支援できます。",
     svil_mission: "Singularity Visual Intelligence Lab: ロービジョンの方のAIアクセシビリティを高めるための研究と開発をしています。",
     foot_contact: "お問い合わせ", foot_blog: "ブログ", foot_home: "ホームページ",
+    foot_privacy_k: "プライバシー", foot_privacy: "プライバシーポリシー", foot_terms_k: "規約", foot_terms: "利用規約",
     foot_youtube: "YouTube", foot_github: "GitHub",
   },
   zh: {
@@ -658,6 +666,7 @@ const I18N = {
     support_toss_hint: "用 Toss 应用(韩国)扫描二维码即可赞助。",
     svil_mission: "Singularity Visual Intelligence Lab:致力于提升低视力人群 AI 无障碍体验的研究与开发。",
     foot_contact: "合作咨询", foot_blog: "博客", foot_home: "主页",
+    foot_privacy_k: "隐私", foot_privacy: "隐私政策", foot_terms_k: "条款", foot_terms: "服务条款",
     foot_youtube: "YouTube", foot_github: "GitHub",
   },
   vi: {
@@ -740,6 +749,7 @@ const I18N = {
     support_toss_hint: "Quét mã QR bằng ứng dụng Toss (Hàn Quốc) để gửi ủng hộ.",
     svil_mission: "Singularity Visual Intelligence Lab: nghiên cứu và phát triển nhằm cải thiện khả năng tiếp cận AI cho người thị lực kém.",
     foot_contact: "Liên hệ", foot_blog: "Blog", foot_home: "Trang chủ",
+    foot_privacy_k: "Riêng tư", foot_privacy: "Chính sách bảo mật", foot_terms_k: "Điều khoản", foot_terms: "Điều khoản dịch vụ",
     foot_youtube: "YouTube", foot_github: "GitHub",
   }
 };
