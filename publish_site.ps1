@@ -12,10 +12,27 @@ if (-not (Test-Path (Join-Path $src "index.html"))) {
 # 워크트리로 gh-pages를 따로 체크아웃해 현재 작업 내용을 건드리지 않는다.
 $work = Join-Path $env:TEMP ("ghpages-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 
+# 원격이 앞서 있으면 push 가 거부된다 — 다른 경로(웹 콘솔 편집, npm run deploy 등)가
+# gh-pages 를 먼저 밀어 둔 경우다. 2026-08-30 하루에 두 프로젝트가 이걸로 배포에 실패했다.
+# 배포는 site\ 내용으로 덮어쓰는 동작이므로, 시작할 때 원격 끝점에 맞춰 두면 된다.
+# git fetch 는 진행 상황을 stderr 로 쓴다. PowerShell 5.1 은 $ErrorActionPreference='Stop' 에서
+# 그걸 NativeCommandError 로 승격시켜 스크립트를 죽이므로 이 구간만 완화한다.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+git fetch origin gh-pages *>$null
+$ErrorActionPreference = $prevEap
+$remoteHead = (git rev-parse --verify --quiet refs/remotes/origin/gh-pages)
+
 git show-ref --verify --quiet refs/heads/gh-pages
 $exists = ($LASTEXITCODE -eq 0)
 
-if ($exists) {
+if ($exists -and $remoteHead) {
+    # 워크트리에 물려 있으면 브랜치를 직접 못 옮기므로, 워크트리를 만든 뒤 그 안에서 맞춘다.
+    git worktree add $work gh-pages | Out-Null
+    Push-Location $work
+    git reset --hard $remoteHead | Out-Null
+    Pop-Location
+} elseif ($exists) {
     git worktree add $work gh-pages | Out-Null
 } else {
     git worktree add --detach $work | Out-Null
