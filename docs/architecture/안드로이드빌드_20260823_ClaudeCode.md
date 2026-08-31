@@ -27,10 +27,26 @@ AI 없는 프롬프터 코어가 안드로이드에서 돈다. 에뮬레이터(M
 ## 빌드
 
 ```bash
-flutter build apk --release
+powershell -ExecutionPolicy Bypass -File build_apk.ps1
 ```
 
-산출물: `build/app/outputs/flutter-apk/app-release.apk` (약 102MB)
+`build_deploy.ps1`(Windows)의 안드로이드판이다. 버전 대조 관문을 거쳐 ABI별로
+빌드하고 `distndroid\singpromfter-<버전>-<abi>.apk`로 모은다.
+
+### ABI 분할을 쓰는 이유 (2026-08-31 실측)
+
+| 산출물 | 크기 |
+|---|---|
+| universal (`--release`) | 102.4 MB |
+| **arm64-v8a** (요즘 폰 대부분) | **66.3 MB** |
+| armeabi-v7a (구형) | 64.0 MB |
+| x86_64 (에뮬레이터) | 67.7 MB |
+
+universal은 모든 ABI의 네이티브 코드를 다 싣는다. 폰은 그중 하나만 쓰므로
+분할하면 **약 35% 작아진다.** 배포할 땐 arm64-v8a를 주면 된다.
+
+CI(`build-android`)는 검증이 목적이라 universal 한 번만 빌드한다 —
+3개를 빌드하면 시간만 세 배가 되고 잡히는 문제는 같다.
 
 ### 🔴 릴리즈 서명 — 사용자가 직접 만들어야 한다
 
