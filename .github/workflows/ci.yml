@@ -1,5 +1,16 @@
 name: CI
 
+# 🔴 Flutter 버전은 고정한다.
+#
+# channel: stable 만 두면 CI가 릴리스마다 최신을 따라간다. 그러면 새로 생긴
+# 린트가 로컬(구버전 SDK)에는 없고 CI에만 있어서, 로컬 analyze가 0건인 코드가
+# CI에서 깨진다 — 2026-08-30에 unawaited_return_in_try_block 하나로 analyze가
+# 6커밋 연속 실패했고 build 잡은 아예 실행되지도 못했다.
+#
+# 올릴 때는 로컬 SDK도 함께 올리고 이 값을 같이 바꾼다(의도적 업그레이드).
+env:
+  FLUTTER_VERSION: 3.47.2
+
 on:
   push:
     branches:
@@ -18,6 +29,18 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+      # 앱 버전이 두 곳에 적혀 있어 한쪽만 올리는 사고가 반복된다.
+      # build_deploy.ps1이 로컬에서 잡던 것을 CI에서도 잡는다.
+      - name: 앱 버전 일치 확인 (pubspec.yaml ↔ app_version.dart)
+        run: |
+          pub=$(grep -m1 '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          app=$(grep -m1 'current = ' lib/constants/app_version.dart | sed -E "s/.*'([0-9]+\.[0-9]+\.[0-9]+)'.*/\1/")
+          echo "pubspec.yaml=$pub / app_version.dart=$app"
+          if [ "$pub" != "$app" ]; then
+            echo "::error::앱 버전이 어긋납니다 — pubspec.yaml=$pub, app_version.dart=$app"
+            exit 1
+          fi
       - run: flutter pub get
       - run: flutter analyze
 
@@ -28,6 +51,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
       - run: flutter pub get
       - run: flutter test --coverage
 
@@ -41,6 +65,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
       - run: flutter pub get
       - run: flutter build windows --release
 
@@ -58,6 +83,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
       - run: flutter pub get
       # 릴리즈로 빌드한다 — INTERNET 권한 누락처럼 릴리즈에서만 드러나는
       # 문제가 있다(서명 키가 없으면 debug 키로 서명된다).
