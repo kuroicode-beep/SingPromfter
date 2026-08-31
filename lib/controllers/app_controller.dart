@@ -2227,7 +2227,9 @@ class AppController extends ChangeNotifier {
       );
       if (!rendered.success || rendered.path == null) return null;
 
-      return attachTrackToSong(
+      // await 없이 반환하면 이 함수의 catch가 실패를 못 잡는다 —
+      // 아래 catch가 삼키려던 오류가 호출부로 새어 나간다.
+      return await attachTrackToSong(
         songId: song.id,
         slot: targetSlot,
         sourcePath: rendered.path!,
