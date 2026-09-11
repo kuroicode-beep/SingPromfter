@@ -149,6 +149,63 @@ LINK : fatal error LNK1104: '...fmpeg-kitinvcodec-62.dll' 파일을 열 수 �
 즉 **막힌 건 ffmpeg 이식 자체가 아니라 이 패키지의 Windows 동거**다. 안드로이드 단독
 빌드만 보면 문제가 없을 가능성이 높다.
 
+## ffmpeg 이식 재조사 (2026-09-11) — 기술적으로는 풀렸고, 값이 안 맞아 보류
+
+8월 31일에 "Windows 빌드가 `avcodec-62.dll` 링크 실패로 깨진다"로 막혔던 건을
+다시 팠다. **원인과 해법을 다 찾았다. 다만 APK 크기 대가가 커서 넣지 않았다.**
+
+### 8월의 가설은 틀렸다
+
+"백신이 avcodec을 격리했을 것"이라고 적어 뒀는데 **아니었다.**
+`Get-MpThreatDetection`에 avcodec·ffmpeg 격리 이력이 **없다.**
+
+진짜 원인은 **번들 변종 선택**이었다. 기본값 `full-gpl`(Windows 44MB) 번들에
+그 DLL이 빠져 있다. 변종을 바꾸면 사라진다.
+
+```cmake
+# windows/CMakeLists.txt, add_subdirectory보다 위
+set(FFMPEGKIT_PACKAGE "audio" CACHE STRING "FFmpegKit variant" FORCE)
+```
+
+→ **Windows 릴리즈 빌드 성공 확인.**
+
+### 안드로이드는 변종이 하드코딩돼 있다
+
+`ffmpeg_kit_flutter_new`의 `android/build.gradle`이
+`com.antonkarpenko:ffmpeg-kit-full-gpl:2.2.1`을 박아 둬서 CMake 옵션이 안 먹는다.
+Gradle 치환으로 바꿀 수는 있다.
+
+```kotlin
+// android/build.gradle.kts, allprojects 안
+configurations.all {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("com.antonkarpenko:ffmpeg-kit-full-gpl"))
+            .using(module("com.antonkarpenko:ffmpeg-kit-audio:2.2.1"))
+    }
+}
+```
+
+### 실측한 값 (universal APK)
+
+| 구성 | 크기 |
+|---|---|
+| 지금 (ffmpeg 없음) | **103 MB** |
+| + ffmpeg-kit **full-gpl** | 272 MB |
+| + ffmpeg-kit **audio** (치환) | 180 MB |
+
+### 왜 보류했나
+
+- **+77MB.** 103MB 앱이 180MB가 된다(ABI 분할해도 비율은 같다).
+- **정작 키·템포 변주는 여전히 안 된다.** `pitch_variant_service`가 쓰는
+  `rubberband` 필터는 GPL 빌드에만 있고 `audio` 변종에는 없다.
+- 살아나는 건 조성 감지·레벨 분석·가사 자동 맞춤·믹스 계열이다 — 폰에서의
+  체감 가치가 +77MB를 정당화하지 못한다.
+- `min-gpl`이면 rubberband가 있을 수 있으나 코덱이 최소 구성이라 mp3 디코딩이
+  빠질 위험이 있다(미검증).
+
+**되돌린 뒤 Windows·Android 빌드 정상, analyze 0건을 확인했다.** 다시 넣고 싶으면
+위 두 조각만 붙이면 되고, 그때는 `min-gpl`로 rubberband·코덱 유무를 먼저 재 볼 것.
+
 ## 다음 단계
 
 1. `record` 패키지로 녹음 복귀 (Windows에서 포기했던 CMake 제약이 안드로이드엔 없다)
