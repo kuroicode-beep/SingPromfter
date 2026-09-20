@@ -11,13 +11,23 @@ import 'package:singpromfter_app/widgets/settings_panel.dart';
 
 Widget _panel(
   PrompterSettings settings,
-  ValueChanged<PrompterSettings> onChanged,
-) => MaterialApp(
+  ValueChanged<PrompterSettings> onChanged, {
+  List<String> recordingDevices = const [],
+  bool micTesting = false,
+  bool backingTesting = false,
+}) => MaterialApp(
   theme: AppTheme.dark(),
   home: Scaffold(
     body: SettingsPanel(
       settings: settings,
       onSettingsChanged: onChanged,
+      recordingDevices: recordingDevices,
+      micTesting: micTesting,
+      micLevel: 0.5,
+      micLevelLabel: '입력 좋음',
+      backingTesting: backingTesting,
+      backingLevel: 0.4,
+      backingLevelLabel: '입력 좋음',
       onUpdateYtDlp: () {},
       onExportBackup: () {},
       onImportBackup: () {},
@@ -27,6 +37,12 @@ Widget _panel(
     ),
   ),
 );
+
+/// 녹음 탭으로 이동한다.
+Future<void> _openRecordingTab(WidgetTester tester) async {
+  await tester.tap(find.text('녹음'));
+  await tester.pumpAndSettle();
+}
 
 /// AI 분류 탭으로 이동한다 — 설정 화면은 좌측 사이드 메뉴로 나뉜다.
 Future<void> _openAiTab(WidgetTester tester) async {
@@ -116,5 +132,63 @@ void main() {
     expect(saved!.localAiEnabled, isTrue);
     // 클라우드는 가사가 외부로 나가므로 자동으로 켜지 않는다.
     expect(saved!.cloudAiEnabled, isFalse);
+  });
+
+  group('녹음 > 2채널 (v5.11.0)', () {
+    const mic = '마이크(RØDE NT-USB Mini)';
+    const pc = 'MAIN L/R(BEHRINGER FLOW 8 (Streaming))';
+
+    testWidgets('반주 입력 장치는 기본이 「사용 안 함」', (tester) async {
+      await tester.pumpWidget(
+        _panel(
+          const PrompterSettings(recordingDevice: mic),
+          (_) {},
+          recordingDevices: const [mic, pc],
+        ),
+      );
+      await _openRecordingTab(tester);
+
+      expect(find.text('반주(PC 재생) 입력 장치 — 2채널 녹음'), findsOneWidget);
+      expect(find.text('사용 안 함 (보컬 1채널)'), findsWidgets);
+    });
+
+    testWidgets('테스트 중이면 채널 이름을 글자로 붙인 미터가 둘', (tester) async {
+      await tester.pumpWidget(
+        _panel(
+          const PrompterSettings(
+            recordingDevice: mic,
+            recordingBackingDevice: pc,
+          ),
+          (_) {},
+          recordingDevices: const [mic, pc],
+          micTesting: true,
+          backingTesting: true,
+        ),
+      );
+      await _openRecordingTab(tester);
+
+      expect(find.text('보컬'), findsOneWidget);
+      expect(find.text('반주'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNWidgets(2));
+    });
+
+    testWidgets('반주 채널이 안 열리면 그 사실을 글자로 알린다', (tester) async {
+      await tester.pumpWidget(
+        _panel(
+          const PrompterSettings(
+            recordingDevice: mic,
+            recordingBackingDevice: pc,
+          ),
+          (_) {},
+          recordingDevices: const [mic, pc],
+          micTesting: true,
+          backingTesting: false,
+        ),
+      );
+      await _openRecordingTab(tester);
+
+      expect(find.textContaining('반주 채널을 열지 못했습니다'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    });
   });
 }

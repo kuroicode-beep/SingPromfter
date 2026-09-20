@@ -12,9 +12,20 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.10.0';
+  static const String current = '5.11.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.11.0',
+      '2026-09-21',
+      '2채널 입력 확인 — [마이크 테스트]가 보컬·반주 두 입력을 함께 열어 '
+          '막대와 상태 문구를 채널별로 보여줍니다. 녹음해 보기 전에 PC 소리가 '
+          '실제로 들어오는지 확인할 수 있고, 반주 채널이 안 열리면 그 사실을 '
+          '글자로 알립니다. 2채널로 받은 녹음은 목록에 「2채널(보컬+반주)」로 '
+          '표시되고, 보컬에 반주가 섞이지 않았으므로 믹스 설정에서 AI 보컬 '
+          '분리를 권하지 않습니다. 긴 장치 이름이 설정 화면 밖으로 넘치던 '
+          '문제도 고쳤습니다',
+    ),
     AppVersionEntry(
       '5.10.0',
       '2026-09-21',

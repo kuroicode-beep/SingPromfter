@@ -86,6 +86,10 @@ class RecordingTake {
   /// 분리 서버로 정리한 순수 보컬 파일명(`<id>_sep.wav`). data/recordings 안.
   final String? separatedFileName;
 
+  /// 독립 2채널로 받은 테이크인가. 보컬에 반주가 섞이지 않았다는 뜻이라
+  /// AI 보컬 분리를 권할 이유가 없다(반주는 잘라낸 조각이 아니라 녹음본).
+  final bool dualChannel;
+
   const RecordingTake({
     required this.id,
     required this.songId,
@@ -108,6 +112,7 @@ class RecordingTake {
     this.reverbPreset = ReverbPreset.none,
     this.noiseReduction = false,
     this.separatedFileName,
+    this.dualChannel = false,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -140,6 +145,7 @@ class RecordingTake {
     ReverbPreset? reverbPreset,
     bool? noiseReduction,
     String? separatedFileName,
+    bool? dualChannel,
   }) {
     return RecordingTake(
       id: id,
@@ -164,6 +170,7 @@ class RecordingTake {
       reverbPreset: reverbPreset ?? this.reverbPreset,
       noiseReduction: noiseReduction ?? this.noiseReduction,
       separatedFileName: separatedFileName ?? this.separatedFileName,
+      dualChannel: dualChannel ?? this.dualChannel,
     );
   }
 
@@ -189,6 +196,7 @@ class RecordingTake {
     'reverbPreset': reverbPreset.storageValue,
     'noiseReduction': noiseReduction,
     'separatedFileName': separatedFileName,
+    'dualChannel': dualChannel,
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -219,6 +227,7 @@ class RecordingTake {
       ),
       noiseReduction: json['noiseReduction'] as bool? ?? false,
       separatedFileName: json['separatedFileName'] as String?,
+      dualChannel: json['dualChannel'] as bool? ?? false,
     );
   }
 }

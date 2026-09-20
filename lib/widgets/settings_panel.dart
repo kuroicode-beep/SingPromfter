@@ -89,6 +89,9 @@ class SettingsPanel extends StatefulWidget {
   final bool micTesting;
   final double micLevel;
   final String micLevelLabel;
+  final bool backingTesting;
+  final double backingLevel;
+  final String backingLevelLabel;
   final VoidCallback? onToggleMicTest;
 
   // ── AI 기능·작곡 섹션 (v5.0.0) ──
@@ -122,6 +125,9 @@ class SettingsPanel extends StatefulWidget {
     this.micTesting = false,
     this.micLevel = 0,
     this.micLevelLabel = '',
+    this.backingTesting = false,
+    this.backingLevel = 0,
+    this.backingLevelLabel = '',
     this.onToggleMicTest,
     this.composeStatusLabel = '',
     this.bgmStatusLabel = '',
@@ -318,6 +324,9 @@ class _SettingsPanelState extends State<SettingsPanel> {
             micTesting: widget.micTesting,
             micLevel: widget.micLevel,
             micLevelLabel: widget.micLevelLabel,
+            backingTesting: widget.backingTesting,
+            backingLevel: widget.backingLevel,
+            backingLevelLabel: widget.backingLevelLabel,
             onToggleMicTest: widget.onToggleMicTest,
           ),
         ];
@@ -1185,6 +1194,9 @@ class _RecordingSection extends StatelessWidget {
   final bool micTesting;
   final double micLevel;
   final String micLevelLabel;
+  final bool backingTesting;
+  final double backingLevel;
+  final String backingLevelLabel;
   final VoidCallback? onToggleMicTest;
 
   const _RecordingSection({
@@ -1195,6 +1207,9 @@ class _RecordingSection extends StatelessWidget {
     required this.micTesting,
     required this.micLevel,
     required this.micLevelLabel,
+    required this.backingTesting,
+    required this.backingLevel,
+    required this.backingLevelLabel,
     required this.onToggleMicTest,
   });
 
@@ -1220,6 +1235,7 @@ class _RecordingSection extends StatelessWidget {
           children: [
             Expanded(
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: selectedDevice,
                 hint: Text(
                   devices.isEmpty ? '장치 없음 — 새로고침을 눌러 주세요' : '자동 (첫 번째 장치)',
@@ -1259,27 +1275,33 @@ class _RecordingSection extends StatelessWidget {
         const SizedBox(height: 16),
         Text('반주(PC 재생) 입력 장치 — 2채널 녹음', style: AppTypography.bodyMuted),
         const SizedBox(height: 4),
-        DropdownButtonFormField<String>(
-          initialValue: selectedBacking,
-          hint: Text('사용 안 함 (보컬 1채널)', style: AppTypography.bodyMuted),
-          items: [
-            const DropdownMenuItem<String>(
-              value: null,
-              child: Text('사용 안 함 (보컬 1채널)'),
-            ),
-            ...devices
-                .where((d) => d != selectedDevice)
-                .map(
-                  (d) => DropdownMenuItem<String>(
-                    value: d,
-                    child: Text(d, overflow: TextOverflow.ellipsis),
+        // Column이 자식을 늘리지 않아(crossAxisAlignment.start) 폭이 풀리면
+        // 긴 장치명이 그대로 넘친다 — 폭을 못 박고 isExpanded로 말줄임을 살린다.
+        SizedBox(
+          width: double.infinity,
+          child: DropdownButtonFormField<String>(
+            isExpanded: true,
+            initialValue: selectedBacking,
+            hint: Text('사용 안 함 (보컬 1채널)', style: AppTypography.bodyMuted),
+            items: [
+              const DropdownMenuItem<String>(
+                value: null,
+                child: Text('사용 안 함 (보컬 1채널)'),
+              ),
+              ...devices
+                  .where((d) => d != selectedDevice)
+                  .map(
+                    (d) => DropdownMenuItem<String>(
+                      value: d,
+                      child: Text(d, overflow: TextOverflow.ellipsis),
+                    ),
                   ),
-                ),
-          ],
-          onChanged: (value) => onChanged(
-            settings.copyWith(
-              recordingBackingDevice: value,
-              clearRecordingBackingDevice: value == null,
+            ],
+            onChanged: (value) => onChanged(
+              settings.copyWith(
+                recordingBackingDevice: value,
+                clearRecordingBackingDevice: value == null,
+              ),
             ),
           ),
         ),
@@ -1318,28 +1340,75 @@ class _RecordingSection extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            if (micTesting) ...[
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: micLevel,
-                    minHeight: 12,
-                    backgroundColor: AppColors.surfaceContainer,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(micLevelLabel, style: AppTypography.body),
-            ] else
+            if (!micTesting)
               Expanded(
                 child: Text(
-                  '누르면 저장 없이 입력 크기를 확인합니다.',
+                  selectedBacking == null
+                      ? '누르면 저장 없이 입력 크기를 확인합니다.'
+                      : '누르면 보컬·반주 두 입력을 함께 확인합니다.',
                   style: AppTypography.bodyMuted,
                 ),
               ),
           ],
         ),
+        // 2채널이면 미터가 둘이라 어느 쪽인지 글자로 붙여 준다
+        // (막대 위치만으로 구분하게 두지 않는다).
+        if (micTesting) ...[
+          const SizedBox(height: 8),
+          _LevelMeterRow(
+            channelLabel: '보컬',
+            level: micLevel,
+            levelLabel: micLevelLabel,
+          ),
+          if (backingTesting) ...[
+            const SizedBox(height: 8),
+            _LevelMeterRow(
+              channelLabel: '반주',
+              level: backingLevel,
+              levelLabel: backingLevelLabel,
+            ),
+          ] else if (selectedBacking != null) ...[
+            const SizedBox(height: 8),
+            Text('반주 채널을 열지 못했습니다 — 장치를 다시 골라 주세요.', style: AppTypography.body),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+/// 입력 레벨 한 줄 — 막대와 상태 문구, 그리고 어느 채널인지.
+class _LevelMeterRow extends StatelessWidget {
+  final String channelLabel;
+  final double level;
+  final String levelLabel;
+
+  const _LevelMeterRow({
+    required this.channelLabel,
+    required this.level,
+    required this.levelLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 44,
+          child: Text(channelLabel, style: AppTypography.body),
+        ),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: level,
+              minHeight: 12,
+              backgroundColor: AppColors.surfaceContainer,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(width: 88, child: Text(levelLabel, style: AppTypography.body)),
       ],
     );
   }

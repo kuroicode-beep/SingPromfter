@@ -44,10 +44,7 @@ class TakeMixDialog extends StatefulWidget {
   }) {
     return showDialog<TakeMixDialogResult>(
       context: context,
-      builder: (_) => TakeMixDialog(
-        take: take,
-        localAiEnabled: localAiEnabled,
-      ),
+      builder: (_) => TakeMixDialog(take: take, localAiEnabled: localAiEnabled),
     );
   }
 
@@ -102,14 +99,16 @@ class _TakeMixDialogState extends State<TakeMixDialog> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: ReverbPreset.values.map((preset) {
-                  final selected = _reverb == preset;
-                  return ChoiceChip(
-                    label: Text(preset.label, style: AppTypography.body),
-                    selected: selected,
-                    onSelected: (_) => setState(() => _reverb = preset),
-                  );
-                }).toList(growable: false),
+                children: ReverbPreset.values
+                    .map((preset) {
+                      final selected = _reverb == preset;
+                      return ChoiceChip(
+                        label: Text(preset.label, style: AppTypography.body),
+                        selected: selected,
+                        onSelected: (_) => setState(() => _reverb = preset),
+                      );
+                    })
+                    .toList(growable: false),
               ),
               const SizedBox(height: 12),
               SwitchListTile(
@@ -123,42 +122,53 @@ class _TakeMixDialogState extends State<TakeMixDialog> {
                 onChanged: (v) => setState(() => _noiseReduction = v),
               ),
               const Divider(height: 24),
-              Text('보컬 정리 (AI 분리)', style: AppTypography.bodyMuted),
-              const SizedBox(height: 6),
-              if (widget.take.hasSeparatedVocal)
+              // 2채널로 받은 테이크는 보컬에 반주가 섞이지 않아 분리할 것이
+              // 없다. 버튼만 비활성으로 남기면 "왜 못 쓰지"를 남기므로 뺀다.
+              if (widget.take.dualChannel) ...[
+                Text('보컬 정리 (AI 분리)', style: AppTypography.bodyMuted),
+                const SizedBox(height: 6),
                 Text(
-                  '분리된 보컬을 사용 중입니다 — 믹스·내보내기에 정리본이 쓰입니다.',
+                  '독립 2채널로 녹음해 보컬에 반주가 섞이지 않았습니다 — 분리할 것이 없습니다.',
                   style: AppTypography.body,
-                )
-              else ...[
-                Text(
-                  '스피커로 녹음해 반주가 섞였다면, 분리 서버로 순수 보컬만 남길 수 있습니다.',
-                  style: AppTypography.bodyMuted,
                 ),
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: widget.localAiEnabled
-                      ? () => Navigator.of(context).pop(
+              ] else ...[
+                Text('보컬 정리 (AI 분리)', style: AppTypography.bodyMuted),
+                const SizedBox(height: 6),
+                if (widget.take.hasSeparatedVocal)
+                  Text(
+                    '분리된 보컬을 사용 중입니다 — 믹스·내보내기에 정리본이 쓰입니다.',
+                    style: AppTypography.body,
+                  )
+                else ...[
+                  Text(
+                    '스피커로 녹음해 반주가 섞였다면, 분리 서버로 순수 보컬만 남길 수 있습니다.',
+                    style: AppTypography.bodyMuted,
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: widget.localAiEnabled
+                        ? () => Navigator.of(context).pop(
                             TakeMixDialogResult(
                               take: _updatedTake,
                               separate: true,
                             ),
                           )
-                      : null,
-                  icon: const Icon(Icons.auto_fix_high),
-                  label: const Text('보컬 분리 실행'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(140, AppConstants.minTouchTarget),
-                  ),
-                ),
-                if (!widget.localAiEnabled)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      '설정에서 로컬AI를 켜면 사용할 수 있습니다.',
-                      style: AppTypography.bodyMuted,
+                        : null,
+                    icon: const Icon(Icons.auto_fix_high),
+                    label: const Text('보컬 분리 실행'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(140, AppConstants.minTouchTarget),
                     ),
                   ),
+                  if (!widget.localAiEnabled)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '설정에서 로컬AI를 켜면 사용할 수 있습니다.',
+                        style: AppTypography.bodyMuted,
+                      ),
+                    ),
+                ],
               ],
             ],
           ),
@@ -170,13 +180,15 @@ class _TakeMixDialogState extends State<TakeMixDialog> {
           child: const Text('취소'),
         ),
         OutlinedButton(
-          onPressed: () => Navigator.of(context)
-              .pop(TakeMixDialogResult(take: _updatedTake)),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(TakeMixDialogResult(take: _updatedTake)),
           child: const Text('저장'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context)
-              .pop(TakeMixDialogResult(take: _updatedTake, remix: true)),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(TakeMixDialogResult(take: _updatedTake, remix: true)),
           child: const Text('저장 후 다시 합치기'),
         ),
       ],

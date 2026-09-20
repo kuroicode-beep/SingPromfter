@@ -354,7 +354,8 @@ class _TakeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final meta =
         '${_formatDuration(take.duration)} · '
-        '${formatKeyLabel(take.pitchSemitones)}';
+        '${formatKeyLabel(take.pitchSemitones)}'
+        '${take.dualChannel ? ' · 2채널(보컬+반주)' : ''}';
 
     return Semantics(
       label:

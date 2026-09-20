@@ -63,4 +63,39 @@ void main() {
       );
     });
   });
+
+  group('dualChannel — 2채널 녹음 표시 (v5.11.0)', () {
+    test('기본은 false, 옛 기록도 false로 읽힌다', () {
+      expect(RecordingTake.fromJson(const {}).dualChannel, isFalse);
+    });
+
+    test('JSON 왕복에 살아남는다', () {
+      final take = RecordingTake(
+        id: 't1',
+        songId: 's1',
+        songTitle: '곡',
+        fileName: 't1.wav',
+        recordedAt: DateTime(2026, 9, 21),
+        durationMs: 1000,
+        accompanimentFileName: 't1_acc.wav',
+        dualChannel: true,
+      );
+      expect(RecordingTake.fromJson(take.toJson()).dualChannel, isTrue);
+    });
+
+    test('copyWith로 뒤집을 수 있다', () {
+      final take = RecordingTake(
+        id: 't1',
+        songId: 's1',
+        songTitle: '곡',
+        fileName: 't1.wav',
+        recordedAt: DateTime(2026, 9, 21),
+        durationMs: 1000,
+        dualChannel: true,
+      );
+      expect(take.copyWith(dualChannel: false).dualChannel, isFalse);
+      // 다른 필드만 바꿀 때는 유지된다.
+      expect(take.copyWith(rating: 5).dualChannel, isTrue);
+    });
+  });
 }

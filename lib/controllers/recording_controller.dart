@@ -194,6 +194,14 @@ class RecordingController extends ChangeNotifier {
   StreamSubscription<String>? _probeSub;
   bool _isProbing = false;
 
+  // 반주(PC 재생) 채널 테스트 — 마이크와 **다른 장치**라 별도 프로세스로 돈다.
+  // 한 프로세스로 둘을 받으면 astats 메타데이터 키가 같아 어느 입력의
+  // 레벨인지 가릴 수가 없다.
+  JobHandle? _backingProbeJob;
+  StreamSubscription<String>? _backingProbeSub;
+  bool _isBackingProbing = false;
+  double? _backingDbfs;
+
   bool _isRecording = false;
   bool _stopping = false;
   Duration _elapsed = Duration.zero;
@@ -214,6 +222,10 @@ class RecordingController extends ChangeNotifier {
 
   bool get isRecording => _isRecording;
   bool get isProbing => _isProbing;
+  bool get isProbingBacking => _isBackingProbing;
+  double? get backingDbfs => _backingDbfs;
+  String get backingLevelLabel => inputLevelLabel(_backingDbfs);
+  double get backingLevel => normalizedLevel(_backingDbfs);
   Duration get elapsed => _elapsed;
   double? get dbfs => _dbfs;
   String get levelLabel => inputLevelLabel(_dbfs);
@@ -444,7 +456,15 @@ class RecordingController extends ChangeNotifier {
 
   /// 마이크 테스트를 시작한다 — 파일을 만들지 않고 레벨만 흘린다.
   /// 녹음 중에는 시작하지 않는다(장치 충돌).
-  Future<bool> startLevelProbe({double gain = 1.0}) async {
+  ///
+  /// [includeBacking]이면 반주(PC 재생) 채널도 함께 연다. 2채널 설정에서
+  /// 정작 확인해야 할 건 **두 입력이 동시에 들어오는지**라, 실제 녹음과 같은
+  /// 조건으로 테스트해야 의미가 있다. 반주 쪽이 안 열려도 마이크 테스트는
+  /// 그대로 진행한다(마이크 확인까지 막을 이유가 없다).
+  Future<bool> startLevelProbe({
+    double gain = 1.0,
+    bool includeBacking = false,
+  }) async {
     if (_isRecording || _isProbing) return false;
 
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
@@ -474,6 +494,7 @@ class RecordingController extends ChangeNotifier {
         },
         onError: (Object e) => debugPrint('마이크 테스트 스트림 오류: $e'),
       );
+      if (includeBacking) await _startBackingLevelProbe(ffmpeg.path!);
       notifyListeners();
       return true;
     } catch (e) {
@@ -483,7 +504,36 @@ class RecordingController extends ChangeNotifier {
     }
   }
 
+  /// 반주(PC 재생) 채널 레벨 프로브. 마이크와 다른 장치라 별개 프로세스다.
+  Future<void> _startBackingLevelProbe(String ffmpegPath) async {
+    if (!canRecordDual) return;
+    try {
+      final job = _runner.start(
+        ffmpegPath,
+        // 반주는 들어온 그대로 봐야 하니 게인을 걸지 않는다.
+        buildLevelProbeArgs(deviceName: _backingDeviceName!),
+      );
+      _backingProbeJob = job;
+      _isBackingProbing = true;
+      _backingDbfs = null;
+      _backingProbeSub = job.lines.listen(
+        (line) {
+          final rms = parseRmsLevel(line);
+          if (rms != null) {
+            _backingDbfs = rms;
+            notifyListeners();
+          }
+        },
+        onError: (Object e) => debugPrint('반주 채널 테스트 스트림 오류: $e'),
+      );
+    } catch (e) {
+      debugPrint('반주 채널 테스트 시작 실패: $e');
+      await _stopBackingLevelProbe();
+    }
+  }
+
   Future<void> stopLevelProbe() async {
+    await _stopBackingLevelProbe();
     if (_probeJob == null && !_isProbing) return;
     final job = _probeJob;
     if (job != null) {
@@ -499,6 +549,25 @@ class RecordingController extends ChangeNotifier {
     _probeJob = null;
     _isProbing = false;
     if (!_isRecording) _dbfs = null;
+    notifyListeners();
+  }
+
+  Future<void> _stopBackingLevelProbe() async {
+    if (_backingProbeJob == null && !_isBackingProbing) return;
+    final job = _backingProbeJob;
+    if (job != null) {
+      job.writeStdin('q');
+      try {
+        await job.exitCode.timeout(const Duration(seconds: 2));
+      } on TimeoutException {
+        job.cancel();
+      } catch (_) {}
+    }
+    await _backingProbeSub?.cancel();
+    _backingProbeSub = null;
+    _backingProbeJob = null;
+    _isBackingProbing = false;
+    _backingDbfs = null;
     notifyListeners();
   }
 
@@ -520,6 +589,8 @@ class RecordingController extends ChangeNotifier {
     _job?.cancel();
     _probeSub?.cancel();
     _probeJob?.cancel();
+    _backingProbeSub?.cancel();
+    _backingProbeJob?.cancel();
     super.dispose();
   }
 }

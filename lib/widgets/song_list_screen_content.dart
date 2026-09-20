@@ -137,6 +137,9 @@ class SongListScreenContent extends StatelessWidget {
   final bool micTesting;
   final double micLevel;
   final String micLevelLabel;
+  final bool backingTesting;
+  final double backingLevel;
+  final String backingLevelLabel;
   final VoidCallback onToggleMicTest;
   // v3.0.0 — 작곡 탭.
   final List<ComposeJob> composeJobs;
@@ -337,6 +340,9 @@ class SongListScreenContent extends StatelessWidget {
     this.micTesting = false,
     this.micLevel = 0,
     this.micLevelLabel = '',
+    this.backingTesting = false,
+    this.backingLevel = 0,
+    this.backingLevelLabel = '',
     required this.onToggleMicTest,
     this.composeJobs = const [],
     this.compositions = const [],

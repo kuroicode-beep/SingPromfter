@@ -753,7 +753,12 @@ class _SongListScreenState extends State<SongListScreen> {
     if (_settings.recordingDevice != null) {
       _recording.deviceName = _settings.recordingDevice;
     }
-    final ok = await _recording.startLevelProbe(gain: _settings.recordingGain);
+    // 2채널이면 반주 채널도 같이 연다 — 실제 녹음과 같은 조건으로 확인한다.
+    _recording.backingDeviceName = _settings.recordingBackingDevice;
+    final ok = await _recording.startLevelProbe(
+      gain: _settings.recordingGain,
+      includeBacking: true,
+    );
     if (!mounted) return;
     if (!ok) {
       _showSnack('마이크 테스트를 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
@@ -1448,6 +1453,7 @@ class _SongListScreenState extends State<SongListScreen> {
       sourceAudioPath: _recordingSourcePath,
       tempoScale: _recordingTempo,
       accompanimentFileName: dual ? recordedBacking : null,
+      dualChannel: dual,
     );
     await _recordingLibrary.add(take);
     if (!mounted) return;
@@ -2558,6 +2564,9 @@ class _SongListScreenState extends State<SongListScreen> {
         micTesting: _recording.isProbing,
         micLevel: _recording.level,
         micLevelLabel: _recording.levelLabel,
+        backingTesting: _recording.isProbingBacking,
+        backingLevel: _recording.backingLevel,
+        backingLevelLabel: _recording.backingLevelLabel,
         onToggleMicTest: _toggleMicTest,
         composeJobs: _app.composeJobs.jobs,
         compositions: _app.composeLibrary.items,

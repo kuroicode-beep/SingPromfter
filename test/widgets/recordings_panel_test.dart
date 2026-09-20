@@ -10,7 +10,11 @@ import 'package:singpromfter_app/models/recording_take.dart';
 import 'package:singpromfter_app/theme/app_theme.dart';
 import 'package:singpromfter_app/widgets/recordings_panel.dart';
 
-RecordingTake _take({String? accompaniment, String? mixed}) => RecordingTake(
+RecordingTake _take({
+  String? accompaniment,
+  String? mixed,
+  bool dualChannel = false,
+}) => RecordingTake(
   id: 't1',
   songId: 's1',
   songTitle: '테스트 곡',
@@ -19,6 +23,7 @@ RecordingTake _take({String? accompaniment, String? mixed}) => RecordingTake(
   durationMs: 30000,
   accompanimentFileName: accompaniment,
   mixedFileName: mixed,
+  dualChannel: dualChannel,
 );
 
 Widget _panel({
@@ -101,5 +106,27 @@ void main() {
     expect(find.text('반주만 듣기'), findsOneWidget);
     // 반주가 이미 있으면 '반주 만들기'를 권하지 않는다.
     expect(find.text('반주 만들기'), findsNothing);
+  });
+
+  testWidgets('2채널 테이크는 메타 줄에 글자로 표시된다', (tester) async {
+    await tester.pumpWidget(
+      _panel(
+        take: _take(
+          accompaniment: 't1_acc.wav',
+          mixed: 't1_mix.m4a',
+          dualChannel: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('2채널(보컬+반주)'), findsOneWidget);
+  });
+
+  testWidgets('1채널 테이크에는 2채널 표시가 없다', (tester) async {
+    await tester.pumpWidget(_panel());
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('2채널'), findsNothing);
   });
 }
