@@ -183,4 +183,19 @@ void main() {
       expect(args, isNot(contains('mr.mp3')));
     });
   });
+
+  group('buildHeadPadArgs — 2채널 반주 정렬', () {
+    test('앞에 무음을 덧대고 전 채널에 같은 값을 건다', () {
+      final args = buildHeadPadArgs(
+        sourcePath: 'acc.wav',
+        outputPath: 'acc.tmp.wav',
+        delayMs: 786,
+      );
+      expect(args[args.indexOf('-af') + 1], 'adelay=786:all=1');
+      expect(args[args.indexOf('-i') + 1], 'acc.wav');
+      expect(args.last, 'acc.tmp.wav');
+      // 녹음 원본이라 무손실로 다시 쓴다.
+      expect(args[args.indexOf('-c:a') + 1], 'pcm_s16le');
+    });
+  });
 }

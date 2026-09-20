@@ -133,6 +133,25 @@ List<String> buildAccompanimentCutArgs({
   ];
 }
 
+/// 녹음된 반주 채널 앞에 무음을 덧대 보컬과 시작점을 맞추는 인자. (순수 함수)
+///
+/// 2채널 녹음에서 두 번째 dshow 장치가 늦게 열리는 만큼만 밀어 준다.
+/// adelay는 채널 수를 알아야 해서 `all=1`로 전 채널에 같은 값을 건다.
+List<String> buildHeadPadArgs({
+  required String sourcePath,
+  required String outputPath,
+  required int delayMs,
+}) {
+  return [
+    '-y',
+    '-i', sourcePath,
+    '-vn',
+    '-af', 'adelay=$delayMs:all=1',
+    '-c:a', 'pcm_s16le',
+    outputPath,
+  ];
+}
+
 class TakeMixResult {
   final bool success;
   final String? outputPath;
@@ -239,6 +258,45 @@ class TakeMixService {
       return const TakeMixResult.failure('반주 잘라내기에 실패했습니다.');
     }
     return TakeMixResult.success(outputPath);
+  }
+
+  /// 녹음된 반주 채널 앞에 [delayMs]만큼 무음을 넣어 보컬과 맞춘다.
+  ///
+  /// 제자리에서 바꾼다 — 임시 파일로 만들고 성공했을 때만 갈아 끼우므로
+  /// 실패해도 (어긋난 채로나마) 원본 반주는 남는다.
+  Future<TakeMixResult> padHead({
+    required String path,
+    required int delayMs,
+  }) async {
+    if (delayMs <= 0) return TakeMixResult.success(path);
+    final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
+    if (!ffmpeg.found) {
+      return const TakeMixResult.failure('정렬하려면 ffmpeg가 필요합니다.');
+    }
+    if (!await File(path).exists()) {
+      return const TakeMixResult.failure('반주 채널 파일을 찾을 수 없습니다.');
+    }
+
+    final tempPath = '$path.tmp.wav';
+    final result = await _runner.run(
+      ffmpeg.path!,
+      buildHeadPadArgs(
+        sourcePath: path,
+        outputPath: tempPath,
+        delayMs: delayMs,
+      ),
+    );
+    if (!result.ok || !await File(tempPath).exists()) {
+      await _deleteIfExists(tempPath);
+      return const TakeMixResult.failure('반주 채널 정렬에 실패했습니다.');
+    }
+    try {
+      await File(tempPath).rename(path);
+    } catch (_) {
+      await _deleteIfExists(tempPath);
+      return const TakeMixResult.failure('정렬한 반주를 저장하지 못했습니다.');
+    }
+    return TakeMixResult.success(path);
   }
 
   /// 남·여 파트 두 테이크를 (있으면) 반주와 함께 한 곡으로 합친다.

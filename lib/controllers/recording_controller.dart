@@ -69,6 +69,43 @@ List<String> parseDshowAudioDevices(String output) {
   return devices;
 }
 
+/// ffmpeg의 입력 스트림 줄에서 (입력 번호, 시작 타임스탬프 초)를 뽑는다.
+/// 예: `  Stream #1:0: Audio: pcm_s16le, 44100 Hz, stereo, ..., start 148439.518000`
+///
+/// 2채널 녹음의 **정렬**에 쓴다 — ffmpeg는 dshow 장치를 차례로 열기 때문에
+/// 두 번째 장치가 수백 ms 늦게 캡처를 시작하는데, 출력 파일은 각자 0으로
+/// 정규화돼 그 지연이 통째로 어긋남이 된다(실측: 버퍼 기본값에서 790ms).
+/// 출력 줄에는 `start`가 없어 이 정규식에 걸리지 않는다. (순수 함수)
+({int input, double startSeconds})? parseInputStreamStart(String line) {
+  final match = RegExp(
+    r'Stream #(\d+):\d+.*[, ]start ([0-9]+\.?[0-9]*)',
+  ).firstMatch(line);
+  if (match == null) return null;
+  final input = int.tryParse(match.group(1)!);
+  final start = double.tryParse(match.group(2)!);
+  if (input == null || start == null) return null;
+  return (input: input, startSeconds: start);
+}
+
+/// 보고된 시작 시각 차이에서 빼는 잔차(ms).
+///
+/// 실측(2026-09-21, RØDE NT-USB Mini 2회 동시 개방, 버퍼 20/50/200/500ms):
+/// 보고 차이 340/369/523/815ms에 대해 실제 상관 지연이 310/340/490/790ms로,
+/// 잔차가 버퍼 크기와 무관하게 25~33ms로 일정했다(리샘플러·버퍼 단위 지연).
+/// 빼 주면 오차가 ±4ms로 떨어진다.
+const int kDualCaptureStartResidualMs = 29;
+
+/// 두 입력의 시작 타임스탬프 차이에서 실제 어긋남(ms)을 구한다. (순수 함수)
+/// 음수는 0으로 눕힌다 — 반주가 보컬보다 먼저 열리는 일은 없다.
+int dualCaptureSkewMs({
+  required double vocalStartSeconds,
+  required double backingStartSeconds,
+}) {
+  final raw = ((backingStartSeconds - vocalStartSeconds) * 1000).round();
+  final corrected = raw - kDualCaptureStartResidualMs;
+  return corrected < 0 ? 0 : corrected;
+}
+
 /// 캡처 오디오 필터 체인. 게인은 astats **앞**에 두어 미터가 게인 반영
 /// 값을 보여준다(클리핑을 실시간으로 경고할 수 있게). (순수 함수)
 String _captureFilterChain(double gain) {
@@ -78,15 +115,32 @@ String _captureFilterChain(double gain) {
 }
 
 /// ffmpeg dshow 녹음 인자를 만든다. (순수 함수 — 프로세스를 띄우지 않는다)
+///
+/// [backingDeviceName]·[backingOutputPath]를 함께 주면 **독립 2채널 녹음**이
+/// 된다 — 한 프로세스가 마이크와 PC 재생음을 각각 받아 **서로 다른 파일**로
+/// 쓴다. 보컬에 반주가 섞이지 않아 AI 보컬 분리 단계가 필요 없어진다.
+///
+/// 🔴 두 파일의 시작점은 **같지 않다.** ffmpeg가 dshow 장치를 차례로 열어
+/// 두 번째 장치가 수백 ms 늦게 캡처를 시작하는데 출력은 각자 0으로 정규화된다.
+/// 그 어긋남은 [parseInputStreamStart]·[dualCaptureSkewMs]로 재서 저장 직후
+/// 반주 앞에 무음을 덧대 맞춘다.
+///
+/// 게인·레벨 미터는 보컬 채널에만 건다(반주는 들어온 그대로 받아야 한다).
 List<String> buildRecordArgs({
   required String deviceName,
   required String outputPath,
   double gain = 1.0,
+  String? backingDeviceName,
+  String? backingOutputPath,
 }) {
+  final dual =
+      (backingDeviceName ?? '').isNotEmpty &&
+      (backingOutputPath ?? '').isNotEmpty;
   return [
     '-hide_banner',
     '-f', 'dshow',
     '-i', 'audio=$deviceName',
+    if (dual) ...['-f', 'dshow', '-i', 'audio=$backingDeviceName'],
     '-ac', '1',
     '-ar', '48000',
     // 파일을 쓰면서 동시에 입력 레벨을 표준출력으로 흘린다.
@@ -94,7 +148,11 @@ List<String> buildRecordArgs({
     '-progress', 'pipe:1',
     '-nostats',
     '-y',
+    // 입력이 둘이면 어느 입력을 쓸지 명시해야 한다(자동 선택에 맡기지 않는다).
+    if (dual) ...['-map', '0:a'],
     outputPath,
+    // 반주(PC 재생) 채널 — 스테레오 그대로.
+    if (dual) ...['-map', '1:a', '-ac', '2', '-ar', '48000', backingOutputPath!],
   ];
 }
 
@@ -141,7 +199,10 @@ class RecordingController extends ChangeNotifier {
   Duration _elapsed = Duration.zero;
   double? _dbfs;
   String? _currentFileName;
+  String? _currentBackingFileName;
+  final Map<int, double> _inputStarts = {};
   String? _deviceName;
+  String? _backingDeviceName;
   List<String> _devices = const [];
 
   RecordingController({
@@ -163,6 +224,28 @@ class RecordingController extends ChangeNotifier {
   set deviceName(String? value) {
     _deviceName = value;
     notifyListeners();
+  }
+
+  /// 2채널 녹음의 반주(PC 재생) 입력 장치. null·빈 값이면 1채널로 녹음한다.
+  String? get backingDeviceName => _backingDeviceName;
+
+  set backingDeviceName(String? value) {
+    _backingDeviceName = (value ?? '').isEmpty ? null : value;
+    notifyListeners();
+  }
+
+  /// 이번 녹음이 2채널로 돌고 있는지.
+  bool get isDualChannel => (_currentBackingFileName ?? '').isNotEmpty;
+
+  /// 반주 장치가 목록에 실제로 있는지. 없으면 2채널을 시도하지 않는다 —
+  /// ffmpeg는 입력 하나만 못 열어도 **프로세스째** 죽어서 보컬까지 잃는다.
+  bool get canRecordDual {
+    final backing = _backingDeviceName;
+    if (backing == null || backing.isEmpty) return false;
+    if (_devices.isEmpty) return false;
+    if (!_devices.contains(backing)) return false;
+    // 같은 장치를 두 번 열 수는 없다.
+    return backing != (_deviceName ?? _devices.first);
   }
 
   /// 입력 장치 목록을 새로 읽는다.
@@ -204,7 +287,11 @@ class RecordingController extends ChangeNotifier {
   ///
   /// WAV로 캡처하는 이유: 인코더 의존이 없고, 중간에 끊겨도 그때까지
   /// 쓰인 부분이 대체로 재생 가능한 파일로 남는다.
-  Future<String?> start(String fileName, {double gain = 1.0}) async {
+  Future<String?> start(
+    String fileName, {
+    double gain = 1.0,
+    String? backingFileName,
+  }) async {
     if (_isRecording) return null;
     // 프로브가 돌고 있으면 장치를 놓아준다(같은 장치는 동시에 못 연다).
     await stopLevelProbe();
@@ -219,17 +306,30 @@ class RecordingController extends ChangeNotifier {
     }
     if (device == null) return null;
 
+    // 반주 채널은 **장치가 목록에 있을 때만** 연다. 없는 장치를 넘기면
+    // ffmpeg가 통째로 죽어 보컬까지 잃는다.
+    final dual = (backingFileName ?? '').isNotEmpty && canRecordDual;
+
     try {
       final path = await pathBuilder(fileName);
+      final backingPath = dual ? await pathBuilder(backingFileName!) : null;
       final job = _runner.start(
         ffmpeg.path!,
-        buildRecordArgs(deviceName: device, outputPath: path, gain: gain),
+        buildRecordArgs(
+          deviceName: device,
+          outputPath: path,
+          gain: gain,
+          backingDeviceName: dual ? _backingDeviceName : null,
+          backingOutputPath: backingPath,
+        ),
       );
 
       _job = job;
       _isRecording = true;
       _stopping = false;
       _currentFileName = fileName;
+      _currentBackingFileName = dual ? backingFileName : null;
+      _inputStarts.clear();
       _elapsed = Duration.zero;
       _dbfs = null;
 
@@ -246,6 +346,12 @@ class RecordingController extends ChangeNotifier {
           if (out != null) {
             _elapsed = out;
             notifyListeners();
+            return;
+          }
+          // 2채널 정렬용 — 입력별 시작 타임스탬프는 시작 직후 한 번만 나온다.
+          final started = parseInputStreamStart(line);
+          if (started != null) {
+            _inputStarts.putIfAbsent(started.input, () => started.startSeconds);
             return;
           }
           // 즉사 원인 보고용 — 장치 열기 실패 등 ffmpeg의 오류 줄을 담아 둔다.
@@ -283,11 +389,22 @@ class RecordingController extends ChangeNotifier {
   }
 
   /// 녹음을 끝내고 파일명과 길이를 돌려준다.
-  Future<({String fileName, Duration duration})?> stop() async {
+  /// 2채널이면 [backingFileName]에 반주 채널 파일명이 함께 온다.
+  Future<
+    ({
+      String fileName,
+      String? backingFileName,
+      int backingSkewMs,
+      Duration duration,
+    })?
+  >
+  stop() async {
     if (!_isRecording) return null;
     // 종료 감시가 정상 정지를 즉사로 오인하지 않게 먼저 표시한다.
     _stopping = true;
     final fileName = _currentFileName;
+    final backingFileName = _currentBackingFileName;
+    final skewMs = _measuredSkewMs();
     final job = _job;
 
     // 'q'로 우아하게 끝내야 WAV 헤더 크기가 제대로 기록된다.
@@ -305,7 +422,24 @@ class RecordingController extends ChangeNotifier {
     final duration = _elapsed;
     await _cleanup();
     if (fileName == null) return null;
-    return (fileName: fileName, duration: duration);
+    return (
+      fileName: fileName,
+      backingFileName: backingFileName,
+      backingSkewMs: skewMs,
+      duration: duration,
+    );
+  }
+
+  /// 이번 2채널 녹음에서 반주 채널이 얼마나 늦게 열렸는지(ms).
+  /// 한쪽이라도 시작 타임스탬프를 못 읽었으면 0(보정 안 함)이다.
+  int _measuredSkewMs() {
+    final vocal = _inputStarts[0];
+    final backing = _inputStarts[1];
+    if (vocal == null || backing == null) return 0;
+    return dualCaptureSkewMs(
+      vocalStartSeconds: vocal,
+      backingStartSeconds: backing,
+    );
   }
 
   /// 마이크 테스트를 시작한다 — 파일을 만들지 않고 레벨만 흘린다.
@@ -374,6 +508,8 @@ class RecordingController extends ChangeNotifier {
     _job = null;
     _isRecording = false;
     _currentFileName = null;
+    _currentBackingFileName = null;
+    _inputStarts.clear();
     _dbfs = null;
     notifyListeners();
   }

@@ -261,6 +261,151 @@ void _ffmpegRecordingTests() {
     });
   });
 
+  group('buildRecordArgs — 독립 2채널', () {
+    List<String> dualArgs() => buildRecordArgs(
+      deviceName: '마이크(RØDE NT-USB Mini)',
+      outputPath: 'C:/vocal.wav',
+      backingDeviceName: 'MAIN L/R(BEHRINGER FLOW 8 (Streaming))',
+      backingOutputPath: 'C:/acc.wav',
+    );
+
+    test('입력이 둘, 출력도 둘이다', () {
+      final args = dualArgs();
+      expect(
+        args.where((a) => a.startsWith('audio=')).length,
+        2,
+        reason: 'dshow 입력이 마이크와 반주 둘이어야 한다',
+      );
+      expect(args, contains('C:/vocal.wav'));
+      expect(args.last, 'C:/acc.wav');
+    });
+
+    test('각 출력이 어느 입력을 쓸지 -map으로 못 박는다', () {
+      final args = dualArgs();
+      // 보컬 출력 앞에 0:a, 반주 출력 앞에 1:a.
+      expect(args, containsAllInOrder(['-map', '0:a', 'C:/vocal.wav']));
+      expect(args, containsAllInOrder(['-map', '1:a']));
+      expect(
+        args.indexOf('C:/vocal.wav'),
+        lessThan(args.lastIndexOf('-map')),
+        reason: '두 번째 -map은 보컬 출력 뒤에 와야 반주 출력에 걸린다',
+      );
+    });
+
+    test('레벨 미터·게인은 보컬 채널에만 건다', () {
+      final args = buildRecordArgs(
+        deviceName: 'mic',
+        outputPath: 'v.wav',
+        gain: 1.5,
+        backingDeviceName: 'pc',
+        backingOutputPath: 'a.wav',
+      );
+      // -af는 하나뿐이고 보컬 출력보다 앞에 있다.
+      expect(args.where((a) => a == '-af').length, 1);
+      expect(args.indexOf('-af'), lessThan(args.indexOf('v.wav')));
+      expect(args[args.indexOf('-af') + 1], startsWith('volume=1.50,'));
+    });
+
+    test('반주 채널은 스테레오로 받는다', () {
+      final args = dualArgs();
+      final tail = args.sublist(args.lastIndexOf('-map'));
+      expect(tail[tail.indexOf('-ac') + 1], '2');
+      expect(tail[tail.indexOf('-ar') + 1], '48000');
+    });
+
+    test('반주 장치나 경로가 비면 1채널 인자 그대로다', () {
+      final base = buildRecordArgs(deviceName: 'mic', outputPath: 'v.wav');
+      expect(
+        buildRecordArgs(
+          deviceName: 'mic',
+          outputPath: 'v.wav',
+          backingDeviceName: 'pc',
+        ),
+        base,
+        reason: '출력 경로가 없으면 2채널로 가지 않는다',
+      );
+      expect(
+        buildRecordArgs(
+          deviceName: 'mic',
+          outputPath: 'v.wav',
+          backingOutputPath: 'a.wav',
+        ),
+        base,
+        reason: '장치가 없으면 2채널로 가지 않는다',
+      );
+    });
+  });
+
+  group('2채널 정렬 — 늦게 열리는 반주 장치 보정', () {
+    // 실측 줄 그대로(2026-09-21).
+    const vocalLine =
+        '  Stream #0:0: Audio: pcm_s16le, 44100 Hz, stereo, s16, '
+        '1411 kb/s, start 148764.026000';
+    const backingLine =
+        '  Stream #1:0: Audio: pcm_s16le, 44100 Hz, stereo, s16, '
+        '1411 kb/s, start 148764.841000';
+
+    test('입력 스트림 줄에서 번호와 시작 시각을 뽑는다', () {
+      final v = parseInputStreamStart(vocalLine);
+      expect(v?.input, 0);
+      expect(v?.startSeconds, closeTo(148764.026, 0.0005));
+      expect(parseInputStreamStart(backingLine)?.input, 1);
+    });
+
+    test('start가 없는 출력 스트림 줄은 걸리지 않는다', () {
+      expect(
+        parseInputStreamStart(
+          '  Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), '
+          '48000 Hz, mono, s16, 768 kb/s',
+        ),
+        isNull,
+      );
+      expect(parseInputStreamStart('  Stream #0:0 -> #0:0 (pcm_s16le)'), isNull);
+      expect(parseInputStreamStart('아무 줄'), isNull);
+    });
+
+    test('두 줄에서 잰 어긋남이 실측값과 맞는다', () {
+      final v = parseInputStreamStart(vocalLine)!;
+      final b = parseInputStreamStart(backingLine)!;
+      final skew = dualCaptureSkewMs(
+        vocalStartSeconds: v.startSeconds,
+        backingStartSeconds: b.startSeconds,
+      );
+      // 보고 차이 815ms - 잔차 29ms = 786ms. 이 값으로 덧댄 뒤 실측 잔여 4ms.
+      expect(skew, 786);
+    });
+
+    test('차이가 잔차보다 작으면 0으로 눕는다 (앞당기지 않는다)', () {
+      expect(
+        dualCaptureSkewMs(vocalStartSeconds: 100, backingStartSeconds: 100.01),
+        0,
+      );
+      expect(
+        dualCaptureSkewMs(vocalStartSeconds: 100, backingStartSeconds: 99.5),
+        0,
+      );
+    });
+  });
+
+  group('canRecordDual — 못 여는 장치로 보컬까지 잃지 않는다', () {
+    RecordingController make() =>
+        RecordingController(pathBuilder: (name) async => name);
+
+    test('반주 장치가 비면 false', () {
+      expect(make().canRecordDual, isFalse);
+    });
+
+    test('장치 목록에 없는 이름이면 false', () {
+      final c = make()..backingDeviceName = '없는 장치';
+      expect(c.canRecordDual, isFalse);
+    });
+
+    test('빈 문자열은 null로 눕는다', () {
+      final c = make()..backingDeviceName = '';
+      expect(c.backingDeviceName, isNull);
+    });
+  });
+
   group('buildLevelProbeArgs — 마이크 테스트', () {
     test('파일 대신 null 출력으로 레벨만 흘린다', () {
       final args = buildLevelProbeArgs(deviceName: 'mic');

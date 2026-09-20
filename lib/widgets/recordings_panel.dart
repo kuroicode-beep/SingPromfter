@@ -416,19 +416,38 @@ class _TakeRow extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
+                // 미리 듣기는 합친 한 곡이 기본이다 — 합친 게 있으면 그걸 튼다.
                 FilledButton.icon(
-                  onPressed: playing ? onStopPlay : onPlay,
+                  onPressed: playing
+                      ? onStopPlay
+                      : (take.hasMix ? onPlayMix : onPlay),
                   icon: Icon(playing ? Icons.stop : Icons.play_arrow),
-                  label: Text(playing ? '정지' : '듣기(보컬)'),
+                  label: Text(
+                    playing ? '정지' : (take.hasMix ? '듣기(합친 곡)' : '듣기(보컬)'),
+                  ),
                   style: FilledButton.styleFrom(
-                    minimumSize: const Size(96, AppConstants.minTouchTarget),
+                    minimumSize: const Size(110, AppConstants.minTouchTarget),
                   ),
                 ),
+                // 채널별 재생 — 합친 곡이 기본이 되면 보컬 단독 버튼이 따로 있어야 한다.
+                if (take.hasMix)
+                  OutlinedButton.icon(
+                    onPressed: playing ? onStopPlay : onPlay,
+                    icon: const Icon(Icons.mic_none),
+                    label: const Text('보컬만 듣기'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(120, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 if (take.hasAccompaniment)
                   OutlinedButton.icon(
                     onPressed: playing ? onStopPlay : onPlayAccompaniment,
                     icon: const Icon(Icons.queue_music),
-                    label: const Text('반주 듣기'),
+                    label: const Text('반주만 듣기'),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(110, AppConstants.minTouchTarget),
                       side: const BorderSide(
@@ -511,19 +530,6 @@ class _TakeRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (take.hasMix)
-                  OutlinedButton.icon(
-                    onPressed: onPlayMix,
-                    icon: const Icon(Icons.play_circle_outline),
-                    label: const Text('합친 곡 듣기'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(120, AppConstants.minTouchTarget),
-                      side: const BorderSide(
-                        color: AppColors.borderStrong,
-                        width: 2,
-                      ),
-                    ),
-                  ),
                 OutlinedButton.icon(
                   onPressed: onMixSettings,
                   icon: const Icon(Icons.tune),
@@ -539,9 +545,9 @@ class _TakeRow extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: onExport,
                   icon: const Icon(Icons.drive_file_move_outline),
-                  label: const Text('파일로 내보내기'),
+                  label: const Text('내보내기(보컬·반주·합친 곡)'),
                   style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(140, AppConstants.minTouchTarget),
+                    minimumSize: const Size(220, AppConstants.minTouchTarget),
                     side: const BorderSide(
                       color: AppColors.borderStrong,
                       width: 2,

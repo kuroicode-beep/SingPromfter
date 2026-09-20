@@ -172,4 +172,33 @@ void main() {
       expect(migrated.recordingDevice, 'old-mic');
     });
   });
+
+  group('2채널 녹음 반주 장치 (v5.8.0)', () {
+    test('기본값은 null — 2채널은 꺼진 상태다', () {
+      expect(const PrompterSettings().recordingBackingDevice, isNull);
+    });
+
+    test('저장·복원된다', () {
+      const s = PrompterSettings(
+        recordingBackingDevice: 'MAIN L/R(BEHRINGER FLOW 8 (Streaming))',
+      );
+      final restored = PrompterSettings.fromJson(s.toJson());
+      expect(
+        restored.recordingBackingDevice,
+        'MAIN L/R(BEHRINGER FLOW 8 (Streaming))',
+      );
+    });
+
+    test('clear 플래그로 비울 수 있다', () {
+      const s = PrompterSettings(recordingBackingDevice: 'pc');
+      expect(
+        s.copyWith(clearRecordingBackingDevice: true).recordingBackingDevice,
+        isNull,
+      );
+    });
+
+    test('옛 설정 파일에는 키가 없어 null이다', () {
+      expect(PrompterSettings.fromJson(const {}).recordingBackingDevice, isNull);
+    });
+  });
 }

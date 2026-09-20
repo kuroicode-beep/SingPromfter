@@ -12,9 +12,21 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.9.0';
+  static const String current = '5.10.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.10.0',
+      '2026-09-21',
+      '독립 2채널 녹음 — [설정 > 녹음]에서 반주(PC 재생) 입력 장치를 고르면 '
+          '마이크와 PC 소리를 각각 다른 파일로 받습니다. 보컬에 반주가 섞이지 '
+          '않아 AI 보컬 분리 없이도 깨끗한 보컬이 남습니다. 녹음이 끝나면 '
+          '합친 곡이 자동으로 만들어져 [듣기]가 바로 합친 곡을 틀고, '
+          '[보컬만 듣기]·[반주만 듣기]로 채널별로도 들을 수 있으며, '
+          '내보내기는 보컬·반주·합친 곡 세 파일을 따로 저장합니다. '
+          '두 번째 장치가 늦게 열려 생기는 어긋남(실측 790ms)은 녹음할 때마다 '
+          '재서 자동으로 맞춥니다',
+    ),
     AppVersionEntry(
       '5.9.0',
       '2026-08-25',

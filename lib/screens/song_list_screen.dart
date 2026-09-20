@@ -626,7 +626,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack('듀엣 합성 완료 — 녹음 보관함 맨 위에 있습니다.');
   }
 
-  Future<void> _mixTake(RecordingTake take) async {
+  Future<void> _mixTake(RecordingTake take, {bool silent = false}) async {
     // 반주 소스 우선순위: 잘라 둔 반주 조각(정렬 0, 키 일치 보장) →
     // 녹음 당시 재생 파일 → 원본 슬롯 파일(구 테이크 폴백).
     String? backingPath;
@@ -650,7 +650,7 @@ class _SongListScreenState extends State<SongListScreen> {
       return;
     }
 
-    _showSnack('반주와 합치는 중...');
+    if (!silent) _showSnack('반주와 합치는 중...');
     // 분리 보컬이 있으면 그것을 쓴다(스피커 녹음 정리본).
     final vocalPath = take.hasSeparatedVocal
         ? '${(await _recordingLibrary.directory()).path}/${take.separatedFileName}'
@@ -675,7 +675,7 @@ class _SongListScreenState extends State<SongListScreen> {
     await _recordingLibrary.update(take.copyWith(mixedFileName: mixedName));
     if (!mounted) return;
     setState(() {});
-    _showSnack('합쳤습니다. "합친 곡 듣기"로 확인해 보세요.');
+    _showSnack(silent ? '합친 곡이 준비됐습니다. "듣기"로 바로 들어보세요.' : '합쳤습니다. "합친 곡 듣기"로 확인해 보세요.');
   }
 
   /// 믹스 설정 다이얼로그 — 밸런스·리버브·노이즈 제거·보컬 분리.
@@ -1365,11 +1365,16 @@ class _SongListScreenState extends State<SongListScreen> {
     if (_settings.recordingDevice != null) {
       _recording.deviceName = _settings.recordingDevice;
     }
+    // 반주(PC 재생) 장치가 설정돼 있으면 독립 2채널로 녹음한다.
+    _recording.backingDeviceName = _settings.recordingBackingDevice;
+    final wantsDual = (_settings.recordingBackingDevice ?? '').isNotEmpty;
+    final dual = wantsDual && _recording.canRecordDual;
 
     final id = const Uuid().v4();
     final started = await _recording.start(
       '$id.wav',
       gain: _settings.recordingGain,
+      backingFileName: dual ? '${id}_acc.wav' : null,
     );
     if (started == null) {
       if (mounted) _showSnack('녹음을 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
@@ -1385,7 +1390,13 @@ class _SongListScreenState extends State<SongListScreen> {
     _recordingSourcePath = _playback.snapshot.activeAudioPath;
     _recordingTempo = _playback.snapshot.tempoScale;
     if (!mounted) return;
-    _showSnack('녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.');
+    if (dual) {
+      _showSnack('2채널 녹음을 시작했습니다 — 보컬과 반주를 따로 받습니다.');
+    } else if (wantsDual) {
+      _showSnack('반주 입력 장치를 찾지 못해 보컬 1채널로 녹음합니다. 설정에서 장치를 확인해 주세요.');
+    } else {
+      _showSnack('녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.');
+    }
   }
 
   Future<void> _finishRecording() async {
@@ -1397,8 +1408,31 @@ class _SongListScreenState extends State<SongListScreen> {
     // 너무 짧으면 실수로 누른 것으로 보고 파일까지 지운다.
     if (result.duration < const Duration(seconds: 3)) {
       await RecordingStore().deleteFile(result.fileName);
+      final tooShortBacking = result.backingFileName;
+      if (tooShortBacking != null) {
+        await RecordingStore().deleteFile(tooShortBacking);
+      }
       if (mounted) _showSnack('녹음이 너무 짧아 저장하지 않았습니다.');
       return;
+    }
+
+    // 2채널로 받았으면 반주 채널이 곧 테이크의 반주다 — 같은 프로세스가
+    // 동시에 시작했으므로 정렬 보정이 0이고, 잘라낼 필요도 없다.
+    final recordedBacking = result.backingFileName;
+    final dual = recordedBacking != null && recordedBacking.isNotEmpty;
+
+    // 반주 장치가 늦게 열린 만큼 앞에 무음을 덧대 보컬과 시작점을 맞춘다.
+    // 안 맞추면 반주가 수백 ms 앞서 들린다(2026-09-21 실측 790ms).
+    if (dual && result.backingSkewMs > 0) {
+      final accPath =
+          '${(await _recordingLibrary.directory()).path}/$recordedBacking';
+      final aligned = await TakeMixService().padHead(
+        path: accPath,
+        delayMs: result.backingSkewMs,
+      );
+      if (!aligned.success) {
+        debugPrint('반주 채널 정렬 실패: ${aligned.message}');
+      }
     }
 
     final take = RecordingTake(
@@ -1410,17 +1444,24 @@ class _SongListScreenState extends State<SongListScreen> {
       durationMs: result.duration.inMilliseconds,
       backingTrackSlot: _recordingSlot,
       pitchSemitones: _recordingPitch,
-      alignOffsetMs: _recordingAlignMs,
+      alignOffsetMs: dual ? 0 : _recordingAlignMs,
       sourceAudioPath: _recordingSourcePath,
       tempoScale: _recordingTempo,
+      accompanimentFileName: dual ? recordedBacking : null,
     );
     await _recordingLibrary.add(take);
     if (!mounted) return;
     setState(() {});
-    _showSnack('녹음을 저장했습니다. 녹음 탭에서 들어볼 수 있어요.');
-    // 변형본 캐시가 지워지기 전에 즉시 반주 조각을 잘라 자립시킨다.
-    // 실패해도 테이크는 남는다(녹음 탭에서 재시도 가능).
-    unawaited(_cutAccompanimentForTake(take, silent: true));
+    if (dual) {
+      _showSnack('2채널 녹음을 저장했습니다. 합친 곡을 만드는 중...');
+      // 미리 듣기는 합친 한 곡이 기본이라 저장 직후 바로 만들어 둔다.
+      unawaited(_mixTake(take, silent: true));
+    } else {
+      _showSnack('녹음을 저장했습니다. 녹음 탭에서 들어볼 수 있어요.');
+      // 변형본 캐시가 지워지기 전에 즉시 반주 조각을 잘라 자립시킨다.
+      // 실패해도 테이크는 남는다(녹음 탭에서 재시도 가능).
+      unawaited(_cutAccompanimentForTake(take, silent: true));
+    }
   }
 
   /// 녹음 당시 반주에서 녹음 구간과 같은 조각을 잘라 테이크에 붙인다.

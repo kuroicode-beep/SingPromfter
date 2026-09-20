@@ -1204,6 +1204,9 @@ class _RecordingSection extends StatelessWidget {
     final selectedDevice = devices.contains(settings.recordingDevice)
         ? settings.recordingDevice
         : null;
+    final selectedBacking = devices.contains(settings.recordingBackingDevice)
+        ? settings.recordingBackingDevice
+        : null;
     final gainPercent = (settings.recordingGain * 100).round();
 
     return Column(
@@ -1252,6 +1255,39 @@ class _RecordingSection extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        Text('반주(PC 재생) 입력 장치 — 2채널 녹음', style: AppTypography.bodyMuted),
+        const SizedBox(height: 4),
+        DropdownButtonFormField<String>(
+          initialValue: selectedBacking,
+          hint: Text('사용 안 함 (보컬 1채널)', style: AppTypography.bodyMuted),
+          items: [
+            const DropdownMenuItem<String>(
+              value: null,
+              child: Text('사용 안 함 (보컬 1채널)'),
+            ),
+            ...devices
+                .where((d) => d != selectedDevice)
+                .map(
+                  (d) => DropdownMenuItem<String>(
+                    value: d,
+                    child: Text(d, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+          ],
+          onChanged: (value) => onChanged(
+            settings.copyWith(
+              recordingBackingDevice: value,
+              clearRecordingBackingDevice: value == null,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '고르면 마이크와 PC 재생음을 각각 다른 파일로 받습니다. '
+          '녹음이 끝나면 합친 곡이 자동으로 만들어지고, 보컬·반주도 따로 듣고 내보낼 수 있습니다.',
+          style: AppTypography.bodyMuted,
         ),
         const SizedBox(height: 16),
         Row(

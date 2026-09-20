@@ -10,23 +10,26 @@ import 'package:singpromfter_app/models/recording_take.dart';
 import 'package:singpromfter_app/theme/app_theme.dart';
 import 'package:singpromfter_app/widgets/recordings_panel.dart';
 
-RecordingTake _take() => RecordingTake(
+RecordingTake _take({String? accompaniment, String? mixed}) => RecordingTake(
   id: 't1',
   songId: 's1',
   songTitle: '테스트 곡',
   fileName: 't1.wav',
   recordedAt: DateTime(2026, 8, 18, 12),
   durationMs: 30000,
+  accompanimentFileName: accompaniment,
+  mixedFileName: mixed,
 );
 
 Widget _panel({
   ValueChanged<RecordingTake>? onAnalyze,
   ValueChanged<RecordingTake>? onCorrect,
+  RecordingTake? take,
 }) => MaterialApp(
   theme: AppTheme.dark(),
   home: Scaffold(
     body: RecordingsPanel(
-      takes: [_take()],
+      takes: [take ?? _take()],
       query: '',
       filterMode: RecordingFilterMode.all,
       playingTakeId: null,
@@ -74,6 +77,29 @@ void main() {
     // 전부 ffmpeg로 도는 기능이라 AI 토글과 무관해야 한다.
     expect(find.text('반주와 합치기'), findsOneWidget);
     expect(find.text('반주 만들기'), findsOneWidget);
-    expect(find.text('파일로 내보내기'), findsOneWidget);
+    expect(find.text('내보내기(보컬·반주·합친 곡)'), findsOneWidget);
+  });
+
+  testWidgets('합친 곡이 없으면 보컬이 미리 듣기다', (tester) async {
+    await tester.pumpWidget(_panel());
+    await tester.pumpAndSettle();
+
+    expect(find.text('듣기(보컬)'), findsOneWidget);
+    expect(find.text('듣기(합친 곡)'), findsNothing);
+    // 합친 게 없으면 보컬 단독 버튼을 따로 둘 이유가 없다.
+    expect(find.text('보컬만 듣기'), findsNothing);
+  });
+
+  testWidgets('2채널 녹음은 합친 곡이 미리 듣기, 채널별 재생도 함께 있다', (tester) async {
+    await tester.pumpWidget(
+      _panel(take: _take(accompaniment: 't1_acc.wav', mixed: 't1_mix.m4a')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('듣기(합친 곡)'), findsOneWidget);
+    expect(find.text('보컬만 듣기'), findsOneWidget);
+    expect(find.text('반주만 듣기'), findsOneWidget);
+    // 반주가 이미 있으면 '반주 만들기'를 권하지 않는다.
+    expect(find.text('반주 만들기'), findsNothing);
   });
 }

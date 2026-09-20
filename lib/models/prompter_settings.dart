@@ -47,6 +47,11 @@ class PrompterSettings {
 
   /// 녹음 입력 장치(DirectShow 이름). null이면 첫 장치를 쓴다.
   final String? recordingDevice;
+
+  /// 2채널 녹음의 반주(PC 재생) 입력 장치. null·빈 값이면 1채널로 녹음한다 —
+  /// 이 한 설정이 곧 2채널 On/Off다(외울 단축키를 늘리지 않으려고 토글을
+  /// 따로 두지 않았다).
+  final String? recordingBackingDevice;
   final PrompterDisplayMode displayMode;
 
   /// 홈 곡 목록의 정렬. '내 순서(manual)'는 드래그로 바꾼 저장 순서를
@@ -121,6 +126,7 @@ class PrompterSettings {
     this.expandedFolders = const [],
     this.exportFolder = 'C:\\Downloads',
     this.recordingDevice,
+    this.recordingBackingDevice,
     this.tempoScaleBySong = const {},
     this.displayMode = PrompterDisplayMode.full,
     this.songSortMode = SongSortMode.title,
@@ -174,6 +180,7 @@ class PrompterSettings {
     List<String>? expandedFolders,
     String? exportFolder,
     String? recordingDevice,
+    String? recordingBackingDevice,
     Map<String, double>? tempoScaleBySong,
     PrompterDisplayMode? displayMode,
     SongSortMode? songSortMode,
@@ -194,6 +201,7 @@ class PrompterSettings {
     bool clearTrackSlot = false,
     bool clearCustomFontSize = false,
     bool clearRecordingDevice = false,
+    bool clearRecordingBackingDevice = false,
   }) {
     return PrompterSettings(
       fontSizeLevel: fontSizeLevel ?? this.fontSizeLevel,
@@ -219,6 +227,9 @@ class PrompterSettings {
       recordingDevice: clearRecordingDevice
           ? null
           : (recordingDevice ?? this.recordingDevice),
+      recordingBackingDevice: clearRecordingBackingDevice
+          ? null
+          : (recordingBackingDevice ?? this.recordingBackingDevice),
       tempoScaleBySong: tempoScaleBySong ?? this.tempoScaleBySong,
       displayMode: displayMode ?? this.displayMode,
       songSortMode: songSortMode ?? this.songSortMode,
@@ -301,6 +312,7 @@ class PrompterSettings {
     'expandedFolders': expandedFolders,
     'exportFolder': exportFolder,
     'recordingDevice': recordingDevice,
+    'recordingBackingDevice': recordingBackingDevice,
     'tempoScaleBySong': tempoScaleBySong,
     'displayMode': displayMode.storageValue,
     'songSortMode': songSortMode.storageValue,
@@ -379,6 +391,10 @@ class PrompterSettings {
       recordingDevice:
           json['recordingDevice'] as String? ??
           json['recordingDeviceName'] as String?,
+      recordingBackingDevice:
+          (json['recordingBackingDevice'] as String?)?.trim().isNotEmpty == true
+          ? (json['recordingBackingDevice'] as String).trim()
+          : null,
       tempoScaleBySong: readDoubleMap(json['tempoScaleBySong']),
       queueSidebarOpen: json['queueSidebarOpen'] as bool? ?? true,
       playbackBarOpen: json['playbackBarOpen'] as bool? ?? false,
