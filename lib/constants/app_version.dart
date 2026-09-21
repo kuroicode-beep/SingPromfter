@@ -12,9 +12,23 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.15.0';
+  static const String current = '5.15.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.15.1',
+      '2026-09-22',
+      '녹음 고정·R·스페이스를 누르면 앱이 통째로 꺼지던 문제를 고쳤습니다. '
+          '크래시 덤프를 풀어 보니 전부 Flutter 접근성 브리지였습니다 — 키를 '
+          '누르면 Windows 입력 스택(한글 IME)이 화면 요소를 조회하는데, 그 '
+          '요소가 곧바로 사라지면(토스트·경고·녹음 표시) 엔진이 해제된 노드를 '
+          '읽다 죽습니다. 떴다 사라지는 UI는 접근성 노드를 만들지 않게 하고, '
+          '녹음·잠금 배지는 노드를 계속 둔 채 값만 바꾸게 했습니다. 입력 레벨 '
+          '알림도 초당 8회로 줄였습니다. 함께: 녹음 고정에서 스페이스를 누르면 '
+          '재생을 기다리지 않고 바로 시작하고, 조각의 곡 위치는 첫 소리가 실제로 '
+          '잡힌 순간으로 기록합니다. 녹음 중 화면이 닫힐 때 나던 내부 오류도 '
+          '막았습니다',
+    ),
     AppVersionEntry(
       '5.15.0',
       '2026-09-21',

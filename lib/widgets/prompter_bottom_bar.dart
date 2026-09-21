@@ -193,139 +193,158 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-          // Row가 아니라 Wrap이다. v2.10.0에서 [곡 시작]·[곡 추가]·서버 상태를
-          // 이 줄로 옮기며 고정 폭 합계가 700px 가까이 늘었는데, 홈은 3열이라
-          // 조작판이 받는 폭은 창 폭의 일부뿐이다(1280 창 + 큐 열림 = 738).
-          // Row에서는 좁아지는 순간 오른쪽이 통째로 잘려 나갔다 — 저시력
-          // 사용자에게 "화면 밖으로 나간 버튼"은 없는 버튼이다. 이제 두 줄로
-          // 접힌다. spacing이 예전 SizedBox(width: 6) 자리를 대신한다.
-          Wrap(
-            spacing: 6,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              CompactBtn(
-                icon: Icons.stop,
-                semanticsLabel: '정지',
-                onTap: widget.onStop,
-              ),
-              CompactBtn(
-                icon: widget.playing ? Icons.pause : Icons.play_arrow,
-                semanticsLabel: widget.playing ? '일시정지' : '재생',
-                toggled: widget.playing,
-                onTap: widget.onTogglePlayPause,
-                highlighted: true,
-              ),
-              CompactBtn(
-                icon: Icons.replay,
-                semanticsLabel: '처음부터 재생',
-                onTap: widget.onRestart,
-              ),
-              CompactBtn(
-                icon: Icons.skip_next,
-                semanticsLabel: '다음 예약곡',
-                onTap: () {
-                  if (!widget.hasQueuedSongs) {
-                    widget.onMessage('다음 예약곡이 없습니다.');
-                    return;
-                  }
-                  widget.onSkipNext();
-                },
-              ),
-              // 우상단에서 옮겨 온 '곡 시작' — 아이콘 전용이던 전체화면 버튼을
-              // 라벨 있는 버튼으로 바꿨다(저시력: 텍스트 라벨 원칙).
-              FilledButton.icon(
-                onPressed: widget.onOpenPrompter,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryContainer,
-                  foregroundColor: AppColors.onPrimaryContainer,
-                  minimumSize: const Size(96, AppConstants.minTouchTarget),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                ),
-                icon: const Icon(Icons.fullscreen, size: 20),
-                label: const Text('곡 시작'),
-              ),
-              CompactBtn(
-                icon: widget.isRecording ? Icons.stop_circle : Icons.mic,
-                semanticsLabel: widget.isRecording ? '녹음 정지 (R)' : '녹음 시작 (R)',
-                toggled: widget.isRecording,
-                onTap: widget.onToggleRecording,
-              ),
-              if (widget.onToggleRecordArm != null)
-                CompactBtn(
-                  icon: widget.recordArmed
-                      ? Icons.fiber_manual_record
-                      : Icons.radio_button_unchecked,
-                  semanticsLabel: widget.recordArmed
-                      ? '녹음 고정 끄기 (Alt+R)'
-                      : '녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께',
-                  toggled: widget.recordArmed,
-                  // toggled는 스크린리더용일 뿐 화면은 안 바뀐다 —
-                  // 눌린 게 안 보인다는 보고로 highlighted를 함께 건다.
-                  highlighted: widget.recordArmed,
-                  onTap: widget.onToggleRecordArm!,
-                ),
-              // 고정은 켜 두면 스페이스 동작이 달라진다 — 모르고 누르면
-              // 사고라서, 색이 아니라 글자로 항상 알린다. 녹음이 도는 중에도
-              // 계속 띄운다(고정이 켜진 줄 모르는 게 제일 위험하다).
-              if (widget.recordArmed)
-                Text('● 고정 ON', style: AppTypography.emphasis),
-              // 녹음 상태 세 조각은 한 덩어리로 접힌다 — 시간과 레벨이
-              // 서로 다른 줄로 갈라지면 읽을 수 없다.
-              if (widget.isRecording)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                // Row가 아니라 Wrap이다. v2.10.0에서 [곡 시작]·[곡 추가]·서버 상태를
+                // 이 줄로 옮기며 고정 폭 합계가 700px 가까이 늘었는데, 홈은 3열이라
+                // 조작판이 받는 폭은 창 폭의 일부뿐이다(1280 창 + 큐 열림 = 738).
+                // Row에서는 좁아지는 순간 오른쪽이 통째로 잘려 나갔다 — 저시력
+                // 사용자에게 "화면 밖으로 나간 버튼"은 없는 버튼이다. 이제 두 줄로
+                // 접힌다. spacing이 예전 SizedBox(width: 6) 자리를 대신한다.
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    // 녹음 상태는 색이 아니라 글자로 알린다.
-                    Text('● 녹음 중', style: AppTypography.emphasis),
-                    const SizedBox(width: 8),
-                    Text(
-                      _formatElapsed(widget.recordingElapsed),
-                      style: AppTypography.mono,
+                    CompactBtn(
+                      icon: Icons.stop,
+                      semanticsLabel: '정지',
+                      onTap: widget.onStop,
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.recordingLevelLabel,
-                      style: AppTypography.bodyMuted,
+                    CompactBtn(
+                      icon: widget.playing ? Icons.pause : Icons.play_arrow,
+                      semanticsLabel: widget.playing ? '일시정지' : '재생',
+                      toggled: widget.playing,
+                      onTap: widget.onTogglePlayPause,
+                      highlighted: true,
                     ),
+                    CompactBtn(
+                      icon: Icons.replay,
+                      semanticsLabel: '처음부터 재생',
+                      onTap: widget.onRestart,
+                    ),
+                    CompactBtn(
+                      icon: Icons.skip_next,
+                      semanticsLabel: '다음 예약곡',
+                      onTap: () {
+                        if (!widget.hasQueuedSongs) {
+                          widget.onMessage('다음 예약곡이 없습니다.');
+                          return;
+                        }
+                        widget.onSkipNext();
+                      },
+                    ),
+                    // 우상단에서 옮겨 온 '곡 시작' — 아이콘 전용이던 전체화면 버튼을
+                    // 라벨 있는 버튼으로 바꿨다(저시력: 텍스트 라벨 원칙).
+                    FilledButton.icon(
+                      onPressed: widget.onOpenPrompter,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryContainer,
+                        foregroundColor: AppColors.onPrimaryContainer,
+                        minimumSize: const Size(
+                          96,
+                          AppConstants.minTouchTarget,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      ),
+                      icon: const Icon(Icons.fullscreen, size: 20),
+                      label: const Text('곡 시작'),
+                    ),
+                    CompactBtn(
+                      icon: widget.isRecording ? Icons.stop_circle : Icons.mic,
+                      semanticsLabel: widget.isRecording
+                          ? '녹음 정지 (R)'
+                          : '녹음 시작 (R)',
+                      toggled: widget.isRecording,
+                      onTap: widget.onToggleRecording,
+                    ),
+                    if (widget.onToggleRecordArm != null)
+                      CompactBtn(
+                        icon: widget.recordArmed
+                            ? Icons.fiber_manual_record
+                            : Icons.radio_button_unchecked,
+                        semanticsLabel: widget.recordArmed
+                            ? '녹음 고정 끄기 (Alt+R)'
+                            : '녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께',
+                        toggled: widget.recordArmed,
+                        // toggled는 스크린리더용일 뿐 화면은 안 바뀐다 —
+                        // 눌린 게 안 보인다는 보고로 highlighted를 함께 건다.
+                        highlighted: widget.recordArmed,
+                        onTap: widget.onToggleRecordArm!,
+                      ),
+                    // 고정은 켜 두면 스페이스 동작이 달라진다 — 모르고 누르면
+                    // 사고라서, 색이 아니라 글자로 항상 알린다. 녹음이 도는 중에도
+                    // 계속 띄운다(고정이 켜진 줄 모르는 게 제일 위험하다).
+                    if (widget.recordArmed)
+                      // 접근성 노드는 만들지 않는다 — 상태는 위 버튼(toggled)이 알린다.
+                      // 생겼다 사라지는 노드가 엔진 크래시를 냈다(center_alert.dart 참고).
+                      ExcludeSemantics(
+                        child: Text('● 고정 ON', style: AppTypography.emphasis),
+                      ),
+                    // 녹음 상태 세 조각은 한 덩어리로 접힌다 — 시간과 레벨이
+                    // 서로 다른 줄로 갈라지면 읽을 수 없다.
+                    if (widget.isRecording)
+                      // 접근성 노드는 만들지 않는다 — 녹음 시작·정지마다 생겼다 사라지고
+                      // 시간·레벨이 초당 여러 번 바뀐다. 상태는 마이크 버튼이 알린다.
+                      ExcludeSemantics(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // 녹음 상태는 색이 아니라 글자로 알린다.
+                            Text('● 녹음 중', style: AppTypography.emphasis),
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatElapsed(widget.recordingElapsed),
+                              style: AppTypography.mono,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              widget.recordingLevelLabel,
+                              style: AppTypography.bodyMuted,
+                            ),
+                          ],
+                        ),
+                      ),
+                    // 우상단에서 옮겨 온 서버 상태·곡 추가.
+                    if (widget.onStartSeparator != null)
+                      ServerStatusChip(onStartServer: widget.onStartSeparator),
+                    if (widget.onAddSong != null)
+                      OutlinedButton.icon(
+                        onPressed: widget.onAddSong,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(
+                            96,
+                            AppConstants.minTouchTarget,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        icon: const Icon(Icons.library_add_outlined, size: 20),
+                        label: const Text('곡 추가'),
+                      ),
+                    if (widget.onExportTrack != null)
+                      OutlinedButton.icon(
+                        onPressed: widget.onExportTrack,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(
+                            120,
+                            AppConstants.minTouchTarget,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        icon: const Icon(Icons.download, size: 20),
+                        label: const Text('MR 내보내기'),
+                      ),
                   ],
                 ),
-              // 우상단에서 옮겨 온 서버 상태·곡 추가.
-              if (widget.onStartSeparator != null)
-                ServerStatusChip(onStartServer: widget.onStartSeparator),
-              if (widget.onAddSong != null)
-                OutlinedButton.icon(
-                  onPressed: widget.onAddSong,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(96, AppConstants.minTouchTarget),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                const SizedBox(height: 8),
+                // 위치만 별도 구독해, 60Hz 갱신이 화면 전체를 리빌드하지 않게 한다.
+                ValueListenableBuilder<Duration>(
+                  valueListenable: widget.playback.position,
+                  builder: (context, position, _) => PrompterProgressBar(
+                    position: position,
+                    duration: widget.duration,
+                    enabled: widget.audioReady,
+                    onSeek: widget.onSeek,
                   ),
-                  icon: const Icon(Icons.library_add_outlined, size: 20),
-                  label: const Text('곡 추가'),
                 ),
-              if (widget.onExportTrack != null)
-                OutlinedButton.icon(
-                  onPressed: widget.onExportTrack,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(120, AppConstants.minTouchTarget),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                  ),
-                  icon: const Icon(Icons.download, size: 20),
-                  label: const Text('MR 내보내기'),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // 위치만 별도 구독해, 60Hz 갱신이 화면 전체를 리빌드하지 않게 한다.
-          ValueListenableBuilder<Duration>(
-            valueListenable: widget.playback.position,
-            builder: (context, position, _) => PrompterProgressBar(
-              position: position,
-              duration: widget.duration,
-              enabled: widget.audioReady,
-              onSeek: widget.onSeek,
-            ),
-          ),
               ],
             ),
           ),

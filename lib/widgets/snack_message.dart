@@ -64,7 +64,17 @@ class _ToastOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // 접근성 노드를 만들지 않는다 — 이유는 center_alert.dart 머리말 참고.
+    // (키 입력마다 떴다 지워지는 토스트가 엔진 크래시의 주범이었다.)
     return Positioned.fill(
+      child: ExcludeSemantics(child: _buildToast(context, scheme)),
+    );
+  }
+
+  Widget _buildToast(BuildContext context, ColorScheme scheme) {
+    // Positioned는 바깥(build)에서 한 번만 — 여기서 또 감싸면 Stack의
+    // 직계 자식이 아니라서 ParentData 오류가 난다.
+    return SizedBox.expand(
       child: IgnorePointer(
         ignoring: onAction == null,
         child: Align(
@@ -75,10 +85,7 @@ class _ToastOverlay extends StatelessWidget {
             child: Container(
               constraints: const BoxConstraints(maxWidth: 720),
               margin: const EdgeInsets.symmetric(horizontal: 32),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 28,
-                vertical: 20,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
               decoration: BoxDecoration(
                 color: const Color(0xF2101418),
                 borderRadius: BorderRadius.circular(16),

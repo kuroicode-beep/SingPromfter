@@ -532,10 +532,88 @@ void _ffmpegRecordingTests() {
       recording.dispose();
     });
   });
+  group('onCaptureStarted — 기다림 없이 재생하려면 기준점이 필요하다', () {
+    // 🔴 testWidgets로 짜면 안 된다 — 가짜 시계 안에서는 start()의 실제
+    // 비동기(프로세스 스트림)가 영영 안 끝나 테스트당 10분씩 타임아웃한다
+    // (2026-09-22에 실제로 그렇게 20분을 태웠다).
+    test('장치가 열려 첫 소리가 들어올 때 한 번만 알린다', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      final recording = RecordingController(
+        pathBuilder: (name) async => name,
+        runner: _CaptureFakeRunner(),
+      );
+      addTearDown(recording.dispose);
+
+      var calls = 0;
+      recording.onCaptureStarted = () => calls++;
+      await recording.start('t.wav');
+      // 레벨 줄이 여러 번 와도 알림은 한 번이다.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(calls, 1);
+    });
+
+    test('콜백을 안 걸어도 녹음은 정상으로 돈다', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      final recording = RecordingController(
+        pathBuilder: (name) async => name,
+        runner: _CaptureFakeRunner(),
+      );
+      addTearDown(recording.dispose);
+
+      expect(await recording.start('t.wav'), 't.wav');
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(recording.isRecording, isTrue);
+    });
+  });
 }
 
 /// 장치 목록 시나리오용 러너 — start()는 ffmpeg -list_devices 출력을,
 /// run()은 locate(where·-version)에 성공 응답을 흉내 낸다.
+/// 장치 목록 + 녹음 캡처를 둘 다 흉내낸다. 녹음 쪽은 astats 줄을 흘려
+/// 「장치가 열렸다」를 재현한다.
+class _CaptureFakeRunner implements ProcessRunner {
+  @override
+  JobHandle start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) {
+    final controller = StreamController<String>();
+    if (arguments.contains('-list_devices')) {
+      controller.add('[in#0 @ 0x1] "마이크(RØDE NT-USB Mini)" (audio)');
+      final closed = controller.close();
+      return JobHandle(
+        lines: controller.stream,
+        exitCode: closed.then((_) => 1),
+        cancel: () {},
+      );
+    }
+    // 캡처 — 레벨 줄을 여러 번 흘린다. 첫 줄에서만 콜백이 나와야 한다.
+    for (var i = 0; i < 3; i++) {
+      controller.add('lavfi.astats.Overall.RMS_level=-21.0');
+    }
+    final done = Completer<int>();
+    return JobHandle(
+      lines: controller.stream,
+      exitCode: done.future,
+      cancel: () {
+        if (!done.isCompleted) done.complete(0);
+      },
+    );
+  }
+
+  @override
+  Future<ProcessOutput> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) async =>
+      const ProcessOutput(exitCode: 0, stdout: 'ffmpeg', stderr: '');
+}
+
 class _DeviceListFakeRunner implements ProcessRunner {
   @override
   JobHandle start(

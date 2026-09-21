@@ -20,25 +20,35 @@ class RecordingBadge extends StatelessWidget {
     return ValueListenableBuilder<bool>(
       valueListenable: recording,
       builder: (context, value, _) {
-        if (!value) return const SizedBox.shrink();
+        // 🔴 노드를 만들었다 지우지 않는다 — 항상 같은 노드를 두고 라벨만 바꾼다.
+        // 켜질 때 생기고 꺼질 때 사라지는 접근성 노드가 Flutter 엔진 크래시를
+        // 냈다(2026-09-22, center_alert.dart 머리말 참고).
         return Semantics(
-          label: '녹음 중 — R로 중지',
-          child: Tooltip(
-            message: '녹음 중 — R로 중지',
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.elevated.withValues(alpha: 0.92),
-                border: Border.all(color: AppColors.danger, width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.fiber_manual_record,
-                size: 34,
-                color: AppColors.danger,
-              ),
-            ),
-          ),
+          container: true,
+          label: value ? '녹음 중 — R로 중지' : '',
+          child: !value
+              ? const SizedBox.shrink()
+              : Tooltip(
+                  message: '녹음 중 — R로 중지',
+                  // 툴팁도 자체 노드를 만들지 않게 한다(라벨은 위에서 준다).
+                  excludeFromSemantics: true,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.elevated.withValues(alpha: 0.92),
+                      border: Border.all(color: AppColors.danger, width: 2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.fiber_manual_record,
+                      size: 34,
+                      color: AppColors.danger,
+                    ),
+                  ),
+                ),
         );
       },
     );

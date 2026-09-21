@@ -243,6 +243,14 @@ class RecordingController extends ChangeNotifier {
   /// 녹음 파일을 둘 전체 경로를 만들어 준다.
   final Future<String> Function(String fileName) pathBuilder;
 
+  /// 장치가 실제로 열려 **첫 소리가 들어온 순간** 한 번 호출된다.
+  ///
+  /// dshow 장치를 여는 데 수백 ms가 걸린다. 녹음을 먼저 기다렸다 재생하면
+  /// 스페이스와 음악 사이에 들쭉날쭉한 공백이 생겨 첫 박을 잡을 수가 없다.
+  /// 그래서 재생을 먼저 걸고, 조각의 곡 좌표는 이 시점에 다시 잡는다 —
+  /// 기다림은 없애면서 이어붙이기 좌표는 정확하게 남는다.
+  void Function()? onCaptureStarted;
+
   /// 캡처가 stop() 전에 스스로 죽었을 때(장치 열기 실패 등) 호출된다 —
   /// 화면이 스낵으로 원인을 알리는 데 쓴다. 없으면 상태만 되돌린다.
   void Function(String message)? onError;
@@ -265,6 +273,24 @@ class RecordingController extends ChangeNotifier {
 
   /// 프로브 동안 관측한 최대 레벨. 녹음 전 입력 점검에 쓴다.
   double? _probePeakDbfs;
+
+  DateTime _lastLevelNotify = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// 레벨 갱신 알림 — 초당 8번 정도로 묶는다.
+  ///
+  /// astats는 프레임마다(초당 수십 번) 레벨을 흘린다. 그때마다 화면 전체가
+  /// 다시 그려지면 접근성 트리도 그만큼 갱신돼, 키 입력 순간의 MSAA 질의와
+  /// 부딪혀 엔진이 죽을 확률을 키운다(2026-09-22 크래시). 미터는 8Hz면 충분하다.
+  /// 최대 레벨(_peakDbfs) 추적은 알림과 무관하게 매 줄 한다.
+  void _notifyLevel() {
+    final now = DateTime.now();
+    if (now.difference(_lastLevelNotify) <
+        const Duration(milliseconds: 120)) {
+      return;
+    }
+    _lastLevelNotify = now;
+    notifyListeners();
+  }
 
   bool _isRecording = false;
   bool _stopping = false;
@@ -412,15 +438,21 @@ class RecordingController extends ChangeNotifier {
       _elapsed = Duration.zero;
       _dbfs = null;
       _peakDbfs = null;
+      var announced = false;
 
       final errorLines = <String>[];
       _sub = job.lines.listen(
         (line) {
           final rms = parseRmsLevel(line);
           if (rms != null) {
+            if (!announced) {
+              announced = true;
+              // 장치가 열렸다 — 지금이 이 조각의 곡 좌표 기준점이다.
+              onCaptureStarted?.call();
+            }
             _dbfs = rms;
             if (_peakDbfs == null || rms > _peakDbfs!) _peakDbfs = rms;
-            notifyListeners();
+            _notifyLevel();
             return;
           }
           final out = FfmpegProgressParser.parseOutTime(line);
@@ -565,7 +597,7 @@ class RecordingController extends ChangeNotifier {
             if (_probePeakDbfs == null || rms > _probePeakDbfs!) {
               _probePeakDbfs = rms;
             }
-            notifyListeners();
+            _notifyLevel();
           }
         },
         onError: (Object e) => debugPrint('마이크 테스트 스트림 오류: $e'),
@@ -597,7 +629,7 @@ class RecordingController extends ChangeNotifier {
           final rms = parseRmsLevel(line);
           if (rms != null) {
             _backingDbfs = rms;
-            notifyListeners();
+            _notifyLevel();
           }
         },
         onError: (Object e) => debugPrint('반주 채널 테스트 스트림 오류: $e'),
@@ -686,8 +718,22 @@ class RecordingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _disposed = false;
+
+  /// 폐기된 뒤에는 알리지 않는다.
+  ///
+  /// 녹음 중에 화면이 닫히면 dispose()가 ffmpeg를 끊고, 그 종료를 본 감시
+  /// 콜백이 뒤늦게 _cleanup()을 돌려 **이미 폐기된 객체**에 알림을 보낸다
+  /// (테스트로 드러난 결함). 경로가 여러 갈래라 한 곳에서 막는다.
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _sub?.cancel();
     _job?.cancel();
     _probeSub?.cancel();

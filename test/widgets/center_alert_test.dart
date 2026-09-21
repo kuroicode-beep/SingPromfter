@@ -70,31 +70,25 @@ void main() {
     expect(CenterAlert.isShowing, isFalse);
   });
 
-  testWidgets('스크린리더에 제목과 설명을 함께 읽도록 선언한다', (tester) async {
+  testWidgets('접근성 노드를 만들지 않는다 — 엔진 크래시 회귀 방지', (tester) async {
+    // 2026-09-22: 떴다 사라지는 오버레이의 접근성 노드를 Windows 입력 스택이
+    // 잡은 채로 노드가 해제돼 Flutter 엔진이 죽었다(get_accState 등).
+    // 이 오버레이는 시맨틱스 트리에 아무것도 올리지 않아야 한다.
+    final handle = tester.ensureSemantics();
     await tester.pumpWidget(
-      _host(
-        (ctx) => CenterAlert.show(ctx, title: '소리 없음', detail: '장치를 확인하세요'),
-      ),
+      _host((ctx) => CenterAlert.show(ctx, title: '소리 없음', detail: '장치를 확인하세요')),
     );
     await tester.tap(find.text('띄우기'));
     await tester.pump();
 
-    // 렌더된 시맨틱스 노드가 아니라 위젯이 선언한 계약을 본다 —
-    // 노드 병합 규칙은 프레임워크 몫이고, 우리가 지킬 것은 이 선언이다.
-    final semantics = tester.widget<Semantics>(
-      find
-          .descendant(
-            of: find.byType(Overlay),
-            matching: find.byWidgetPredicate(
-              (w) => w is Semantics && w.properties.liveRegion == true,
-            ),
-          )
-          .first,
-    );
-    expect(semantics.properties.label, '소리 없음. 장치를 확인하세요');
-    // 알림이 뜬 것을 스스로 알리도록(liveRegion) 돼 있어야 한다.
-    expect(semantics.properties.liveRegion, isTrue);
+    // 화면에는 보이지만
+    expect(find.text('소리 없음'), findsOneWidget);
+    // 시맨틱스 트리에는 없다.
+    expect(find.bySemanticsLabel('소리 없음'), findsNothing);
+    expect(find.bySemanticsLabel('확인'), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('장치를 확인')), findsNothing);
     CenterAlert.dismiss();
+    handle.dispose();
   });
 
   testWidgets('새로 띄우면 앞의 것이 겹치지 않는다', (tester) async {

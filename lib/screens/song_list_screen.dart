@@ -238,6 +238,11 @@ class _SongListScreenState extends State<SongListScreen> {
     // 캡처 즉사(장치 열기 실패 등)를 사용자에게 바로 알린다 — 유령 '녹음 중'
     // 상태로 남아 파일 없이 끝나던 실사고 방지(v5.4.1).
     _recording.onError = _showSnack;
+    // 장치가 실제로 열린 순간 곡 좌표를 다시 잡는다. 재생을 먼저 걸어
+    // 기다림을 없앴기 때문에, 이때가 이 조각의 진짜 기준점이다.
+    _recording.onCaptureStarted = () {
+      _recordingAlignMs = _playback.position.value.inMilliseconds;
+    };
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     _playback.isRecordingProvider = () => _recording.isRecording;
     // 우하단 '녹음 중' 배지가 듣는 표시용 거울 — 잠금 배지와 같은 패턴.
@@ -358,11 +363,20 @@ class _SongListScreenState extends State<SongListScreen> {
       if (mounted) setState(() {});
       return;
     }
-    // 시작 = 조각 시작. 녹음을 먼저 걸어야 첫 음절이 안 잘리고,
-    // 곡 위치도 재생 직전 값으로 잡혀 이어붙이기 좌표가 정확해진다.
-    if (!_recording.isRecording) await _toggleRecording();
-    if (!_recording.isRecording) return; // 녹음을 못 걸었으면 재생도 안 한다
+    // 시작 = 조각 시작.
+    //
+    // 🔴 녹음을 기다렸다 재생하면 안 된다. dshow 장치를 여는 데 수백 ms가
+    // 걸리고 그 시간이 매번 달라서, 스페이스와 음악 사이 공백을 예측할 수
+    // 없다 — 「시작 부분을 못 잡겠다」는 실사용 보고의 원인이다.
+    //
+    // 재생을 먼저 걸어 스페이스와 동시에 음악이 나오게 하고, 조각의 곡
+    // 좌표는 장치가 실제로 열린 순간(onCaptureStarted)에 다시 잡는다.
+    // 기다림은 없애면서 이어붙이기 좌표는 정확하게 남는다.
+    final starting = _recording.isRecording
+        ? Future<void>.value()
+        : _toggleRecording();
     await _playback.togglePlayPause();
+    await starting;
     if (mounted) setState(() {});
   }
 
