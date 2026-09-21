@@ -532,39 +532,179 @@ void _ffmpegRecordingTests() {
       recording.dispose();
     });
   });
-  group('onCaptureStarted — 기다림 없이 재생하려면 기준점이 필요하다', () {
+  group('레벨 줄은 실시간으로 와야 한다 (2026-09-22 실사고)', () {
+    // ffmpeg 8.1.1은 direct=1이 없으면 ametadata 출력을 종료 때까지 쌓아 둔다.
+    // 그 탓에 입력 점검이 매번 4초를 다 채웠고, 녹음 고정 + 스페이스마다
+    // 4.5초 공백이 생겼다.
+    test('녹음·프로브 필터에 direct=1이 있다', () {
+      final rec = buildRecordArgs(deviceName: 'mic', outputPath: 'o.wav');
+      final probe = buildLevelProbeArgs(deviceName: 'mic');
+      expect(rec[rec.indexOf('-af') + 1], endsWith(':file=-:direct=1'));
+      expect(probe[probe.indexOf('-af') + 1], endsWith(':file=-:direct=1'));
+    });
+
+    test('dshow 입력마다 -audio_buffer_size 50이 -i 앞에 온다', () {
+      List<int> inputs(List<String> args) => [
+        for (var i = 0; i < args.length; i++)
+          if (args[i] == '-i') i,
+      ];
+      final mono = buildRecordArgs(deviceName: 'mic', outputPath: 'o.wav');
+      final dual = buildRecordArgs(
+        deviceName: 'mic',
+        outputPath: 'o.wav',
+        backingDeviceName: 'pc',
+        backingOutputPath: 'b.wav',
+      );
+      final probe = buildLevelProbeArgs(deviceName: 'mic');
+      for (final args in [mono, dual, probe]) {
+        for (final i in inputs(args)) {
+          expect(args.sublist(i - 2, i), ['-audio_buffer_size', '50']);
+        }
+      }
+      expect(inputs(dual), hasLength(2));
+    });
+  });
+
+  group('parseAmetadataFramePtsMs', () {
+    test('프레임 머리줄에서 시작 시각을 읽는다', () {
+      expect(
+        parseAmetadataFramePtsMs('frame:3    pts:3072    pts_time:0.0696599'),
+        70,
+      );
+      expect(parseAmetadataFramePtsMs('frame:0    pts:0       pts_time:0'), 0);
+    });
+
+    test('다른 줄은 null', () {
+      expect(
+        parseAmetadataFramePtsMs('lavfi.astats.Overall.RMS_level=-21.0'),
+        isNull,
+      );
+      expect(parseAmetadataFramePtsMs('out_time=00:00:01.500000'), isNull);
+      expect(parseAmetadataFramePtsMs(''), isNull);
+    });
+  });
+
+  group('CaptureAnchorEstimator — 조각 t=0의 곡 좌표', () {
+    test('앞 줄 도착 위치 − 다음 줄 pts, 그중 최소값', () {
+      // 참값: 파일 t=0 == 곡 10000ms. 프레임 50ms, 줄 도착이 0~30ms 늦는다.
+      final est = CaptureAnchorEstimator();
+      final late = [12, 0, 30, 7, 0, 21];
+      for (var k = 0; k < late.length; k++) {
+        // k번 프레임(pts=50k)의 줄은 그 프레임이 끝난 뒤(50(k+1))에 온다.
+        est.addFrame(ptsMs: 50 * k, positionMs: 10000 + 50 * (k + 1) + late[k]);
+      }
+      expect(est.anchorMs, 10000);
+      expect(est.samples, late.length - 1);
+    });
+
+    test('재생 중이 아닌 표본은 버린다 — 그 다음 표본까지', () {
+      final est = CaptureAnchorEstimator();
+      est.addFrame(ptsMs: 0, positionMs: null);
+      est.addFrame(ptsMs: 50, positionMs: 5100);
+      expect(est.anchorMs, isNull);
+      est.addFrame(ptsMs: 100, positionMs: 5150);
+      expect(est.anchorMs, 5000);
+    });
+
+    test('freeze 뒤의 표본은 안 본다 — 멈춘 위치가 최소값을 끌어내린다', () {
+      final est = CaptureAnchorEstimator();
+      est.addFrame(ptsMs: 0, positionMs: 5050);
+      est.addFrame(ptsMs: 50, positionMs: 5100);
+      est.freeze();
+      // 재생이 멈춰 위치는 그대로인데 pts만 간다.
+      est.addFrame(ptsMs: 100, positionMs: 5100);
+      est.addFrame(ptsMs: 150, positionMs: 5100);
+      expect(est.anchorMs, 5000);
+    });
+
+    test('표본은 maxSamples까지만', () {
+      final est = CaptureAnchorEstimator(maxSamples: 2);
+      for (var k = 0; k < 6; k++) {
+        est.addFrame(ptsMs: 50 * k, positionMs: 1000 + 50 * (k + 1));
+      }
+      expect(est.samples, 2);
+    });
+  });
+
+  group('녹음 컨트롤러 — 좌표·길이·최대 레벨', () {
     // 🔴 testWidgets로 짜면 안 된다 — 가짜 시계 안에서는 start()의 실제
     // 비동기(프로세스 스트림)가 영영 안 끝나 테스트당 10분씩 타임아웃한다
     // (2026-09-22에 실제로 그렇게 20분을 태웠다).
-    test('장치가 열려 첫 소리가 들어올 때 한 번만 알린다', () async {
+    test('프레임 줄로 t=0의 곡 좌표와 길이를 잰다', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       SharedPreferences.setMockInitialValues({});
+      var position = 20050;
       final recording = RecordingController(
         pathBuilder: (name) async => name,
-        runner: _CaptureFakeRunner(),
+        runner: _CaptureFakeRunner(
+          onStart: [
+            for (var k = 0; k < 4; k++) ...[
+              'frame:$k    pts:${k * 2400}    pts_time:${k * 0.05}',
+              'lavfi.astats.Overall.RMS_level=-21.0',
+            ],
+          ],
+        ),
       );
       addTearDown(recording.dispose);
+      // 줄마다 50ms씩 흐른 위치를 돌려준다(도착 지연 없음 = 참값 20000).
+      recording.songPositionProbe = () {
+        final now = position;
+        position += 50;
+        return now;
+      };
 
-      var calls = 0;
-      recording.onCaptureStarted = () => calls++;
       await recording.start('t.wav');
-      // 레벨 줄이 여러 번 와도 알림은 한 번이다.
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      final result = await recording.stop();
 
-      expect(calls, 1);
+      expect(result!.songAnchorMs, 20000);
+      // 마지막 프레임(pts 150) + 프레임 길이 50 = 200ms.
+      expect(result.duration, const Duration(milliseconds: 200));
+      expect(result.peakDbfs, -21.0);
     });
 
-    test('콜백을 안 걸어도 녹음은 정상으로 돈다', () async {
+    test("레벨 줄이 'q' 뒤에 몰려 와도 최대 레벨을 놓치지 않는다", () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       SharedPreferences.setMockInitialValues({});
       final recording = RecordingController(
         pathBuilder: (name) async => name,
-        runner: _CaptureFakeRunner(),
+        runner: _CaptureFakeRunner(
+          onQuit: [
+            'frame:0    pts:0       pts_time:0',
+            'lavfi.astats.Overall.RMS_level=-18.5',
+          ],
+        ),
+      );
+      addTearDown(recording.dispose);
+      var probed = 0;
+      recording.songPositionProbe = () {
+        probed++;
+        return 1234;
+      };
+
+      await recording.start('t.wav');
+      final result = await recording.stop();
+
+      // 예전에는 'q' 전에 읽어 null → 멀쩡한 조각이 「소리 없음」으로 오판됐다.
+      expect(result!.peakDbfs, -18.5);
+      // 정지 중에 온 줄로는 좌표를 재지 않는다(조각 끝 위치가 저장되던 회귀).
+      expect(probed, 0);
+      expect(result.songAnchorMs, isNull);
+    });
+
+    test('위치 프로브를 안 걸어도 녹음은 정상으로 돈다', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      final recording = RecordingController(
+        pathBuilder: (name) async => name,
+        runner: _CaptureFakeRunner(
+          onStart: ['frame:0    pts:0       pts_time:0'],
+        ),
       );
       addTearDown(recording.dispose);
 
       expect(await recording.start('t.wav'), 't.wav');
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(recording.isRecording, isTrue);
     });
   });
@@ -575,6 +715,14 @@ void _ffmpegRecordingTests() {
 /// 장치 목록 + 녹음 캡처를 둘 다 흉내낸다. 녹음 쪽은 astats 줄을 흘려
 /// 「장치가 열렸다」를 재현한다.
 class _CaptureFakeRunner implements ProcessRunner {
+  _CaptureFakeRunner({this.onStart = const [], this.onQuit = const []});
+
+  /// 캡처가 뜨자마자 흘릴 줄.
+  final List<String> onStart;
+
+  /// 'q'를 받은 뒤에야 흘릴 줄 — 종료 때 몰려 나오는 실제 ffmpeg를 흉내 낸다.
+  final List<String> onQuit;
+
   @override
   JobHandle start(
     String executable,
@@ -591,16 +739,22 @@ class _CaptureFakeRunner implements ProcessRunner {
         cancel: () {},
       );
     }
-    // 캡처 — 레벨 줄을 여러 번 흘린다. 첫 줄에서만 콜백이 나와야 한다.
-    for (var i = 0; i < 3; i++) {
-      controller.add('lavfi.astats.Overall.RMS_level=-21.0');
-    }
+    onStart.forEach(controller.add);
     final done = Completer<int>();
+    Future<void> finish() async {
+      if (done.isCompleted || controller.isClosed) return;
+      await controller.close();
+      if (!done.isCompleted) done.complete(0);
+    }
+
     return JobHandle(
       lines: controller.stream,
       exitCode: done.future,
-      cancel: () {
-        if (!done.isCompleted) done.complete(0);
+      cancel: finish,
+      writeStdin: (data) {
+        if (data != 'q' || controller.isClosed) return;
+        onQuit.forEach(controller.add);
+        finish();
       },
     );
   }

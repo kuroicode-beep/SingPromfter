@@ -238,11 +238,12 @@ class _SongListScreenState extends State<SongListScreen> {
     // 캡처 즉사(장치 열기 실패 등)를 사용자에게 바로 알린다 — 유령 '녹음 중'
     // 상태로 남아 파일 없이 끝나던 실사고 방지(v5.4.1).
     _recording.onError = _showSnack;
-    // 장치가 실제로 열린 순간 곡 좌표를 다시 잡는다. 재생을 먼저 걸어
-    // 기다림을 없앴기 때문에, 이때가 이 조각의 진짜 기준점이다.
-    _recording.onCaptureStarted = () {
-      _recordingAlignMs = _playback.position.value.inMilliseconds;
-    };
+    // 조각 파일의 t=0이 곡의 어디였는지는 컨트롤러가 프레임 줄마다 이 값을
+    // 찍어 역산한다. 재생을 먼저 걸어 기다림을 없앴기 때문에 「녹음을 건
+    // 순간의 위치」는 장치가 열리는 0.45초만큼 이르다.
+    _recording.songPositionProbe = () => _playback.state.value.playing
+        ? _playback.precisePosition.inMilliseconds
+        : null;
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     _playback.isRecordingProvider = () => _recording.isRecording;
     // 우하단 '녹음 중' 배지가 듣는 표시용 거울 — 잠금 배지와 같은 패턴.
@@ -356,8 +357,26 @@ class _SongListScreenState extends State<SongListScreen> {
       await _playback.togglePlayPause();
       return;
     }
+    // 🔴 시작·정지가 끝나기 전에 스페이스가 또 오면 무시한다. 가드가 없을
+    // 때는 시작 도중의 두 번째 스페이스가 재생만 멈추고, 뒤늦게 녹음이 걸려
+    // **멈춘 화면에서 유령 녹음**이 돌았다.
+    if (_armedTransportBusy) return;
+    _armedTransportBusy = true;
+    try {
+      await _armedSpace();
+    } finally {
+      _armedTransportBusy = false;
+    }
+  }
+
+  bool _armedTransportBusy = false;
+
+  /// 녹음 고정 중의 스페이스 — 재생과 녹음을 함께 걸고 함께 멈춘다.
+  Future<void> _armedSpace() async {
     if (_playback.state.value.playing) {
       // 정지 = 조각 끝. 재생을 먼저 멈춰야 뒤에 반주가 더 안 실린다.
+      // 멈추면 위치가 서 버리니 좌표 표본은 그 전에 닫는다.
+      _recording.freezeSongAnchor();
       await _playback.togglePlayPause();
       if (_recording.isRecording) await _finishRecording();
       if (mounted) setState(() {});
@@ -370,7 +389,7 @@ class _SongListScreenState extends State<SongListScreen> {
     // 없다 — 「시작 부분을 못 잡겠다」는 실사용 보고의 원인이다.
     //
     // 재생을 먼저 걸어 스페이스와 동시에 음악이 나오게 하고, 조각의 곡
-    // 좌표는 장치가 실제로 열린 순간(onCaptureStarted)에 다시 잡는다.
+    // 좌표는 프레임 줄이 올 때마다 역산한다(songPositionProbe).
     // 기다림은 없애면서 이어붙이기 좌표는 정확하게 남는다.
     final starting = _recording.isRecording
         ? Future<void>.value()
@@ -395,6 +414,11 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return false;
     if (peak == null) {
       // 프로브 자체를 못 띄웠다 — 알리되 막지는 않는다(녹음까지 막을 근거는 아니다).
+      //
+      // 🔴 다시 재지도 않는다. 예전에는 여기서 「확인 안 됨」으로 남겨 둬서
+      // 스페이스를 누를 때마다 4.5초짜리 점검이 다시 돌았고, 그동안 마이크가
+      // 안 열려 조각 앞부분이 통째로 비었다. 무음은 저장 직후 경고가 따로 잡는다.
+      _inputVerified = true;
       _showSnack('입력을 미리 확인하지 못했습니다. 그대로 진행합니다.');
       return true;
     }
@@ -1528,6 +1552,10 @@ class _SongListScreenState extends State<SongListScreen> {
     final song = _recordingSong;
     _recordingSong = null;
     if (result == null || song == null) return;
+    // 프레임 줄로 역산한 좌표가 있으면 그게 정본이다. 없으면(멈춘 채 녹음)
+    // 녹음을 건 순간의 위치를 그대로 쓴다.
+    final anchor = result.songAnchorMs;
+    if (anchor != null) _recordingAlignMs = anchor < 0 ? 0 : anchor;
 
     // 실수로 누른 R만 걸러낸다.
     //

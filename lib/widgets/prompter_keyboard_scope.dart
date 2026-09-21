@@ -448,6 +448,12 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         return KeyEventResult.handled;
       }
     }
+    // 🔴 스페이스 키 반복은 여기서 삼킨다. 흘려보내면 조상 Shortcuts가 받아
+    // 33ms마다 재생/정지를 토글한다(0.5초 넘게 누르면 연타). 녹음 고정
+    // 중에는 그게 곧 조각 시작·정지 연타라 방금 받은 조각이 지워진다.
+    if (event is KeyRepeatEvent && key == LogicalKeyboardKey.space) {
+      return KeyEventResult.handled;
+    }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.escape && widget.onClose != null) {
       widget.onClose!();
@@ -643,7 +649,8 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
             const _NudgeFromLineIntent(delay: false),
       },
       if (widget.enablePlaybackShortcuts) ...{
-        const SingleActivator(LogicalKeyboardKey.space):
+        // includeRepeats: false — 길게 눌러도 한 번만 먹는다.
+        const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false):
             const _TogglePlayPauseIntent(),
         const SingleActivator(LogicalKeyboardKey.f5): const _OpenPrompterIntent(),
       },

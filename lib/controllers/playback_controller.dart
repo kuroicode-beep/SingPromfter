@@ -142,6 +142,12 @@ class PlaybackController {
     const PlaybackSnapshot(),
   );
   final ValueNotifier<Duration> position = ValueNotifier(Duration.zero);
+
+  /// 틱을 기다리지 않은 **지금**의 위치.
+  ///
+  /// [position]은 화면 틱에서만 갱신돼 최대 17ms 낡아 있다. 가사 표시에는
+  /// 충분하지만 녹음 조각의 곡 좌표를 재는 데는 그 오차가 그대로 실린다.
+  Duration get precisePosition => _clock.value;
   final ValueNotifier<int> lineIndex = ValueNotifier(0);
 
   /// 사용자가 가사 자동 진행을 잠시 멈춘 상태. (전체화면의 자동 스크롤 토글)

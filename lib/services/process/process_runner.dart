@@ -90,6 +90,9 @@ class SystemProcessRunner implements ProcessRunner {
     final exitCompleter = Completer<int>();
     Process? process;
     var cancelled = false;
+    // 프로세스가 뜨기 전(수 ms)에 온 입력. 버리면 시작 직후의 'q'가 사라져
+    // 정지가 3초 타임아웃 뒤 강제 종료로 넘어가고 WAV 헤더가 깨진다.
+    final pendingStdin = <String>[];
 
     Process.start(
       executable,
@@ -102,6 +105,15 @@ class SystemProcessRunner implements ProcessRunner {
       if (cancelled) {
         started.kill();
         return;
+      }
+      if (pendingStdin.isNotEmpty) {
+        try {
+          pendingStdin.forEach(started.stdin.write);
+          started.stdin.flush();
+        } catch (_) {
+          // 곧바로 죽은 프로세스면 무시한다.
+        }
+        pendingStdin.clear();
       }
 
       final stdoutDone = started.stdout
@@ -135,9 +147,14 @@ class SystemProcessRunner implements ProcessRunner {
         process?.kill();
       },
       writeStdin: (data) {
+        final running = process;
+        if (running == null) {
+          pendingStdin.add(data);
+          return;
+        }
         try {
-          process?.stdin.write(data);
-          process?.stdin.flush();
+          running.stdin.write(data);
+          running.stdin.flush();
         } catch (_) {
           // 이미 끝난 프로세스면 무시한다.
         }

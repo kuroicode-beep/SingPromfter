@@ -169,10 +169,78 @@ String? preferredInputDevice(List<String> devices) {
 
 /// 캡처 오디오 필터 체인. 게인은 astats **앞**에 두어 미터가 게인 반영
 /// 값을 보여준다(클리핑을 실시간으로 경고할 수 있게). (순수 함수)
+///
+/// 🔴 `direct=1`이 없으면 레벨 줄이 **ffmpeg가 끝날 때** 한꺼번에 나온다.
+/// ffmpeg 8.1.1은 `file=-` 출력을 내부 버퍼에 쌓아 두기 때문이다(2026-09-22
+/// 실측: 14초 녹음에서 'q' 이전 RMS 줄 0개). 그 탓에 녹음 중 레벨 막대가
+/// 멈춰 있었고, 입력 점검이 매번 4초 타임아웃을 다 채워 「녹음 고정 +
+/// 스페이스」마다 4.5초 공백이 생겼다 — 「시작 시점을 못 잡겠다」의 원인.
 String _captureFilterChain(double gain) {
   final volume = gain == 1.0 ? '' : 'volume=${gain.toStringAsFixed(2)},';
   return '${volume}astats=metadata=1:reset=1,'
-      'ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-';
+      'ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-:direct=1';
+}
+
+/// dshow 오디오 버퍼(ms).
+///
+/// 기본값은 500ms라 WAV 길이가 0.5초 단위로 끊기고 **정지 직전 0~0.5초가
+/// 잘려 나간다**(끝 음절이 끊기던 원인). 50ms면 프레임이 50ms 간격으로 오고
+/// 'q' → 종료도 0.5초 → 0.15초로 준다. 2채널 시작 잔차(29ms)는 버퍼 크기와
+/// 무관함을 실측해 두었다([kDualCaptureStartResidualMs]).
+const int kDshowAudioBufferMs = 50;
+
+/// ametadata가 프레임마다 내는 머리줄에서 프레임 시작 시각(ms)을 읽는다.
+/// 입력 예: `frame:3    pts:3072    pts_time:0.0696599` (순수 함수)
+int? parseAmetadataFramePtsMs(String line) {
+  final match = RegExp(
+    r'^frame:[0-9]+ +pts:-?[0-9]+ +pts_time:(-?[0-9.]+)',
+  ).firstMatch(line.trim());
+  if (match == null) return null;
+  final seconds = double.tryParse(match.group(1)!);
+  if (seconds == null) return null;
+  return (seconds * 1000).round();
+}
+
+/// 조각 파일의 t=0이 **곡의 어디였는지**를 재는 추정기. (프로세스와 무관 — 테스트 대상)
+///
+/// 장치를 여는 데 0.45초쯤 걸려서 「녹음을 건 순간의 재생 위치」는 파일
+/// t=0보다 그만큼 이르다. 그래서 프레임 줄이 도착할 때마다 그 순간의 재생
+/// 위치를 찍어 두고, 다음 줄의 pts(= 앞 프레임의 끝 = 그때까지 파일에 담긴
+/// 길이)를 빼서 t=0의 곡 좌표를 역산한다.
+///
+/// 줄의 도착은 늦어질 수만 있으므로(파이프·이벤트 루프) 값은 클 수만 있다 —
+/// 최소값이 참값에 가장 가깝다.
+class CaptureAnchorEstimator {
+  CaptureAnchorEstimator({this.maxSamples = 12});
+
+  /// 시작 직후 0.6초만 쓴다 — 오래 모을수록 정지 순간의 어긋난 표본이 섞인다.
+  final int maxSamples;
+
+  int? _prevPositionMs;
+  int? _bestMs;
+  int _samples = 0;
+  bool _frozen = false;
+
+  /// 역산한 t=0의 곡 좌표(ms). 표본이 없으면 null.
+  int? get anchorMs => _bestMs;
+  int get samples => _samples;
+
+  /// 프레임 줄 하나. [positionMs]는 **도착 순간**의 재생 위치, 재생 중이
+  /// 아니면 null(그 표본과 다음 표본은 버린다 — 위치가 흐르지 않으면 식이 안 선다).
+  void addFrame({required int ptsMs, required int? positionMs}) {
+    if (_frozen || _samples >= maxSamples) return;
+    final prev = _prevPositionMs;
+    if (prev != null && positionMs != null && ptsMs > 0) {
+      final candidate = prev - ptsMs;
+      if (_bestMs == null || candidate < _bestMs!) _bestMs = candidate;
+      _samples++;
+    }
+    _prevPositionMs = positionMs;
+  }
+
+  /// 재생을 멈추기 **직전에** 부른다. 멈춘 뒤에도 프레임은 계속 오는데 위치는
+  /// 서 있어서, 그대로 두면 최소값 필터가 그 틀린 표본을 골라 버린다.
+  void freeze() => _frozen = true;
 }
 
 /// ffmpeg dshow 녹음 인자를 만든다. (순수 함수 — 프로세스를 띄우지 않는다)
@@ -200,8 +268,13 @@ List<String> buildRecordArgs({
   return [
     '-hide_banner',
     '-f', 'dshow',
+    '-audio_buffer_size', '$kDshowAudioBufferMs',
     '-i', 'audio=$deviceName',
-    if (dual) ...['-f', 'dshow', '-i', 'audio=$backingDeviceName'],
+    if (dual) ...[
+      '-f', 'dshow',
+      '-audio_buffer_size', '$kDshowAudioBufferMs',
+      '-i', 'audio=$backingDeviceName',
+    ],
     '-ac', '1',
     '-ar', '48000',
     // 파일을 쓰면서 동시에 입력 레벨을 표준출력으로 흘린다.
@@ -226,6 +299,7 @@ List<String> buildLevelProbeArgs({
   return [
     '-hide_banner',
     '-f', 'dshow',
+    '-audio_buffer_size', '$kDshowAudioBufferMs',
     '-i', 'audio=$deviceName',
     '-ac', '1',
     '-ar', '48000',
@@ -243,13 +317,26 @@ class RecordingController extends ChangeNotifier {
   /// 녹음 파일을 둘 전체 경로를 만들어 준다.
   final Future<String> Function(String fileName) pathBuilder;
 
-  /// 장치가 실제로 열려 **첫 소리가 들어온 순간** 한 번 호출된다.
+  /// **지금 이 순간**의 재생 위치(ms)를 돌려준다. 재생 중이 아니면 null.
   ///
-  /// dshow 장치를 여는 데 수백 ms가 걸린다. 녹음을 먼저 기다렸다 재생하면
-  /// 스페이스와 음악 사이에 들쭉날쭉한 공백이 생겨 첫 박을 잡을 수가 없다.
-  /// 그래서 재생을 먼저 걸고, 조각의 곡 좌표는 이 시점에 다시 잡는다 —
-  /// 기다림은 없애면서 이어붙이기 좌표는 정확하게 남는다.
-  void Function()? onCaptureStarted;
+  /// dshow 장치를 여는 데 0.45초쯤 걸려서, 녹음을 기다렸다 재생하면 스페이스와
+  /// 음악 사이에 공백이 생겨 첫 박을 잡을 수 없다. 그래서 재생을 먼저 걸고,
+  /// 조각의 곡 좌표는 프레임 줄이 올 때마다 이 값을 찍어 역산한다
+  /// ([CaptureAnchorEstimator]).
+  ///
+  /// 🔴 예전에는 「첫 RMS 줄이 온 순간」을 기준점으로 삼았는데, `direct=1`이
+  /// 없던 탓에 그 줄이 **정지할 때** 와서 좌표가 조각의 끝 위치로 저장됐다.
+  int? Function()? songPositionProbe;
+
+  CaptureAnchorEstimator _anchor = CaptureAnchorEstimator();
+
+  /// 재생을 멈추기 직전에 부른다 — [CaptureAnchorEstimator.freeze] 참고.
+  void freezeSongAnchor() => _anchor.freeze();
+
+  // 프레임 줄로 잰 파일 길이(ms). -progress는 0.5초 간격이라 짧은 조각의
+  // 길이가 0.5초 단위로 뭉개진다 — 프레임 줄은 50ms 간격이다.
+  int? _lastFramePtsMs;
+  int _framedLengthMs = 0;
 
   /// 캡처가 stop() 전에 스스로 죽었을 때(장치 열기 실패 등) 호출된다 —
   /// 화면이 스낵으로 원인을 알리는 데 쓴다. 없으면 상태만 되돌린다.
@@ -438,18 +525,32 @@ class RecordingController extends ChangeNotifier {
       _elapsed = Duration.zero;
       _dbfs = null;
       _peakDbfs = null;
-      var announced = false;
+      _anchor = CaptureAnchorEstimator();
+      _lastFramePtsMs = null;
+      _framedLengthMs = 0;
 
       final errorLines = <String>[];
       _sub = job.lines.listen(
         (line) {
+          final ptsMs = parseAmetadataFramePtsMs(line);
+          if (ptsMs != null) {
+            // 프레임 머리줄 — 좌표 역산과 길이 측정에 쓴다.
+            final prev = _lastFramePtsMs;
+            if (prev != null && ptsMs > prev) {
+              // 이 프레임도 앞 프레임과 길이가 같다고 보고 끝을 어림한다.
+              _framedLengthMs = ptsMs + (ptsMs - prev);
+            }
+            _lastFramePtsMs = ptsMs;
+            if (!_stopping) {
+              _anchor.addFrame(
+                ptsMs: ptsMs,
+                positionMs: songPositionProbe?.call(),
+              );
+            }
+            return;
+          }
           final rms = parseRmsLevel(line);
           if (rms != null) {
-            if (!announced) {
-              announced = true;
-              // 장치가 열렸다 — 지금이 이 조각의 곡 좌표 기준점이다.
-              onCaptureStarted?.call();
-            }
             _dbfs = rms;
             if (_peakDbfs == null || rms > _peakDbfs!) _peakDbfs = rms;
             _notifyLevel();
@@ -510,6 +611,7 @@ class RecordingController extends ChangeNotifier {
       int backingSkewMs,
       Duration duration,
       double? peakDbfs,
+      int? songAnchorMs,
     })?
   >
   stop() async {
@@ -519,8 +621,8 @@ class RecordingController extends ChangeNotifier {
     final fileName = _currentFileName;
     final backingFileName = _currentBackingFileName;
     final skewMs = _measuredSkewMs();
-    final peak = _peakDbfs;
     final job = _job;
+    _anchor.freeze();
 
     // 'q'로 우아하게 끝내야 WAV 헤더 크기가 제대로 기록된다.
     // 반응이 없으면 강제 종료로 넘어간다.
@@ -534,7 +636,13 @@ class RecordingController extends ChangeNotifier {
       }
     }
 
-    final duration = _elapsed;
+    // 🔴 최대 레벨·길이는 **종료를 기다린 뒤에** 읽는다. 'q' 뒤에 마지막
+    // 줄들이 마저 흘러나오는데, 그 전에 읽으면 짧은 조각은 값이 비어
+    // 멀쩡한 녹음이 「소리 없음」으로 오판됐다.
+    final peak = _peakDbfs;
+    final framed = Duration(milliseconds: _framedLengthMs);
+    final duration = framed > _elapsed ? framed : _elapsed;
+    final anchorMs = _anchor.anchorMs;
     await _cleanup();
     if (fileName == null) return null;
     return (
@@ -543,6 +651,7 @@ class RecordingController extends ChangeNotifier {
       backingSkewMs: skewMs,
       duration: duration,
       peakDbfs: peak,
+      songAnchorMs: anchorMs,
     );
   }
 
@@ -661,9 +770,9 @@ class RecordingController extends ChangeNotifier {
         if (DateTime.now().difference(firstSeen) >= window) break;
       }
     }
-    final peak = _probePeakDbfs;
+    // 종료 때 밀려 나오는 마지막 줄까지 본 뒤에 읽는다.
     await stopLevelProbe();
-    return peak;
+    return _probePeakDbfs;
   }
 
   Future<void> stopLevelProbe() async {
