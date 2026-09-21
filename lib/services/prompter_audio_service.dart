@@ -129,6 +129,40 @@ class PrompterAudioService {
     return null;
   }
 
+  /// `playing` 게이트를 거치지 않는 재생 — 녹음 고정의 스페이스 전용.
+  /// 재생을 걸었으면 null, 막혔으면 사유를 돌려준다.
+  ///
+  /// [play]는 넘겨받은 `playing`을 믿고 건너뛰는데, 그 값은 네이티브 호출이
+  /// 끝난 **뒤**의 상태 이벤트로 서는 거울이라 늘 한 박자 늦다. 고정 모드는
+  /// 조각 마크와 재생을 같은 순간에 걸어야 해서, 낡은 거울 때문에 「마크만 찍히고
+  /// 음악은 안 나오는」 일이 없도록 플레이어에 바로 묻는다. 재생 가능 검사는 그대로다.
+  Future<String?> forcePlay({
+    required Song? song,
+    required bool audioReady,
+  }) async {
+    // 곡이 없으면 [play]는 조용히 넘어가지만, 여기서는 「안 걸렸다」를 알려야 한다 —
+    // 호출부가 찍어 둔 조각 마크를 물려야 하기 때문이다.
+    if (song == null) return '먼저 곡을 선택해 주세요.';
+    final blocked = _playabilityMessage(song: song, audioReady: audioReady);
+    if (blocked != null) return blocked;
+    await _player.resume();
+    return null;
+  }
+
+  /// `playing` 게이트를 거치지 않는 일시정지. 멈췄으면 null, 멈출 게 없으면 사유.
+  ///
+  /// 재생을 건 직후(상태 이벤트가 오기 전)에 멈추면 [pause]는 `playing == false`로
+  /// 보고 아무것도 안 한다 — 조각은 끝났는데 음악만 계속 나온다.
+  Future<String?> forcePause({
+    required Song? song,
+    required bool audioReady,
+  }) async {
+    final blocked = _playabilityMessage(song: song, audioReady: audioReady);
+    if (blocked != null || song == null) return blocked;
+    await _player.pause();
+    return null;
+  }
+
   /// 재생 불가 사유. 가능하면 null.
   String? _playabilityMessage({
     required Song? song,

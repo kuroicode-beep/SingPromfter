@@ -85,6 +85,9 @@ class PrompterPanel extends StatelessWidget {
   final bool isRecording;
   final bool recordArmed;
   final VoidCallback? onToggleRecordArm;
+
+  /// 고정 글자 자리에 띄울 마이크 상태 문구(조작판으로 그대로 넘긴다).
+  final String? armedStatusLabel;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -148,6 +151,7 @@ class PrompterPanel extends StatelessWidget {
     required this.isRecording,
     this.recordArmed = false,
     this.onToggleRecordArm,
+    this.armedStatusLabel,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -345,6 +349,7 @@ class PrompterPanel extends StatelessWidget {
             isRecording: isRecording,
             recordArmed: recordArmed,
             onToggleRecordArm: onToggleRecordArm,
+            armedStatusLabel: armedStatusLabel,
             recordingLevelLabel: recordingLevelLabel,
             recordingElapsed: recordingElapsed,
             onToggleRecording: onToggleRecording,

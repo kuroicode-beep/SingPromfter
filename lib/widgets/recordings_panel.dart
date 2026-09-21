@@ -382,7 +382,8 @@ class _TakeRow extends StatelessWidget {
         '${_formatDuration(take.duration)} · '
         '${formatKeyLabel(take.pitchSemitones)}'
         '${take.dualChannel ? ' · 2채널(보컬+반주)' : ''}'
-        '${take.songPositionMs == null ? '' : ' · ${_formatPosition(take.songPositionMs!)} 조각'}';
+        // 저장·취소 토스트와 같은 숫자(스페이스를 누른 자리)로 말한다.
+        '${take.displayPositionMs == null ? '' : ' · ${_formatPosition(take.displayPositionMs!)} 조각'}';
 
     return Semantics(
       label:

@@ -12,6 +12,7 @@ import 'package:singpromfter_app/widgets/prompter_bottom_bar.dart';
 import 'package:singpromfter_app/widgets/prompter_drawer.dart';
 
 import '../fakes/fake_playback.dart';
+import '../fakes/semantics_count.dart';
 
 Future<bool> _defaultStartSeparator() async => true;
 
@@ -35,8 +36,11 @@ void main() {
     bool recordArmed = false,
     bool isRecording = false,
     VoidCallback? onToggleRecordArm,
+    String? armedStatusLabel,
+    // 같은 트리를 다른 값으로 다시 그릴 때 넘긴다(컨트롤러를 새로 만들지 않게).
+    FakePlayback? reuse,
   }) async {
-    final fake = buildFakePlayback(song: fakeSong());
+    final fake = reuse ?? buildFakePlayback(song: fakeSong());
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -73,6 +77,7 @@ void main() {
                 isRecording: isRecording,
                 recordArmed: recordArmed,
                 onToggleRecordArm: onToggleRecordArm ?? () {},
+                armedStatusLabel: armedStatusLabel,
                 recordingLevelLabel: '',
                 recordingElapsed: Duration.zero,
                 onToggleRecording: () {},
@@ -378,5 +383,114 @@ void main() {
       expect(find.text('● 녹음 중'), findsOneWidget);
       fake.dispose();
     });
+  });
+
+  group('녹음 고정 — 마이크 상태 문구(armedStatusLabel, v5.16.0)', () {
+    const opening = '● 고정 — 마이크 여는 중';
+    const ready = '● 고정 ON · 마이크 열림 · 입력 좋음';
+    const lost = '● 고정 — 마이크 끊김';
+
+    testWidgets('문구를 주면 「● 고정 ON」 자리에 그 글자가 나온다', (tester) async {
+      final fake = await pumpBar(
+        tester,
+        width: 720,
+        recordArmed: true,
+        armedStatusLabel: ready,
+      );
+      expect(find.text(ready), findsOneWidget);
+      expect(find.text('● 고정 ON'), findsNothing);
+      fake.dispose();
+    });
+
+    testWidgets('문구가 없으면 예전 글자 그대로다', (tester) async {
+      final fake = await pumpBar(tester, width: 720, recordArmed: true);
+      expect(find.text('● 고정 ON'), findsOneWidget);
+      fake.dispose();
+    });
+
+    testWidgets('고정이 꺼져 있으면 문구를 줘도 안 나온다', (tester) async {
+      final fake = await pumpBar(tester, width: 720, armedStatusLabel: ready);
+      expect(find.text(ready), findsNothing);
+      fake.dispose();
+    });
+
+    testWidgets('🔴 문구가 바뀌어도 시맨틱스 노드가 생기거나 사라지지 않는다', (tester) async {
+      // 떴다 사라지는 접근성 노드가 엔진 크래시를 냈다(center_alert.dart 머리말).
+      // 상태 글자는 같은 Text의 문자열만 바뀌어야 하고, 그 글자 자체는 트리에 없어야 한다.
+      final handle = tester.ensureSemantics();
+      final fake = await pumpBar(
+        tester,
+        width: 720,
+        recordArmed: true,
+        armedStatusLabel: opening,
+      );
+      final textWidget = tester.widget<Text>(find.text(opening));
+      final before = countSemanticsNodes(tester);
+      expect(find.bySemanticsLabel(opening), findsNothing);
+
+      await pumpBar(
+        tester,
+        width: 720,
+        recordArmed: true,
+        armedStatusLabel: ready,
+        reuse: fake,
+      );
+      expect(find.text(ready), findsOneWidget);
+      expect(find.text(opening), findsNothing);
+      expect(countSemanticsNodes(tester), before);
+      expect(find.bySemanticsLabel(ready), findsNothing);
+      // 같은 자리의 같은 위젯 종류다(새 위젯을 끼운 게 아니라 글자만 바뀌었다).
+      expect(tester.widget<Text>(find.text(ready)).style, textWidget.style);
+
+      await pumpBar(
+        tester,
+        width: 720,
+        recordArmed: true,
+        armedStatusLabel: lost,
+        reuse: fake,
+      );
+      expect(find.text(lost), findsOneWidget);
+      expect(countSemanticsNodes(tester), before);
+
+      handle.dispose();
+      fake.dispose();
+    });
+
+    testWidgets('상태는 고정 버튼의 스크린리더 라벨에 덧붙는다(●는 뗀다)', (tester) async {
+      final fake = await pumpBar(
+        tester,
+        width: 720,
+        recordArmed: true,
+        armedStatusLabel: ready,
+      );
+      expect(
+        find.bySemanticsLabel('녹음 고정 끄기 (Alt+R) — 고정 ON · 마이크 열림 · 입력 좋음'),
+        findsOneWidget,
+      );
+      fake.dispose();
+    });
+
+    test('armedButtonSemanticsLabel — 문구가 없으면 기본 라벨', () {
+      expect(armedButtonSemanticsLabel(null), '녹음 고정 끄기 (Alt+R)');
+      expect(armedButtonSemanticsLabel(''), '녹음 고정 끄기 (Alt+R)');
+      expect(armedButtonSemanticsLabel(lost), '녹음 고정 끄기 (Alt+R) — 고정 — 마이크 끊김');
+    });
+
+    for (final width in [560.0, 640.0]) {
+      testWidgets('폭 ${width.toInt()}에서 가장 긴 문구 + 녹음 중 표시가 넘치지 않는다', (
+        tester,
+      ) async {
+        final fake = await pumpBar(
+          tester,
+          width: width,
+          recordArmed: true,
+          isRecording: true,
+          armedStatusLabel: ready,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        fake.dispose();
+      });
+    }
   });
 }

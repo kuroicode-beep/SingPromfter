@@ -7,12 +7,15 @@
 // ffmpeg + ProcessRunner를 재사용하면 툴체인을 건드리지 않고 같은 일을 하며,
 // astats 메타데이터로 라이브 입력 레벨까지 얻을 수 있다.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import '../services/process/external_tool_locator.dart';
 import '../services/process/process_runner.dart';
 import '../services/process/tool_progress_parsers.dart';
+import 'armed_capture_session.dart';
+import 'capture_session.dart';
 
 /// 녹음 중 자동 다음곡 진행 여부. (순수 함수 — 테스트 대상)
 ///
@@ -80,6 +83,16 @@ double? parseRmsLevel(String line) {
   // 완전 무음이면 ffmpeg가 -inf를 낸다.
   if (parsed == null || parsed.isNaN || parsed.isInfinite) return -100;
   return parsed;
+}
+
+/// ffmpeg 출력 줄이 즉사 원인(장치 열기 실패 등)을 담고 있으면 그 문구를 돌려준다.
+/// 아니면 null. (순수 함수) — 테이크 녹음과 고정 세션이 같은 잣대를 쓴다.
+String? ffmpegErrorDetail(String line) {
+  final trimmed = line.trim();
+  if (trimmed.startsWith('Error') || trimmed.contains('Could not')) {
+    return trimmed;
+  }
+  return null;
 }
 
 /// `ffmpeg -list_devices` 출력에서 오디오 장치 이름을 뽑는다. (순수 함수)
@@ -175,7 +188,10 @@ String? preferredInputDevice(List<String> devices) {
 /// 실측: 14초 녹음에서 'q' 이전 RMS 줄 0개). 그 탓에 녹음 중 레벨 막대가
 /// 멈춰 있었고, 입력 점검이 매번 4초 타임아웃을 다 채워 「녹음 고정 +
 /// 스페이스」마다 4.5초 공백이 생겼다 — 「시작 시점을 못 잡겠다」의 원인.
-String _captureFilterChain(double gain) {
+///
+/// 공개인 이유: 상시 캡처 세션(capture_session.dart)도 **같은 문자열**을 써야
+/// 한다. 복사해 두면 위 옵션이 한쪽에서만 빠지는 사고가 다시 난다.
+String captureFilterChain(double gain) {
   final volume = gain == 1.0 ? '' : 'volume=${gain.toStringAsFixed(2)},';
   return '${volume}astats=metadata=1:reset=1,'
       'ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-:direct=1';
@@ -278,7 +294,7 @@ List<String> buildRecordArgs({
     '-ac', '1',
     '-ar', '48000',
     // 파일을 쓰면서 동시에 입력 레벨을 표준출력으로 흘린다.
-    '-af', _captureFilterChain(gain),
+    '-af', captureFilterChain(gain),
     '-progress', 'pipe:1',
     '-nostats',
     '-y',
@@ -303,7 +319,7 @@ List<String> buildLevelProbeArgs({
     '-i', 'audio=$deviceName',
     '-ac', '1',
     '-ar', '48000',
-    '-af', _captureFilterChain(gain),
+    '-af', captureFilterChain(gain),
     '-nostats',
     '-f', 'null',
     '-',
@@ -393,12 +409,36 @@ class RecordingController extends ChangeNotifier {
   String? _backingDeviceName;
   List<String> _devices = const [];
 
+  /// [nowUs]는 고정 세션이 줄 도착과 마크를 찍는 단조 시계(µs, 기본 Stopwatch),
+  /// [sessionDirBuilder]는 세션 파일을 둘 폴더다(기본 앱 지원 폴더/capture_sessions).
+  /// 둘 다 테스트가 시간을 고정하고 임시 폴더를 쓰려고 주입한다.
   RecordingController({
     required this.pathBuilder,
     ProcessRunner runner = const SystemProcessRunner(),
     ExternalToolLocator? locator,
+    int Function()? nowUs,
+    Future<Directory> Function()? sessionDirBuilder,
+    Duration? sessionWatchdogInterval = kSessionWatchdogInterval,
+    Duration sessionLiveTimeout = kSessionLiveTimeout,
   }) : _runner = runner,
-       _locator = locator ?? ExternalToolLocator(runner: runner);
+       _locator = locator ?? ExternalToolLocator(runner: runner) {
+    _armed = ArmedCaptureSession(
+      runner: runner,
+      nowUs: nowUs,
+      sessionDirBuilder: sessionDirBuilder,
+      watchdogInterval: sessionWatchdogInterval,
+      liveTimeout: sessionLiveTimeout,
+      onChanged: notifyListeners,
+      // 조각이 열려 있는 동안의 레벨 갱신은 테이크 녹음과 같은 120ms 묶음을 탄다.
+      onLevel: _notifyLevel,
+      onLost: (message, {openTake}) =>
+          onSessionLost?.call(message, openTake: openTake),
+      positionProbe: () => songPositionProbe?.call(),
+    );
+  }
+
+  /// 녹음 고정(상시 캡처 세션). 화면은 아래 파사드만 쓴다.
+  late final ArmedCaptureSession _armed;
 
   bool get isRecording => _isRecording;
   bool get isProbing => _isProbing;
@@ -407,9 +447,10 @@ class RecordingController extends ChangeNotifier {
   String get backingLevelLabel => inputLevelLabel(_backingDbfs);
   double get backingLevel => normalizedLevel(_backingDbfs);
   Duration get elapsed => _elapsed;
-  double? get dbfs => _dbfs;
-  String get levelLabel => inputLevelLabel(_dbfs);
-  double get level => normalizedLevel(_dbfs);
+  /// 고정 세션이 열려 있으면 세션의 레벨을 준다(고정 대기 중에는 바뀌어도 알리지 않는다).
+  double? get dbfs => _armed.isOpen ? _armed.dbfs : _dbfs;
+  String get levelLabel => inputLevelLabel(dbfs);
+  double get level => normalizedLevel(dbfs);
   List<String> get devices => List.unmodifiable(_devices);
   String? get deviceName => _deviceName;
 
@@ -475,6 +516,196 @@ class RecordingController extends ChangeNotifier {
     return _devices.isNotEmpty;
   }
 
+  /// 이번에 열 입력 장치를 정한다. 없으면 null.
+  /// 저장된 장치가 뽑혔을 수 있으니 목록에 없으면 자동 선택으로 폴백한다.
+  Future<String?> _resolveInputDevice() async {
+    if (_devices.isEmpty) await refreshDevices();
+    var device = _deviceName ?? preferredInputDevice(_devices);
+    if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
+      device = preferredInputDevice(_devices);
+    }
+    return device;
+  }
+
+  // ── 녹음 고정(상시 캡처 세션) ──────────────────────────────────────────
+  //
+  // 테이크마다 ffmpeg를 띄우면 장치를 여는 0.44~0.53초 동안 마이크가 닫혀 있어
+  // 스페이스 직후의 첫 음절을 구할 수 없다. 고정을 켜는 순간 세션 하나를 열어
+  // 계속 받아 두고, 스페이스는 마크만 찍는다(armed_capture_session.dart).
+
+  /// 세션이 죽었을 때(종료·멈춤·상한에서 조각이 끊김) 불린다. 열려 있던 조각이
+  /// 있으면 [openTake]로 온다 — `sliceTake(openTake, null, …)`로 끊긴 데까지 살린다.
+  void Function(String message, {TakeStartMark? openTake})? onSessionLost;
+
+  Future<bool>? _sessionOpening;
+
+  /// 고정 세션의 상태(off·opening·live·failed).
+  ArmedSessionState get sessionState => _armed.state;
+
+  /// 세션 프로세스가 떠 있는가(여는 중 포함).
+  bool get isSessionOpen => _armed.isOpen;
+
+  /// 마크를 받아도 되는가 — live + 시계 잠금 + 입력 점검 끝 + 무음 아님.
+  bool get isSessionReady => _armed.isReady;
+
+  /// 시작 마크를 찍고 끝 마크를 아직 안 찍었는가. 스페이스 분기의 기준이다 —
+  /// 이벤트로 늦게 서는 `playing`이 아니라 마크와 **같은 순간** 뒤집히는 값을 본다.
+  bool get isTakeOpen => _armed.isTakeOpen;
+
+  /// 최근 2초의 입력 상태(좋음·작음·없음). 고정 대기 중에는 이게 바뀔 때만 알린다.
+  InputLevelBucket get sessionLevelBucket => _armed.levelBucket;
+
+  /// 조작판 고정 글자에 넣을 문구(설계 3.7). 고정이 꺼져 있으면 빈 문자열.
+  String get sessionStatusLabel => _armed.statusLabel;
+
+  /// 마지막 세션 실패 원인. 없으면 null.
+  String? get sessionError => _armed.error;
+
+  /// 입력 점검에서 본 최대 레벨(dBFS). 점검이 안 끝났으면 null.
+  double? get sessionInputPeakDbfs => _armed.inputPeakDbfs;
+
+  /// 입력 점검이 끝났는가(결과가 무음이어도 참).
+  bool get isSessionInputChecked => _armed.isInputChecked;
+
+  /// 입력 점검 결과를 기다린다(openSession 뒤 약 0.9초). [isSilentTake]로 판정한다.
+  Future<double?> get sessionInputCheck => _armed.inputCheck;
+
+  /// 열린 조각의 길이. 없으면 0.
+  Duration get sessionTakeElapsed => _armed.takeElapsed;
+
+  /// 아직 저장하지 않은 마크가 있는가(열린 조각 포함).
+  bool get hasUnslicedSessionMarks => _armed.hasUnslicedMarks;
+
+  @visibleForTesting
+  String? get debugSessionPcmPath => _armed.currentPcmPath;
+
+  @visibleForTesting
+  CaptureClock? get debugSessionClock => _armed.currentClock;
+
+  /// 멈춤 감시를 한 번 돌린다(테스트가 타이머 없이 부른다).
+  @visibleForTesting
+  Future<void> debugSessionWatchdogTick() => _armed.watchdogTick();
+
+  /// 고정 세션을 연다. live가 되면 true(3초 상한). 입력 점검은 이어서 돈다 —
+  /// 결과는 [sessionInputCheck]로 기다린다. 이미 여는 중이면 그 결과를 함께 기다린다.
+  Future<bool> openSession({double gain = 1.0}) {
+    return _sessionOpening ??= _openSession(gain).whenComplete(
+      () => _sessionOpening = null,
+    );
+  }
+
+  /// [openSession]의 본체 — ffmpeg와 장치를 찾아 세션에 넘긴다.
+  Future<bool> _openSession(double gain) async {
+    if (_isRecording) {
+      debugPrint('고정 세션 거절 — 테이크 녹음이 돌고 있다.');
+      return false;
+    }
+    if (_armed.isOpen) return _armed.waitLive();
+    // 찾는 동안에도 화면이 「여는 중」을 보여 주게 먼저 알린다.
+    final generation = _armed.markOpening();
+    try {
+      // 프로브가 돌고 있으면 장치를 놓아준다(같은 장치는 동시에 못 연다).
+      await stopLevelProbe();
+      final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
+      if (!ffmpeg.found) {
+        _armed.failBeforeOpen(
+          'ffmpeg를 찾지 못했습니다.',
+          generation: generation,
+        );
+        return false;
+      }
+      final device = await _resolveInputDevice();
+      if (device == null) {
+        _armed.failBeforeOpen(
+          '녹음 입력 장치를 찾지 못했습니다.',
+          generation: generation,
+        );
+        return false;
+      }
+      return await _armed.open(
+        ffmpegPath: ffmpeg.path!,
+        deviceName: device,
+        gain: gain,
+        generation: generation,
+      );
+    } catch (e) {
+      debugPrint('고정 세션 열기 실패: $e');
+      _armed.failBeforeOpen(
+        '녹음 고정을 시작하지 못했습니다 — $e',
+        generation: generation,
+      );
+      return false;
+    }
+  }
+
+  /// 조각 시작을 찍는다. **동기** — 같은 스택에서 곧바로 재생을 걸 수 있다.
+  /// [isSessionReady]가 아니거나 이미 조각이 열려 있으면 null.
+  TakeStartMark? markTakeStart({
+    required int songPositionMs,
+    bool playbackAlreadyRunning = false,
+    Map<String, Object?> context = const {},
+  }) => _armed.markTakeStart(
+    songPositionMs: songPositionMs,
+    playbackAlreadyRunning: playbackAlreadyRunning,
+    context: context,
+  );
+
+  /// 조각 끝을 찍는다. **동기.** 열린 조각이 없으면 null.
+  TakeEndMark? markTakeEnd() => _armed.markTakeEnd();
+
+  /// 열린 조각을 없던 일로 한다(재생이 막혔을 때).
+  void cancelOpenTake() => _armed.cancelOpenTake();
+
+  /// 마크 한 쌍을 세션 파일에서 잘라 [outputPath]에 WAV로 저장한다.
+  /// null = 너무 짧아 저장하지 않음, `ok == false` = 저장 실패(세션 파일은 남는다).
+  /// [end]가 null이면 세션이 죽어 끝을 못 찍은 조각 — 파일 끝까지 살린다.
+  ///
+  /// 🔴 성공해도 마크는 세션의 저장 대기열에 남는다. 조각을 녹음 목록에 **등록한
+  /// 뒤** [confirmTakeSaved]를 불러야 빠진다 — 그 전에 앱이 끝나면 다음 부팅의 복구가
+  /// 되살린다.
+  Future<SlicedTake?> sliceTake(
+    TakeStartMark start,
+    TakeEndMark? end, {
+    required String outputPath,
+  }) => _armed.sliceTake(start, end, outputPath: outputPath);
+
+  /// [sliceTake]로 자른 조각이 녹음 목록에 등록됐다 — 대기열에서 빼고 세션 정리를 잇는다.
+  Future<void> confirmTakeSaved(TakeStartMark start) =>
+      _armed.confirmTakeSaved(start);
+
+  /// 고정 세션을 닫는다('q' → 2초 → 핸들로 끊기). 저장하지 않은 마크가 있는 세션
+  /// 파일은 지우지 않는다 — 저장이 끝나는 대로 지운다.
+  Future<void> closeSession({bool deleteFiles = true}) =>
+      _armed.close(deleteFiles: deleteFiles);
+
+  /// 앱이 남기고 죽은 세션을 되살린다. 조각은 [pathBuilder]가 주는 자리에 쓴다.
+  /// 지금 열려 있는 세션은 건드리지 않는다.
+  ///
+  /// [onSlice]는 조각을 쓴 직후에 불린다 — 목록에 등록하고 성공 여부를 돌려준다.
+  /// 거짓이면 그 구간은 세션에 남아 다음 부팅에 다시 시도된다(등록이 디스크에 닿기
+  /// 전에 세션을 지우면, 그사이 앱이 끝났을 때 조각이 어디에도 없다).
+  Future<List<RecoveredSlice>> recoverStaleSessions({
+    String Function(String sessionId, int index)? fileNameFor,
+    Future<bool> Function(RecoveredSlice slice)? onSlice,
+  }) => _armed.recoverStale(
+    pathBuilder: pathBuilder,
+    fileNameFor: fileNameFor,
+    onSlice: onSlice,
+  );
+
+  /// 종료 훅용 — [cap] 안에 세션 프로세스를 끝낸다. 고아 ffmpeg를 PID로 죽일 수
+  /// 없는 PC라(다른 작업의 ffmpeg가 상시 돈다) 여기서 핸들로 확실히 끊는다.
+  ///
+  /// [cap]은 **전체** 상한이다. 'q'를 그 60%까지 기다리고, 파일 정리까지 포함해
+  /// 상한을 넘기면 핸들로 끊고 나간다 — 남은 파일은 다음 부팅의 복구가 치운다.
+  Future<void> shutdown({Duration cap = const Duration(seconds: 1)}) async {
+    try {
+      await _armed.close(quitCap: cap * 0.6).timeout(cap);
+    } on TimeoutException {
+      _armed.killAll();
+    }
+  }
+
   /// 녹음을 시작한다. 성공하면 파일명을 돌려준다.
   ///
   /// WAV로 캡처하는 이유: 인코더 의존이 없고, 중간에 끊겨도 그때까지
@@ -485,17 +716,18 @@ class RecordingController extends ChangeNotifier {
     String? backingFileName,
   }) async {
     if (_isRecording) return null;
+    // 고정 세션이 마이크를 쥐고 있다 — 아무것도 닫지 않고 거절한다.
+    // 고정 중의 R·스페이스는 화면이 마크(markTakeStart)로 보낸다.
+    if (_armed.isOpen) {
+      debugPrint('녹음 시작 거절 — 고정 세션이 열려 있다(마크를 써야 한다).');
+      return null;
+    }
     // 프로브가 돌고 있으면 장치를 놓아준다(같은 장치는 동시에 못 연다).
     await stopLevelProbe();
 
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) return null;
-    if (_devices.isEmpty) await refreshDevices();
-    // 저장된 장치가 뽑혔을 수 있으니 목록에 없으면 첫 장치로 폴백한다.
-    var device = _deviceName ?? preferredInputDevice(_devices);
-    if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
-      device = preferredInputDevice(_devices);
-    }
+    final device = await _resolveInputDevice();
     if (device == null) return null;
 
     // 반주 채널은 **장치가 목록에 있을 때만** 연다. 없는 장치를 넘기면
@@ -569,11 +801,8 @@ class RecordingController extends ChangeNotifier {
             return;
           }
           // 즉사 원인 보고용 — 장치 열기 실패 등 ffmpeg의 오류 줄을 담아 둔다.
-          final trimmed = line.trim();
-          if (errorLines.length < 5 &&
-              (trimmed.startsWith('Error') || trimmed.contains('Could not'))) {
-            errorLines.add(trimmed);
-          }
+          final detail = ffmpegErrorDetail(line);
+          if (detail != null && errorLines.length < 5) errorLines.add(detail);
         },
         onError: (Object e) => debugPrint('녹음 스트림 오류: $e'),
       );
@@ -679,14 +908,12 @@ class RecordingController extends ChangeNotifier {
     bool includeBacking = false,
   }) async {
     if (_isRecording || _isProbing) return false;
+    // 고정 세션이 같은 장치를 쥐고 있다 — 두 번 열다 세션을 흔들지 않는다.
+    if (_armed.isOpen) return false;
 
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) return false;
-    if (_devices.isEmpty) await refreshDevices();
-    var device = _deviceName ?? preferredInputDevice(_devices);
-    if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
-      device = preferredInputDevice(_devices);
-    }
+    final device = await _resolveInputDevice();
     if (device == null) return false;
 
     try {
@@ -843,6 +1070,7 @@ class RecordingController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _armed.dispose();
     _sub?.cancel();
     _job?.cancel();
     _probeSub?.cancel();

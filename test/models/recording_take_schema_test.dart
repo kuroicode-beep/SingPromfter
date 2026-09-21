@@ -1,4 +1,6 @@
 // v2 스키마 — 반주 조각·믹스 설정·분리 보컬 필드의 하위호환을 고정한다.
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/models/recording_take.dart';
 
@@ -133,6 +135,152 @@ void main() {
       final t = make(pos: 120380).copyWith(alignOffsetMs: 0);
       expect(t.alignOffsetMs, 0);
       expect(t.songPositionMs, 120380);
+    });
+  });
+
+  group('leadInMs — 고정 조각의 리드인 (v5.16.0)', () {
+    RecordingTake make({int? leadIn}) => RecordingTake(
+      id: 't1',
+      songId: 's1',
+      songTitle: '곡',
+      fileName: 't1.wav',
+      recordedAt: DateTime(2026, 9, 22),
+      durationMs: 2700,
+      songPositionMs: 83000,
+      leadInMs: leadIn,
+    );
+
+    test('옛 기록에는 키가 없어서 null — 그래도 읽힌다(additive)', () {
+      final old = RecordingTake.fromJson({
+        'id': 'old',
+        'songId': 's1',
+        'songTitle': '봄날',
+        'fileName': 'old.wav',
+        'recordedAt': '2026-09-21T10:00:00',
+        'durationMs': 1800,
+        'songPositionMs': 126161,
+      });
+      expect(old.leadInMs, isNull);
+      // 다른 필드는 그대로 읽혀야 한다 — 새 키가 옛 파일을 깨면 목록이 통째로 빈다.
+      expect(old.songPositionMs, 126161);
+      expect(old.durationMs, 1800);
+    });
+
+    test('JSON 왕복에 살아남는다', () {
+      final t = make(leadIn: 300);
+      expect(t.toJson()['leadInMs'], 300);
+      expect(RecordingTake.fromJson(t.toJson()).leadInMs, 300);
+    });
+
+    test('0도 유효하다 — 곡 맨 앞에서는 리드인을 못 담는다', () {
+      final t = make(leadIn: 0);
+      expect(RecordingTake.fromJson(t.toJson()).leadInMs, 0);
+    });
+
+    test('null은 null로 왕복한다(R 녹음)', () {
+      final t = make();
+      expect(t.toJson().containsKey('leadInMs'), isTrue);
+      expect(RecordingTake.fromJson(t.toJson()).leadInMs, isNull);
+    });
+
+    test('소수로 저장돼 있어도 정수로 읽는다', () {
+      expect(RecordingTake.fromJson({'leadInMs': 285.0}).leadInMs, 285);
+    });
+
+    test('copyWith — 주면 바뀌고, 다른 필드만 바꿀 때는 유지된다', () {
+      final t = make(leadIn: 300);
+      expect(t.copyWith(leadInMs: 120).leadInMs, 120);
+      expect(t.copyWith(comment: '복구됨').leadInMs, 300);
+      expect(t.copyWith(accompanimentFileName: 't1_acc.m4a').leadInMs, 300);
+    });
+  });
+
+  group('displayPositionMs — 사용자에게 말하는 조각 위치 (v5.16.0)', () {
+    RecordingTake make({int? songPositionMs, int? leadInMs}) => RecordingTake(
+      id: 't1',
+      songId: 's1',
+      songTitle: '곡',
+      fileName: 't1.wav',
+      recordedAt: DateTime(2026, 9, 22),
+      durationMs: 2000,
+      songPositionMs: songPositionMs,
+      leadInMs: leadInMs,
+    );
+
+    test('🔴 고정 조각은 리드인을 더해 「스페이스를 누른 자리」로 말한다', () {
+      // P0 = 1:23.10 → 파일 좌표는 83100 − 15 − 300 = 82785(1:22). 저장 토스트는
+      // 1:23이라고 했는데 목록·취소 토스트가 1:22라고 하면 다른 조각으로 읽힌다.
+      final take = make(songPositionMs: 82785, leadInMs: 300);
+      expect(take.displayPositionMs, 83085);
+      // 저장 좌표(이어붙이기·반주 자르기)는 그대로다.
+      expect(take.songPositionMs, 82785);
+    });
+
+    test('리드인이 없는 테이크(R 녹음·옛 기록)는 값이 그대로다', () {
+      expect(make(songPositionMs: 126161).displayPositionMs, 126161);
+      expect(make(songPositionMs: 0, leadInMs: 0).displayPositionMs, 0);
+    });
+
+    test('좌표가 없으면 null — 「0:00 조각」을 지어내지 않는다', () {
+      expect(make().displayPositionMs, isNull);
+      expect(make(leadInMs: 300).displayPositionMs, isNull);
+    });
+  });
+
+  group('peakDbfs — 저장된 소리의 최대 레벨 (v5.16.0)', () {
+    RecordingTake make({double? peak}) => RecordingTake(
+      id: 't1',
+      songId: 's1',
+      songTitle: '곡',
+      fileName: 't1.wav',
+      recordedAt: DateTime(2026, 9, 22),
+      durationMs: 2700,
+      songPositionMs: 83000,
+      peakDbfs: peak,
+    );
+
+    test('옛 기록에는 키가 없어서 null — 그래도 읽힌다(additive)', () {
+      final old = RecordingTake.fromJson({
+        'id': 'old',
+        'songId': 's1',
+        'fileName': 'old.wav',
+        'recordedAt': '2026-09-21T10:00:00',
+        'durationMs': 1800,
+        'songPositionMs': 126161,
+      });
+      expect(old.peakDbfs, isNull);
+      expect(old.songPositionMs, 126161);
+    });
+
+    test('JSON 문자열 왕복에 살아남는다', () {
+      final t = make(peak: -21.5);
+      final back = RecordingTake.fromJson(
+        jsonDecode(jsonEncode(t.toJson())) as Map<String, dynamic>,
+      );
+      expect(back.peakDbfs, -21.5);
+    });
+
+    test('정수로 저장돼 있어도 읽는다(-100 = 완전 무음)', () {
+      expect(RecordingTake.fromJson({'peakDbfs': -100}).peakDbfs, -100.0);
+    });
+
+    test('NaN·무한대여도 jsonEncode가 죽지 않는다 — 목록 저장이 통째로 막히면 안 된다', () {
+      expect(() => jsonEncode(make(peak: double.nan).toJson()), returnsNormally);
+      expect(make(peak: double.nan).toJson()['peakDbfs'], isNull);
+      // 완전 무음의 -inf는 캡처 쪽 표기(-100)로 남겨 무음 판정이 유지되게 한다.
+      expect(make(peak: double.negativeInfinity).toJson()['peakDbfs'], -100);
+      expect(
+        () => jsonEncode(make(peak: double.negativeInfinity).toJson()),
+        returnsNormally,
+      );
+      expect(make(peak: double.infinity).toJson()['peakDbfs'], 0);
+    });
+
+    test('copyWith — 주면 바뀌고, 다른 필드만 바꿀 때는 유지된다', () {
+      final t = make(peak: -18);
+      expect(t.copyWith(peakDbfs: -30).peakDbfs, -30);
+      expect(t.copyWith(accompanimentFileName: 't1_acc.m4a').peakDbfs, -18);
+      expect(t.copyWith(comment: '메모').peakDbfs, -18);
     });
   });
 }

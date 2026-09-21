@@ -19,8 +19,25 @@
 //
 // 반주는 조각에서 가져오지 않는다 — 2채널로 받았다면 조각마다 반주가 들어
 // 있어서 그대로 겹치면 울린다. 이어붙인 보컬을 원본 반주 한 벌 위에 얹는다.
+//
+// ── v5.16.0에서 고친 것 ─────────────────────────────────────────
+// · 좌표축: 조각 좌표(songPositionMs)는 **플레이어 축**이다. 줄 경계도 같은 축으로
+//   옮겨야 스냅이 맞는다([stitchLineStartsMs]). 예전에는 LRC 원본 축 값을 그대로
+//   넘겨, 가사 오프셋이 1800ms인 곡에서 ±200ms 스냅이 엉뚱한 줄을 잡거나 아예
+//   못 잡았다.
+// · 무음 조각: 꺼진 장치를 녹음한 조각이 끼면, 그 조각의 「내용 시작」이 앞 조각의
+//   꼬리를 잘라 놓고 자기는 아무 소리도 안 낸다 — 노래에 구멍이 난다. 뺀다.
+// · 리드인: 녹음 고정 조각은 머리에 최대 300ms의 리드인(키 누르기 전 소리)이 있다.
+//   거기 든 키 소리·숨소리를 「맨 앞부터 소리가 있다」로 읽으면 내용 시작이 곧 녹음
+//   시작이 되어, **앞 조각의 꼬리가 다음 조각의 말 시작이 아니라 녹음 시작에서
+//   잘렸다.** 리드인 + 250ms부터 잰다.
+// · 스냅이 조각 자기 시작보다 앞으로 가면 파일 오프셋이 음수가 된다 — 없는 소리를
+//   자르는 셈이라 조각이 그만큼 일찍 놓인다. 자기 시작에서 막는다.
 import 'dart:io';
 
+import '../controllers/recording_controller.dart' show isSilentTake;
+import '../models/timed_lyrics.dart';
+import 'lyrics_sync_math.dart';
 import 'process/external_tool_locator.dart';
 import 'process/process_runner.dart';
 import 'take_mix_service.dart';
@@ -29,7 +46,7 @@ import 'take_mix_service.dart';
 class StitchSegment {
   final String vocalPath;
 
-  /// 녹음을 시작한 순간의 곡 재생 위치(ms).
+  /// 녹음을 시작한 순간의 곡 재생 위치(ms). 파일 t=0의 좌표다(플레이어 축).
   final int songPositionMs;
 
   /// 이 조각의 길이(ms).
@@ -39,11 +56,20 @@ class StitchSegment {
   /// 0이면 녹음을 걸자마자 뱉었다는 뜻.
   final int contentOffsetMs;
 
+  /// 파일 머리에 일부러 담은 리드인 길이(ms) — 녹음 고정 조각만 0보다 크다.
+  /// 고정값(300)이 아니다. 곡 앞머리에서 찍은 조각은 더 짧다.
+  final int leadInMs;
+
+  /// 녹음할 때 잰 최대 레벨(dBFS). null이면 모른다(파일을 직접 재서 가린다).
+  final double? peakDbfs;
+
   const StitchSegment({
     required this.vocalPath,
     required this.songPositionMs,
     required this.durationMs,
     this.contentOffsetMs = 0,
+    this.leadInMs = 0,
+    this.peakDbfs,
   });
 
   /// 곡 타임라인 기준, 이 조각의 내용이 시작하는 시각(ms).
@@ -51,6 +77,16 @@ class StitchSegment {
 
   /// 이 조각이 덮는 곡 구간의 끝(ms).
   int get songEndMs => songPositionMs + durationMs;
+
+  /// 내용 시작점만 바꾼 사본. 나머지 좌표는 그대로 들고 간다.
+  StitchSegment withContentOffset(int offsetMs) => StitchSegment(
+    vocalPath: vocalPath,
+    songPositionMs: songPositionMs,
+    durationMs: durationMs,
+    contentOffsetMs: offsetMs,
+    leadInMs: leadInMs,
+    peakDbfs: peakDbfs,
+  );
 }
 
 /// 조각이 실제로 쓰일 곡 구간. (이음새 계산 결과)
@@ -68,6 +104,50 @@ class StitchSpan {
   });
 
   int get lengthMs => endMs - startMs;
+}
+
+/// 두 테이크를 한 타임라인에 올릴 수 있는가. (순수 함수)
+///
+/// 템포를 바꾸면 재생 파일의 길이 자체가 달라진다 — 0.8배로 받은 조각의 60초는
+/// 원래 속도의 48초 지점이다. 좌표를 그대로 섞으면 조각이 엉뚱한 자리에 놓인다.
+/// 템포는 5% 단위로만 바뀌므로 0.5% 안쪽이면 같은 값이다.
+bool isSameStitchTimeline(double tempoScaleA, double tempoScaleB) =>
+    (tempoScaleA - tempoScaleB).abs() < 0.005;
+
+/// 싱크 가사 줄 시작을 **플레이어 축**(ms)으로 옮긴다. (순수 함수)
+///
+/// 🔴 조각 좌표(RecordingTake.songPositionMs)는 재생 중인 파일의 시각이다. 가사 줄
+/// 시각은 LRC 원본 축이라 그대로 비교하면 가사 오프셋·트림·템포만큼 어긋난다.
+/// 환산은 화면이 줄로 이동할 때 쓰는 [LyricsSyncMath.playerPositionForLine]과
+/// **같은 식**을 쓴다 — 가사가 뜨는 순간이 곧 그 줄의 경계다.
+///
+/// [trackStartMs]는 슬롯의 트림 시작(원본 축, BackingTrack.startMs),
+/// [lyricsOffsetMs]는 그 슬롯의 가사 오프셋, [tempoScale]은 녹음 당시 템포다.
+List<int> stitchLineStartsMs({
+  required TimedLyrics lyrics,
+  int? trackStartMs,
+  int lyricsOffsetMs = 0,
+  double tempoScale = 1,
+}) {
+  if (lyrics.isEmpty) return const [];
+  // 트림 지점은 원본 축으로 저장돼 있다 — 재생 컨트롤러와 같이 렌더 축으로 옮긴다.
+  final renderedStartMs = trackStartMs == null
+      ? null
+      : LyricsSyncMath.toRendered(
+          Duration(milliseconds: trackStartMs),
+          tempoScale,
+        ).inMilliseconds;
+  final starts = <int>{
+    for (var i = 0; i < lyrics.lines.length; i++)
+      LyricsSyncMath.playerPositionForLine(
+        lyrics: lyrics,
+        index: i,
+        trackStartMs: renderedStartMs,
+        lyricsOffsetMs: lyricsOffsetMs,
+        tempoScale: tempoScale,
+      ).inMilliseconds,
+  };
+  return starts.toList()..sort();
 }
 
 /// 내용 시작점을 가까운 가사 줄 경계로 당긴다. (순수 함수)
@@ -90,12 +170,27 @@ int snapToLineStart(
   return best ?? ms;
 }
 
+/// 조각의 내용 시작점을 줄 경계로 당기되 **자기 녹음 시작보다 앞으로는 안 간다.**
+/// (순수 함수)
+///
+/// 줄 경계가 조각 시작보다 앞에 있으면(박보다 조금 늦게 녹음을 건 경우) 스냅한
+/// 자리에는 이 조각의 소리가 없다. 그대로 두면 파일 오프셋이 음수가 되고,
+/// 조각은 그만큼 **일찍** 놓여 박이 어긋난다. 갈 수 있는 데까지만 간다.
+int snappedContentStartMs(StitchSegment segment, List<int> lineStartsMs) {
+  final snapped = snapToLineStart(segment.contentStartMs, lineStartsMs);
+  return snapped < segment.songPositionMs ? segment.songPositionMs : snapped;
+}
+
 /// 조각들의 이음새를 정한다. (순수 함수 — 테스트 대상)
 ///
 /// 각 조각의 내용 시작점(리드인 무음을 걷어낸 자리)을 기준으로,
 /// 조각 k는 [자기 내용 시작 ~ 다음 조각 내용 시작)을 맡고, 마지막 조각은
 /// 자기 녹음이 끝나는 곳까지 맡는다. 조각이 다음 조각까지 닿지 못하면
 /// 거기서 끝난다(억지로 늘이지 않는다 — 없는 소리를 지어내지 않는다).
+///
+/// 🔴 앞 조각의 꼬리는 다음 조각의 **녹음 시작이 아니라 말 시작**에서 끝난다.
+/// 다음 조각은 2마디 앞에서 녹음을 걸기 때문에, 녹음 시작에서 자르면 앞 조각의
+/// 마지막 줄이 통째로 날아간다.
 List<StitchSpan> computeStitchSpans({
   required List<StitchSegment> segments,
   List<int> lineStartsMs = const [],
@@ -106,15 +201,13 @@ List<StitchSpan> computeStitchSpans({
     ..sort((a, b) => a.contentStartMs.compareTo(b.contentStartMs));
   final lines = [...lineStartsMs]..sort();
 
-  final starts = [
-    for (final s in sorted) snapToLineStart(s.contentStartMs, lines),
-  ];
+  final starts = [for (final s in sorted) snappedContentStartMs(s, lines)];
 
   final spans = <StitchSpan>[];
   for (var i = 0; i < sorted.length; i++) {
     final seg = sorted[i];
     final start = starts[i];
-    // 다음 조각이 시작하는 곳에서 넘긴다. 없으면 내 녹음 끝까지.
+    // 다음 조각의 **내용**이 시작하는 곳에서 넘긴다. 없으면 내 녹음 끝까지.
     var end = i + 1 < sorted.length ? starts[i + 1] : seg.songEndMs;
     // 내 녹음이 거기까지 닿지 않으면 닿는 데까지만.
     if (end > seg.songEndMs) end = seg.songEndMs;
@@ -132,39 +225,121 @@ const int kStitchCrossfadeMs = 30;
 /// 135 BPM에서 한 박이 444ms라, 이보다 크면 옆 박으로 끌려간다.
 const int kStitchSnapToleranceMs = 200;
 
+/// 리드인이 있는 조각에서, 리드인 **뒤로 더** 건너뛰고 재기 시작하는 길이(ms).
+///
+/// 시작 키 소리는 저장할 때 리드인 +60ms까지만 눌러 둔다. 키를 떼는 소리와 손이
+/// 돌아가는 소리는 그 뒤로도 이어져서, 거기서부터 재면 「맨 앞부터 소리가 있다」로
+/// 읽힌다. 박을 타려고 앞에서 녹음을 거는 조각은 이 구간이 어차피 무음이다.
+const int kStitchLeadInSkipMs = 250;
+
+/// 이보다 조용하면 무음으로 본다(dB). silencedetect의 임계와 같은 값이어야 한다.
+const double kStitchSilenceDb = -40;
+
+/// 첫 무음이 이 시각(초) 안에서 시작해야 「맨 앞이 무음」이다.
+const double kStitchLeadingSilenceSec = 0.05;
+
 String _ff(int ms) => (ms / 1000).toStringAsFixed(3);
+
+/// 이 조각을 어디서부터 잴지(ms). (순수 함수) 리드인이 없으면 맨 앞부터다.
+int stitchScanSkipMs(int leadInMs) =>
+    leadInMs > 0 ? leadInMs + kStitchLeadInSkipMs : 0;
 
 /// 리드인 무음을 재는 ffmpeg 인자. (순수 함수)
 ///
 /// -40dB / 0.2초 — 숨소리는 넘기고 말은 잡는 선. 헤드폰 1채널 녹음은
 /// 리드인이 실제로 조용해서 이 정도면 갈린다.
-List<String> buildSilenceDetectArgs(String path) {
+///
+/// [skipMs]가 0보다 크면 그만큼 건너뛰고 잰다. **입력 쪽 `-ss`**(`-i` 앞)여야 한다 —
+/// 출력 쪽에 두면 필터는 파일 전체를 그대로 본다. 입력 쪽 `-ss`는 시각을 0부터
+/// 다시 매기므로 나온 값은 「건너뛴 자리 기준」이다(ffmpeg 8.1.1 실측).
+///
+/// volumedetect를 함께 거는 이유: 끝까지 조용한 파일에서 최신 ffmpeg는 EOF에
+/// `silence_end`를 찍는다. 그 값만 보면 「끝에서 소리가 시작했다」와 구분이 안 되고,
+/// 저장된 길이(durationMs)는 파일 실제 길이와 0.5초까지 어긋날 수 있어 기준이 못 된다.
+/// 최대 음량이 임계 아래면 한 샘플도 임계를 넘지 않았다는 뜻이라 확실하다.
+List<String> buildSilenceDetectArgs(String path, {int skipMs = 0}) {
+  final threshold = kStitchSilenceDb.toStringAsFixed(0);
   return [
     '-hide_banner',
+    if (skipMs > 0) ...['-ss', _ff(skipMs)],
     '-i',
     path,
     '-af',
-    'silencedetect=noise=-40dB:d=0.2',
+    'silencedetect=noise=${threshold}dB:d=0.2,volumedetect',
     '-f',
     'null',
     '-',
   ];
 }
 
-/// silencedetect 출력에서 **소리가 처음 나는 지점**(ms)을 뽑는다. (순수 함수)
+/// silencedetect(+volumedetect) 출력을 읽은 결과.
+class SilenceScan {
+  /// 재기 시작한 자리에 이미 소리가 있었는가.
+  final bool soundAtStart;
+
+  /// 앞머리 무음이 끝나고 첫 소리가 나는 지점(재기 시작한 자리 기준 ms).
+  /// [soundAtStart]면 0, 끝까지 소리가 없으면 null.
+  final int? firstSoundMs;
+
+  const SilenceScan({required this.soundAtStart, required this.firstSoundMs});
+
+  /// 잰 구간 전체가 조용했는가.
+  bool get isAllSilent => !soundAtStart && firstSoundMs == null;
+}
+
+/// silencedetect(+volumedetect) 출력을 읽는다. (순수 함수)
 ///
-/// 파일 맨 앞이 무음이면 `silence_start: 0` 다음의 `silence_end`가 첫 소리다.
-/// 맨 앞부터 소리가 있으면 리드인이 없다는 뜻이라 0.
-int parseFirstSoundMs(String output) {
-  final starts = RegExp(r'silence_start:\s*(-?[0-9.]+)').allMatches(output);
-  if (starts.isEmpty) return 0;
-  final first = double.tryParse(starts.first.group(1)!) ?? 0;
+/// · 최대 음량이 임계 아래 → 전체 무음(EOF의 `silence_end`에 속지 않는다).
+/// · 첫 `silence_start`가 없거나 50ms보다 늦다 → 맨 앞부터 소리가 있다.
+/// · 맨 앞이 무음이고 `silence_end`가 있다 → 거기가 첫 소리.
+/// · 맨 앞이 무음인데 `silence_end`가 없다 → 끝까지 무음(EOF에 안 찍는 옛 ffmpeg).
+SilenceScan parseSilenceScan(String output) {
+  const silent = SilenceScan(soundAtStart: false, firstSoundMs: null);
+  const immediate = SilenceScan(soundAtStart: true, firstSoundMs: 0);
+
+  final volume = RegExp(
+    r'max_volume:\s*(-?(?:inf|[0-9.]+))\s*dB',
+  ).firstMatch(output);
+  if (volume != null) {
+    final raw = volume.group(1)!;
+    final db = raw.contains('inf')
+        ? double.negativeInfinity
+        : double.parse(raw);
+    if (db < kStitchSilenceDb) return silent;
+  }
+
+  final start = RegExp(r'silence_start:\s*(-?[0-9.]+)').firstMatch(output);
+  if (start == null) return immediate;
+  final first = double.tryParse(start.group(1)!) ?? 0;
   // 맨 앞이 무음이 아니면 리드인이 없다.
-  if (first > 0.05) return 0;
+  if (first > kStitchLeadingSilenceSec) return immediate;
+
   final end = RegExp(r'silence_end:\s*([0-9.]+)').firstMatch(output);
-  if (end == null) return 0;
+  if (end == null) return silent;
   final seconds = double.tryParse(end.group(1)!) ?? 0;
-  return (seconds * 1000).round();
+  return SilenceScan(
+    soundAtStart: false,
+    firstSoundMs: (seconds * 1000).round(),
+  );
+}
+
+/// 잰 결과를 「파일 안에서 내용이 시작하는 자리」(ms)로 바꾼다. 내용이 없으면 null.
+/// (순수 함수)
+///
+/// ① [soundAtSkip] — 건너뛴 자리에 이미 소리가 있다. 누르자마자 부른 조각이다.
+///    정확히 어디서부터인지는 알 수 없지만 리드인(키를 누르기 **전**)은 내용이
+///    아니므로, 키를 누른 자리([leadInMs])를 내용 시작으로 본다.
+/// ② 건너뛴 뒤 무음이 이어지다 소리가 났다 → [skipMs] + [detectedAfterSkipMs].
+/// ③ 끝까지 조용했다 → null. 이 조각에는 이을 내용이 없다.
+int? contentOffsetFromDetection({
+  required int leadInMs,
+  required int skipMs,
+  required int? detectedAfterSkipMs,
+  required bool soundAtSkip,
+}) {
+  if (soundAtSkip) return leadInMs;
+  if (detectedAfterSkipMs != null) return skipMs + detectedAfterSkipMs;
+  return null;
 }
 
 /// 조각들을 곡 타임라인 위에 놓아 한 벌의 보컬 wav를 만드는 인자.
@@ -184,20 +359,24 @@ List<String> buildStitchArgs({
   final chains = <String>[];
   for (var i = 0; i < spans.length; i++) {
     final span = spans[i];
+    // 조각이 시작하기 전의 소리는 없다 — 구간이 앞으로 삐져나왔으면 조각 시작에서
+    // 막는다. 음수 오프셋을 그대로 넘기면 조각이 그만큼 일찍 놓인다.
+    final startMs = span.startMs < span.segment.songPositionMs
+        ? span.segment.songPositionMs
+        : span.startMs;
+    final lengthMs = span.endMs - startMs;
     // 곡 시각 → 파일 시각.
-    final fileStart = span.startMs - span.segment.songPositionMs;
+    final fileStart = startMs - span.segment.songPositionMs;
     final fileEnd = span.endMs - span.segment.songPositionMs;
     // 크로스페이드가 구간보다 길면 안 된다.
-    final fade = crossfadeMs * 2 >= span.lengthMs
-        ? (span.lengthMs ~/ 4)
-        : crossfadeMs;
-    final fadeOutAt = span.lengthMs - fade;
+    final fade = crossfadeMs * 2 >= lengthMs ? (lengthMs ~/ 4) : crossfadeMs;
+    final fadeOutAt = lengthMs - fade;
     chains.add(
       '[$i:a]atrim=start=${_ff(fileStart)}:end=${_ff(fileEnd)},'
       'asetpts=PTS-STARTPTS,'
       'afade=t=in:st=0:d=${_ff(fade)},'
       'afade=t=out:st=${_ff(fadeOutAt)}:d=${_ff(fade)},'
-      'adelay=${span.startMs}:all=1[s$i]',
+      'adelay=$startMs:all=1[s$i]',
     );
   }
   final mixIn = [for (var i = 0; i < spans.length; i++) '[s$i]'].join();
@@ -232,35 +411,54 @@ class TakeStitchService {
   }) : _runner = runner,
        _locator = locator ?? ExternalToolLocator(runner: runner);
 
-  /// 조각의 리드인 무음 길이(ms)를 잰다. 못 재면 0(리드인 없음)으로 둔다 —
-  /// 판정을 못 했다고 조각을 버리지는 않는다.
-  Future<int> detectContentOffsetMs(String path) async {
+  /// 조각 안에서 내용이 시작하는 자리(ms)를 잰다. 끝까지 조용하면 null.
+  ///
+  /// 못 재면(ffmpeg 없음·파일 못 읽음) 리드인 끝으로 둔다 — 판정을 못 했다고
+  /// 조각을 버리지는 않는다.
+  Future<int?> detectContentOffsetMs(StitchSegment segment) async {
+    final skipMs = stitchScanSkipMs(segment.leadInMs);
+    // 건너뛸 자리가 조각 밖이면 잴 것이 없다(0.5초 남짓한 조각) — 키를 누른
+    // 자리부터 내용으로 본다.
+    if (skipMs >= segment.durationMs) {
+      return segment.leadInMs.clamp(0, segment.durationMs);
+    }
+
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
-    if (!ffmpeg.found) return 0;
+    if (!ffmpeg.found) return segment.leadInMs;
     // 무음 정보는 stderr로 나오고 종료 코드도 0이 아닐 수 있다(정상).
-    final job = _runner.start(ffmpeg.path!, buildSilenceDetectArgs(path));
+    final job = _runner.start(
+      ffmpeg.path!,
+      buildSilenceDetectArgs(segment.vocalPath, skipMs: skipMs),
+    );
     final lines = <String>[];
     final sub = job.lines.listen(lines.add);
     await job.exitCode;
     await sub.cancel();
-    return parseFirstSoundMs(lines.join('\n'));
+
+    final scan = parseSilenceScan(lines.join('\n'));
+    return contentOffsetFromDetection(
+      leadInMs: segment.leadInMs,
+      skipMs: skipMs,
+      detectedAfterSkipMs: scan.firstSoundMs,
+      soundAtSkip: scan.soundAtStart,
+    );
   }
 
   /// 조각들의 리드인을 재서 내용 시작점이 채워진 사본을 돌려준다.
+  ///
+  /// 🔴 **소리가 없는 조각은 뺀다.** 무음 조각이 끼면 그 조각의 자리에서 앞 조각의
+  /// 꼬리가 잘리고, 정작 그 자리에는 아무 소리도 안 나 노래에 구멍이 난다.
+  /// 녹음할 때 잰 레벨이 남아 있으면 그걸로 가리고(디지털 무음), 없으면 파일
+  /// 전체가 조용한지를 직접 잰다. 돌려준 목록이 받은 것보다 짧으면 그만큼 뺀 것이다.
   Future<List<StitchSegment>> withDetectedOffsets(
     List<StitchSegment> segments,
   ) async {
     final out = <StitchSegment>[];
     for (final seg in segments) {
-      final offset = await detectContentOffsetMs(seg.vocalPath);
-      out.add(
-        StitchSegment(
-          vocalPath: seg.vocalPath,
-          songPositionMs: seg.songPositionMs,
-          durationMs: seg.durationMs,
-          contentOffsetMs: offset,
-        ),
-      );
+      if (seg.peakDbfs != null && isSilentTake(seg.peakDbfs)) continue;
+      final offset = await detectContentOffsetMs(seg);
+      if (offset == null) continue;
+      out.add(seg.withContentOffset(offset));
     }
     return out;
   }

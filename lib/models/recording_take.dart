@@ -98,6 +98,21 @@ class RecordingTake {
   /// AI 보컬 분리를 권할 이유가 없다(반주는 잘라낸 조각이 아니라 녹음본).
   final bool dualChannel;
 
+  /// 조각 머리에 일부러 담은 **리드인** 길이(ms). 녹음 고정(상시 캡처 세션)으로
+  /// 받은 조각만 값이 있다 — 스페이스를 누르기 전 최대 300ms를 함께 잘라 와서
+  /// 첫 음절을 구한다. 곡 앞머리에서는 300보다 짧다(고정값으로 가정하지 말 것).
+  ///
+  /// 이 구간에는 시작 키 소리가 들어 있어, 이어붙이기가 「내용이 시작하는 자리」를
+  /// 찾을 때 건너뛴다. null이면 리드인이 없는 테이크(R 녹음·옛 기록)다.
+  final int? leadInMs;
+
+  /// 저장된 소리의 최대 레벨(dBFS). 녹음을 끝낼 때 잰 값을 그대로 남긴다.
+  ///
+  /// 이어붙이기가 **무음 테이크를 빼는 데** 쓴다 — 꺼진 장치를 녹음한 디지털
+  /// 무음 조각이 끼면 그 자리에 있던 멀쩡한 앞 조각의 꼬리가 잘려 나간다.
+  /// null이면 재지 못했거나 기록 이전의 테이크다(그때는 파일을 직접 재서 가린다).
+  final double? peakDbfs;
+
   const RecordingTake({
     required this.id,
     required this.songId,
@@ -122,6 +137,8 @@ class RecordingTake {
     this.separatedFileName,
     this.dualChannel = false,
     this.songPositionMs,
+    this.leadInMs,
+    this.peakDbfs,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -141,6 +158,17 @@ class RecordingTake {
   /// 곡 타임라인 위 조각으로 쓸 수 있는가(이어붙이기 대상).
   bool get hasSongPosition => songPositionMs != null;
 
+  /// 사용자에게 **말하는** 조각 위치(ms) — 스페이스를 누른 자리.
+  ///
+  /// 고정 조각의 [songPositionMs]는 「누른 자리 − 리드인」이다(파일 t=0의 좌표).
+  /// 그대로 보여 주면 저장 토스트(「1:23부터」)와 목록·취소 토스트(「1:22 조각」)가
+  /// 1초 어긋나, 글자로 조각을 가리는 사용자가 다른 조각으로 읽는다. 리드인은 저장
+  /// 사정이라 표시에서는 더해 되돌린다. 좌표가 없는 옛 테이크는 null 그대로다.
+  int? get displayPositionMs {
+    final at = songPositionMs;
+    return at == null ? null : at + (leadInMs ?? 0);
+  }
+
   RecordingTake copyWith({
     String? mixedFileName,
     String? correctedFrom,
@@ -159,6 +187,8 @@ class RecordingTake {
     String? separatedFileName,
     bool? dualChannel,
     int? songPositionMs,
+    int? leadInMs,
+    double? peakDbfs,
   }) {
     return RecordingTake(
       id: id,
@@ -185,6 +215,8 @@ class RecordingTake {
       separatedFileName: separatedFileName ?? this.separatedFileName,
       dualChannel: dualChannel ?? this.dualChannel,
       songPositionMs: songPositionMs ?? this.songPositionMs,
+      leadInMs: leadInMs ?? this.leadInMs,
+      peakDbfs: peakDbfs ?? this.peakDbfs,
     );
   }
 
@@ -212,6 +244,10 @@ class RecordingTake {
     'separatedFileName': separatedFileName,
     'dualChannel': dualChannel,
     'songPositionMs': songPositionMs,
+    'leadInMs': leadInMs,
+    // 🔴 NaN·무한대는 jsonEncode가 예외를 던진다 — 테이크 하나 때문에 목록
+    // 저장이 통째로 막히면 안 된다.
+    'peakDbfs': _jsonSafeDbfs(peakDbfs),
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -244,8 +280,19 @@ class RecordingTake {
       separatedFileName: json['separatedFileName'] as String?,
       dualChannel: json['dualChannel'] as bool? ?? false,
       songPositionMs: (json['songPositionMs'] as num?)?.toInt(),
+      // 없는 키(옛 파일)는 null로 흡수된다 — additive.
+      leadInMs: (json['leadInMs'] as num?)?.toInt(),
+      peakDbfs: _jsonSafeDbfs((json['peakDbfs'] as num?)?.toDouble()),
     );
   }
+}
+
+/// dBFS 값을 JSON에 넣을 수 있는 모양으로 다듬는다.
+/// NaN → null(모름), -무한대 → -100(완전 무음 — 캡처 쪽 표기와 같다), +무한대 → 0.
+double? _jsonSafeDbfs(double? value) {
+  if (value == null || value.isNaN) return null;
+  if (value.isInfinite) return value.isNegative ? -100 : 0;
+  return value;
 }
 
 /// 녹음 보관함 필터.

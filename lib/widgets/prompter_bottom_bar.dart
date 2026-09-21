@@ -19,6 +19,19 @@ import 'prompter_keyboard_scope.dart' show lyricsNudgeStepMs;
 import 'prompter_progress_bar.dart';
 import 'server_status_strip.dart';
 
+/// 상태 문구를 못 받았을 때의 고정 글자(세션 도입 전과 같은 표시).
+const String kArmedDefaultLabel = '● 고정 ON';
+
+/// 고정 버튼의 스크린리더 라벨. (순수 함수 — 테스트 대상)
+///
+/// 마이크 상태 문구가 있으면 덧붙인다. 앞머리의 「●」는 눈으로 보는 표식이라
+/// 읽어 주면 소음이다 — 떼고 붙인다.
+String armedButtonSemanticsLabel(String? status) {
+  const base = '녹음 고정 끄기 (Alt+R)';
+  final spoken = (status ?? '').replaceFirst(RegExp('^●\\s*'), '').trim();
+  return spoken.isEmpty ? base : '$base — $spoken';
+}
+
 class PrompterBottomBar extends StatefulWidget {
   final Song song;
   final bool playing;
@@ -80,6 +93,14 @@ class PrompterBottomBar extends StatefulWidget {
   /// 앱까지 안 오는 경우가 있다. 그리고 켜졌는지 눈으로 보이는 편이
   /// 외울 키를 늘리는 것보다 낫다.
   final VoidCallback? onToggleRecordArm;
+
+  /// 고정 글자 자리에 띄울 상태 문구 — 「● 고정 — 마이크 여는 중」,
+  /// 「● 고정 ON · 마이크 열림 · 입력 좋음」, 「● 고정 — 마이크 끊김」.
+  /// null이면 예전처럼 「● 고정 ON」이다.
+  ///
+  /// 🔴 문구가 바뀔 때 위젯(접근성 노드)을 새로 만들거나 지우지 않는다 — 같은
+  /// Text의 **문자열만** 바꾼다(center_alert.dart 머리말의 크래시 규칙).
+  final String? armedStatusLabel;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -128,6 +149,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.isRecording,
     this.recordArmed = false,
     this.onToggleRecordArm,
+    this.armedStatusLabel,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -261,8 +283,11 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                         icon: widget.recordArmed
                             ? Icons.fiber_manual_record
                             : Icons.radio_button_unchecked,
+                        // 마이크 상태는 글자(아래 ExcludeSemantics)로만 보인다 —
+                        // 스크린리더에는 이 버튼의 라벨에 덧붙여 알린다. 버튼 노드는
+                        // 늘 있으므로 라벨이 바뀌어도 노드가 생기거나 사라지지 않는다.
                         semanticsLabel: widget.recordArmed
-                            ? '녹음 고정 끄기 (Alt+R)'
+                            ? armedButtonSemanticsLabel(widget.armedStatusLabel)
                             : '녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께',
                         toggled: widget.recordArmed,
                         // toggled는 스크린리더용일 뿐 화면은 안 바뀐다 —
@@ -276,8 +301,14 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                     if (widget.recordArmed)
                       // 접근성 노드는 만들지 않는다 — 상태는 위 버튼(toggled)이 알린다.
                       // 생겼다 사라지는 노드가 엔진 크래시를 냈다(center_alert.dart 참고).
+                      //
+                      // 마이크 상태(여는 중·열림·끊김)도 **이 Text의 문자열만** 바꿔
+                      // 알린다 — 상태마다 다른 위젯을 끼웠다 빼지 않는다.
                       ExcludeSemantics(
-                        child: Text('● 고정 ON', style: AppTypography.emphasis),
+                        child: Text(
+                          widget.armedStatusLabel ?? kArmedDefaultLabel,
+                          style: AppTypography.emphasis,
+                        ),
                       ),
                     // 녹음 상태 세 조각은 한 덩어리로 접힌다 — 시간과 레벨이
                     // 서로 다른 줄로 갈라지면 읽을 수 없다.

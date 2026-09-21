@@ -862,12 +862,67 @@ class PlaybackController {
 
   /// 명시적 일시정지(멱등). 정지 상태면 무동작.
   Future<void> pause() async {
+    final wasPlaying = state.value.playing;
     final message = await audio.pause(
       song: state.value.song,
       audioReady: state.value.audioReady,
-      playing: state.value.playing,
+      playing: wasPlaying,
     );
-    if (message != null) onMessage(message);
+    if (message != null) {
+      onMessage(message);
+      return;
+    }
+    // 실제로 멈춘 경우에만 확정한다 — 이미 서 있던 시계의 앵커는 그대로가 정확하다.
+    if (wasPlaying && state.value.song != null) await _confirmPausedAnchor();
+  }
+
+  /// `playing` 게이트를 거치지 않는 재생 — 녹음 고정의 스페이스 전용.
+  /// 재생을 걸었으면 true. 막혔으면(반주 없음 등) 사유를 알리고 false.
+  ///
+  /// `state.playing`은 네이티브 호출이 끝난 뒤의 상태 이벤트로 서는 거울이라,
+  /// 그걸로 게이트하면 「조각 마크는 찍혔는데 음악은 안 나오는」 틈이 생긴다.
+  Future<bool> forcePlay() async {
+    final message = await audio.forcePlay(
+      song: state.value.song,
+      audioReady: state.value.audioReady,
+    );
+    if (message == null) return true;
+    onMessage(message);
+    return false;
+  }
+
+  /// `playing` 게이트를 거치지 않는 일시정지 — 녹음 고정의 스페이스 전용.
+  /// 재생 직후(상태 이벤트 전)에 멈춰도 음악이 혼자 계속 나오지 않는다.
+  Future<void> forcePause() async {
+    final message = await audio.forcePause(
+      song: state.value.song,
+      audioReady: state.value.audioReady,
+    );
+    // 멈출 반주가 없다 — 정지 요청에는 알릴 게 없고 확정할 위치도 없다.
+    if (message != null || state.value.song == null) return;
+    await _confirmPausedAnchor();
+  }
+
+  /// 멈춘 직후의 시계 앵커를 네이티브 위치로 확정한다.
+  ///
+  /// 보간 시계는 「마지막 기준점 + 경과시간」이라 멈춘 순간의 값에 수 ms~수십 ms의
+  /// 추정 오차가 남는다. 표시에는 상관없지만 녹음 고정은 이 값을 **다음 조각의 곡
+  /// 좌표(P0)** 로 쓴다 — 화살표 seek 없이 곧바로 다음 조각을 걸면 그 오차가 조각
+  /// 위치에 그대로 실린다.
+  Future<void> _confirmPausedAnchor() async {
+    // 상태 이벤트를 기다리지 않고 시계를 먼저 세운다. 돌고 있는 시계에 resync하면
+    // 25%만 당겨지고(blend) 이벤트가 올 때까지 계속 흘러 앵커가 밀린다.
+    // 연습 시간은 세우기 전에 모아 둔다 — 뒤늦게 오는 이벤트는 멈춘 시계를 보고 건너뛴다.
+    _accumulatePractice();
+    _clock.pause();
+    final native = await audio.currentPosition();
+    if (_disposed || native == null) return;
+    // 기다리는 사이 다시 재생이 걸렸으면 건드리지 않는다.
+    if (_clock.isRunning) return;
+    _clock.resync(native);
+    position.value = _clock.value;
+    // 정지 중에는 다음 틱이 없다 — 줄도 그 자리에서 맞춘다.
+    _recomputeLineIndex(position.value);
   }
 
   Future<void> stop() async {

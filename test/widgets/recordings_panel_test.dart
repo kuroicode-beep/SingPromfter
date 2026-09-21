@@ -16,6 +16,7 @@ RecordingTake _take({
   String? mixed,
   bool dualChannel = false,
   int? songPositionMs,
+  int? leadInMs,
 }) => RecordingTake(
   id: id,
   songId: 's1',
@@ -27,6 +28,7 @@ RecordingTake _take({
   mixedFileName: mixed,
   dualChannel: dualChannel,
   songPositionMs: songPositionMs,
+  leadInMs: leadInMs,
 );
 
 Widget _panel({
@@ -141,6 +143,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('2:06 조각'), findsOneWidget);
+    });
+
+    testWidgets('고정 조각은 저장 토스트와 같은 숫자(누른 자리)로 표시된다', (tester) async {
+      // 파일 좌표 1:22.785 + 리드인 300ms = 누른 자리 1:23.
+      await tester.pumpWidget(
+        _panel(take: _take(songPositionMs: 82785, leadInMs: 300)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('1:23 조각'), findsOneWidget);
+      expect(find.textContaining('1:22 조각'), findsNothing);
     });
 
     testWidgets('조각이 하나뿐이면 잇기 버튼이 없다', (tester) async {
