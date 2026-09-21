@@ -336,6 +336,72 @@ void _ffmpegRecordingTests() {
     });
   });
 
+  group('preferredInputDevice — 자동 선택이 믹서를 잡지 않게', () {
+    // 2026-09-21 실사고: dshow 열거 순서가 바뀌어 FLOW 8 MAIN L/R이 1번으로
+    // 올라왔고, 그걸 녹음한 테이크가 디지털 무음으로 남았다. 반주도 목소리도
+    // 없이 조용히 실패해서 들어 보기 전에는 알 수가 없었다.
+    const sawOrder = [
+      'MAIN L/R(BEHRINGER FLOW 8 (Streaming))',
+      '마이크(Razer Barracuda X 2.4)',
+      '마이크(RØDE NT-USB Mini)',
+    ];
+
+    test('믹서 루프백이 1번이어도 마이크를 고른다', () {
+      expect(preferredInputDevice(sawOrder), '마이크(Razer Barracuda X 2.4)');
+    });
+
+    test('순서가 바뀌어도 마이크를 고른다', () {
+      expect(
+        preferredInputDevice(const [
+          'MAIN L/R(BEHRINGER FLOW 8 (Streaming))',
+          '마이크(RØDE NT-USB Mini)',
+        ]),
+        '마이크(RØDE NT-USB Mini)',
+      );
+    });
+
+    test('영문 Microphone도 마이크로 본다', () {
+      expect(
+        preferredInputDevice(const ['Stereo Mix', 'Microphone (USB Audio)']),
+        'Microphone (USB Audio)',
+      );
+    });
+
+    test('마이크가 없으면 루프백이 아닌 것을 고른다', () {
+      expect(
+        preferredInputDevice(const ['Stereo Mix', 'Line In (Realtek)']),
+        'Line In (Realtek)',
+      );
+    });
+
+    test('전부 루프백뿐이면 첫 번째로 물러난다', () {
+      expect(preferredInputDevice(const ['Stereo Mix']), 'Stereo Mix');
+    });
+
+    test('장치가 없으면 null', () {
+      expect(preferredInputDevice(const []), isNull);
+    });
+  });
+
+  group('kMinimumTakeDuration — 짧은 조각을 지우지 않는다', () {
+    test('한 줄짜리 랩(1초 미만)도 저장된다', () {
+      // 「우리는 펑클」은 0.88초다. 옛 3초 기준은 이런 조각을 통째로
+      // 삭제했다(2026-09-21 실사고 — 한 줄씩 받은 조각이 거의 다 사라졌다).
+      expect(
+        const Duration(milliseconds: 880) >= kMinimumTakeDuration,
+        isTrue,
+      );
+    });
+
+    test('눌렀다 뗀 수준만 거른다', () {
+      expect(const Duration(milliseconds: 200) < kMinimumTakeDuration, isTrue);
+    });
+
+    test('옛 3초 기준보다 확실히 느슨하다', () {
+      expect(kMinimumTakeDuration < const Duration(seconds: 3), isTrue);
+    });
+  });
+
   group('2채널 정렬 — 늦게 열리는 반주 장치 보정', () {
     // 실측 줄 그대로(2026-09-21).
     const vocalLine =

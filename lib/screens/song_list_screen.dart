@@ -126,6 +126,10 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 파일까지 치운다. 목록에서만 빼 둔 상태라 파일은 아직 남아 있다.
   RecordingTake? _discardedTake;
   Timer? _discardPurgeTimer;
+
+  /// 녹음 고정(Alt+R). 켜 두면 Space 하나로 재생과 녹음이 함께 시작·정지한다.
+  /// 한 줄씩 조각을 받을 때 Space·R을 따로 누르면 그 사이만큼 박이 흔들린다.
+  bool _recordArmed = false;
   // 녹음 당시 실제 재생 파일(변형본 포함)·템포 — 반주 조각을 자르는 데 쓴다.
   String? _recordingSourcePath;
   double _recordingTempo = 1.0;
@@ -191,6 +195,7 @@ class _SongListScreenState extends State<SongListScreen> {
     togglePlayPause: _togglePlayPause,
     toggleRecording: _toggleRecording,
     discardLastRecording: _discardLastRecording,
+    toggleRecordArm: _toggleRecordArm,
     resetLyricsSync: _resetLyricsSync,
     anchorFirstLine: _anchorFirstLine,
     nudgeLyricsOffset: _adjustLyricsOffset,
@@ -336,7 +341,45 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _loadSong(Song song, {int? preferredSlot}) =>
       _playback.loadSong(song, preferredSlot: preferredSlot);
 
-  Future<void> _togglePlayPause() => _playback.togglePlayPause();
+  Future<void> _togglePlayPause() async {
+    if (!_recordArmed) {
+      await _playback.togglePlayPause();
+      return;
+    }
+    if (_playback.state.value.playing) {
+      // 정지 = 조각 끝. 재생을 먼저 멈춰야 뒤에 반주가 더 안 실린다.
+      await _playback.togglePlayPause();
+      if (_recording.isRecording) await _finishRecording();
+      if (mounted) setState(() {});
+      return;
+    }
+    // 시작 = 조각 시작. 녹음을 먼저 걸어야 첫 음절이 안 잘리고,
+    // 곡 위치도 재생 직전 값으로 잡혀 이어붙이기 좌표가 정확해진다.
+    if (!_recording.isRecording) await _toggleRecording();
+    if (!_recording.isRecording) return; // 녹음을 못 걸었으면 재생도 안 한다
+    await _playback.togglePlayPause();
+    if (mounted) setState(() {});
+  }
+
+  /// Alt+R — 녹음 고정을 켜고 끈다. 끌 때 녹음 중이면 함께 끝낸다.
+  Future<void> _toggleRecordArm() async {
+    if (_recordArmed) {
+      _recordArmed = false;
+      if (_recording.isRecording) await _finishRecording();
+      if (!mounted) return;
+      setState(() {});
+      _showSnack('녹음 고정을 껐습니다.');
+      return;
+    }
+    if (_selectedSong == null) {
+      _showSnack('먼저 곡을 선택해 주세요.');
+      return;
+    }
+    _recordArmed = true;
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('녹음 고정 — 스페이스로 재생과 녹음이 함께 시작되고 함께 멈춥니다.');
+  }
 
   Future<void> _stopPlayback() => _playback.stop();
 
@@ -1423,8 +1466,13 @@ class _SongListScreenState extends State<SongListScreen> {
     _recordingSong = null;
     if (result == null || song == null) return;
 
-    // 너무 짧으면 실수로 누른 것으로 보고 파일까지 지운다.
-    if (result.duration < const Duration(seconds: 3)) {
+    // 실수로 누른 R만 걸러낸다.
+    //
+    // 예전 기준은 3초였는데, 한 줄씩 끊어 녹음하면 조각이 1~2초라
+    // **정상 녹음이 통째로 삭제됐다**(2026-09-21 실사고 — 한 줄씩 받은 조각이
+    // 거의 다 사라졌다). 실수로 누른 것은 이제 Ctrl+R로 물릴 수 있으니
+    // 자동 삭제는 「눌렀다 뗀 수준」만 거른다.
+    if (result.duration < kMinimumTakeDuration) {
       await RecordingStore().deleteFile(result.fileName);
       final tooShortBacking = result.backingFileName;
       if (tooShortBacking != null) {
@@ -2707,6 +2755,7 @@ class _SongListScreenState extends State<SongListScreen> {
             ? null
             : _app.trackBaseKeyFor(_selectedSong!, _selectedTrackSlot),
         isRecording: _recording.isRecording,
+        recordArmed: _recordArmed,
         recordingLevelLabel: _recording.levelLabel,
         recordingElapsed: _recording.elapsed,
         onToggleRecording: _toggleRecording,

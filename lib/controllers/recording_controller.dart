@@ -26,6 +26,13 @@ bool shouldAutoAdvance({
   return queueHasNext;
 }
 
+/// 저장할 가치가 있는 최소 녹음 길이.
+///
+/// 실수로 누른 R만 거르는 선이다. 예전 3초 기준은 **한 줄씩 끊어 녹음한
+/// 조각(1~2초)을 정상인데도 통째로 삭제**했다(2026-09-21 실사고).
+/// 잘못 누른 녹음은 Ctrl+R로 물릴 수 있으니 자동 삭제는 느슨해도 된다.
+const Duration kMinimumTakeDuration = Duration(milliseconds: 500);
+
 /// 입력 레벨을 사람이 읽을 수 있는 상태 문구로 바꾼다.
 /// 막대만으로는 저시력 사용자가 판단하기 어려워 텍스트를 함께 준다.
 String inputLevelLabel(double? dbfs) {
@@ -104,6 +111,43 @@ int dualCaptureSkewMs({
   final raw = ((backingStartSeconds - vocalStartSeconds) * 1000).round();
   final corrected = raw - kDualCaptureStartResidualMs;
   return corrected < 0 ? 0 : corrected;
+}
+
+/// 자동 선택 시 쓸 입력 장치를 고른다. (순수 함수 — 테스트 대상)
+///
+/// 🔴 「첫 번째 장치」를 그냥 쓰면 안 된다. dshow 열거 순서는 **고정이 아니다** —
+/// 2026-09-21에 실제로 순서가 바뀌어 믹서 루프백(FLOW 8 MAIN L/R)이 1번으로
+/// 올라왔고, 그걸 녹음한 16초짜리 테이크가 **디지털 무음**으로 남았다.
+/// 반주도 목소리도 없이 조용히 실패해서, 들어 보기 전에는 알 수가 없었다.
+///
+/// 그래서 이름으로 **실제 마이크를 먼저** 고른다. 믹서·루프백·스테레오 믹스는
+/// 사용자가 직접 고르지 않는 한 자동 선택 대상이 아니다.
+String? preferredInputDevice(List<String> devices) {
+  if (devices.isEmpty) return null;
+  bool looksLikeMic(String d) {
+    final lower = d.toLowerCase();
+    return d.contains('마이크') ||
+        lower.contains('microphone') ||
+        lower.startsWith('mic');
+  }
+
+  bool looksLikeLoopback(String d) {
+    final lower = d.toLowerCase();
+    return lower.contains('stereo mix') ||
+        d.contains('스테레오 믹스') ||
+        lower.contains('loopback') ||
+        lower.contains('what u hear') ||
+        // 믹서의 메인 아웃 — 이게 1번으로 올라오는 게 이번 사고의 원인이었다.
+        lower.contains('main l/r');
+  }
+
+  for (final d in devices) {
+    if (looksLikeMic(d) && !looksLikeLoopback(d)) return d;
+  }
+  for (final d in devices) {
+    if (!looksLikeLoopback(d)) return d;
+  }
+  return devices.first;
 }
 
 /// 캡처 오디오 필터 체인. 게인은 astats **앞**에 두어 미터가 게인 반영
@@ -257,7 +301,7 @@ class RecordingController extends ChangeNotifier {
     if (_devices.isEmpty) return false;
     if (!_devices.contains(backing)) return false;
     // 같은 장치를 두 번 열 수는 없다.
-    return backing != (_deviceName ?? _devices.first);
+    return backing != (_deviceName ?? preferredInputDevice(_devices));
   }
 
   /// 입력 장치 목록을 새로 읽는다.
@@ -283,7 +327,7 @@ class RecordingController extends ChangeNotifier {
     await job.exitCode;
     await sub.cancel();
     _devices = parseDshowAudioDevices(lines.join('\n'));
-    _deviceName ??= _devices.isEmpty ? null : _devices.first;
+    _deviceName ??= preferredInputDevice(_devices);
     notifyListeners();
     return _devices;
   }
@@ -312,9 +356,9 @@ class RecordingController extends ChangeNotifier {
     if (!ffmpeg.found) return null;
     if (_devices.isEmpty) await refreshDevices();
     // 저장된 장치가 뽑혔을 수 있으니 목록에 없으면 첫 장치로 폴백한다.
-    var device = _deviceName ?? (_devices.isEmpty ? null : _devices.first);
+    var device = _deviceName ?? preferredInputDevice(_devices);
     if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
-      device = _devices.first;
+      device = preferredInputDevice(_devices);
     }
     if (device == null) return null;
 
@@ -470,9 +514,9 @@ class RecordingController extends ChangeNotifier {
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) return false;
     if (_devices.isEmpty) await refreshDevices();
-    var device = _deviceName ?? (_devices.isEmpty ? null : _devices.first);
+    var device = _deviceName ?? preferredInputDevice(_devices);
     if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
-      device = _devices.first;
+      device = preferredInputDevice(_devices);
     }
     if (device == null) return false;
 

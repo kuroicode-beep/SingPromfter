@@ -105,6 +105,10 @@ class PrompterActions {
   /// 직전 녹음 취소(Ctrl+R). 방금 받은 조각이 맘에 안 들 때 곧바로 물린다 —
   /// 그래야 조각이 순서대로 최종본만 쌓인다. 파일은 남겨 두고 되살릴 수 있다.
   final VoidCallback? discardLastRecording;
+
+  /// 녹음 고정 토글(Alt+R). 켜 두면 Space 하나로 재생과 녹음이 함께 시작·정지한다
+  /// — 조각을 한 줄씩 받을 때 Space·R을 따로 누르면 그만큼 박이 흔들린다.
+  final VoidCallback? toggleRecordArm;
   final VoidCallback? resetLyricsSync;
   final VoidCallback? anchorFirstLine;
   final ValueChanged<int>? nudgeLyricsOffset;
@@ -138,6 +142,7 @@ class PrompterActions {
     this.togglePlayPause,
     this.toggleRecording,
     this.discardLastRecording,
+    this.toggleRecordArm,
     this.resetLyricsSync,
     this.anchorFirstLine,
     this.nudgeLyricsOffset,
@@ -454,6 +459,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
         widget.onToggleSpaceBackground != null) {
       widget.onToggleSpaceBackground!();
       return KeyEventResult.handled;
+    }
+
+    // Alt+R = 녹음 고정 토글. Ctrl·평문 R보다 먼저 갈라낸다.
+    if (key == LogicalKeyboardKey.keyR && alt) {
+      final arm = widget.actions?.toggleRecordArm;
+      if (arm != null) {
+        arm();
+        return KeyEventResult.handled;
+      }
     }
 
     // Ctrl+R = 직전 녹음 취소. R 앞에서 갈라야 녹음이 시작되지 않는다.

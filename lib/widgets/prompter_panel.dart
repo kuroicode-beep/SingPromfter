@@ -83,6 +83,7 @@ class PrompterPanel extends StatelessWidget {
   /// 사용자 키를 얹기 전의 슬롯 조성. HUD가 여기에 조절값을 더해 띄운다.
   final MusicKey? pitchBaseKey;
   final bool isRecording;
+  final bool recordArmed;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -144,6 +145,7 @@ class PrompterPanel extends StatelessWidget {
     this.soundingKey,
     this.pitchBaseKey,
     required this.isRecording,
+    this.recordArmed = false,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -339,6 +341,7 @@ class PrompterPanel extends StatelessWidget {
             tempoScale: tempoScale,
             onAdjustTempo: onAdjustTempo,
             isRecording: isRecording,
+            recordArmed: recordArmed,
             recordingLevelLabel: recordingLevelLabel,
             recordingElapsed: recordingElapsed,
             onToggleRecording: onToggleRecording,

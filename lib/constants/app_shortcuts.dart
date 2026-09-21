@@ -61,6 +61,13 @@ class AppShortcuts {
       spokenDescription: '녹음을 시작하거나 중지합니다.',
     ),
     ShortcutHelpEntry(
+      keys: 'Alt + R',
+      description: '녹음 고정 (스페이스로 함께 시작/정지)',
+      clipId: 'help_alt_r',
+      spokenKeys: '알트 알',
+      spokenDescription: '녹음 고정을 켜고 끕니다. 켜면 스페이스 하나로 재생과 녹음이 함께 시작되고 함께 멈춥니다.',
+    ),
+    ShortcutHelpEntry(
       keys: 'Ctrl + R',
       description: '직전 녹음 취소',
       clipId: 'help_ctrl_r',

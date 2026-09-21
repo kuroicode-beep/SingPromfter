@@ -32,6 +32,8 @@ void main() {
     VoidCallback? onSttLyrics,
     Future<bool> Function()? onStartSeparator = _defaultStartSeparator,
     bool aiWiring = true,
+    bool recordArmed = false,
+    bool isRecording = false,
   }) async {
     final fake = buildFakePlayback(song: fakeSong());
     await tester.pumpWidget(
@@ -67,7 +69,8 @@ void main() {
                 onAdjustPitch: (_) {},
                 tempoScale: 1.0,
                 onAdjustTempo: (_) {},
-                isRecording: false,
+                isRecording: isRecording,
+                recordArmed: recordArmed,
                 recordingLevelLabel: '',
                 recordingElapsed: Duration.zero,
                 onToggleRecording: () {},
@@ -325,5 +328,32 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     fake.dispose();
+  });
+
+  group('녹음 고정(Alt+R) 표시', () {
+    testWidgets('고정을 켜면 글자로 알린다 — 스페이스 동작이 달라지므로', (tester) async {
+      final fake = await pumpBar(tester, width: 720, recordArmed: true);
+      expect(find.text('● 녹음 고정'), findsOneWidget);
+      fake.dispose();
+    });
+
+    testWidgets('꺼져 있으면 표시가 없다', (tester) async {
+      final fake = await pumpBar(tester, width: 720);
+      expect(find.text('● 녹음 고정'), findsNothing);
+      fake.dispose();
+    });
+
+    testWidgets('녹음이 실제로 도는 중에는 「녹음 중」이 대신 나온다', (tester) async {
+      final fake = await pumpBar(
+        tester,
+        width: 720,
+        recordArmed: true,
+        isRecording: true,
+      );
+      // 고정과 녹음 중을 같이 띄우면 무슨 상태인지 흐려진다.
+      expect(find.text('● 녹음 고정'), findsNothing);
+      expect(find.text('● 녹음 중'), findsOneWidget);
+      fake.dispose();
+    });
   });
 }

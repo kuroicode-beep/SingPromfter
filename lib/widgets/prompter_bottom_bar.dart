@@ -70,6 +70,9 @@ class PrompterBottomBar extends StatefulWidget {
   /// 템포를 한 칸씩 민다. 렌더는 손을 멈춘 뒤 한 번만 돈다.
   final ValueChanged<double> onAdjustTempo;
   final bool isRecording;
+
+  /// 녹음 고정(Alt+R) 켜짐. 스페이스가 재생과 녹음을 함께 다룬다.
+  final bool recordArmed;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -116,6 +119,7 @@ class PrompterBottomBar extends StatefulWidget {
     this.tempoScale = 1,
     required this.onAdjustTempo,
     required this.isRecording,
+    this.recordArmed = false,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -239,6 +243,10 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 toggled: widget.isRecording,
                 onTap: widget.onToggleRecording,
               ),
+              // 고정은 켜 두면 스페이스 동작이 달라진다 — 모르고 누르면
+              // 사고라서, 색이 아니라 글자로 항상 알린다.
+              if (widget.recordArmed && !widget.isRecording)
+                Text('● 녹음 고정', style: AppTypography.emphasis),
               // 녹음 상태 세 조각은 한 덩어리로 접힌다 — 시간과 레벨이
               // 서로 다른 줄로 갈라지면 읽을 수 없다.
               if (widget.isRecording)

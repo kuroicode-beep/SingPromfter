@@ -111,6 +111,7 @@ class SongListScreenContent extends StatelessWidget {
   /// 사용자 키 이전의 슬롯 조성 — 키 HUD 기준값.
   final MusicKey? pitchBaseKey;
   final bool isRecording;
+  final bool recordArmed;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -319,6 +320,7 @@ class SongListScreenContent extends StatelessWidget {
     this.soundingKey,
     this.pitchBaseKey,
     required this.isRecording,
+    this.recordArmed = false,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -539,6 +541,7 @@ class SongListScreenContent extends StatelessWidget {
       tempoScale: tempoScale,
       onAdjustTempo: onAdjustTempo,
       isRecording: isRecording,
+      recordArmed: recordArmed,
       recordingLevelLabel: recordingLevelLabel,
       recordingElapsed: recordingElapsed,
       onToggleRecording: onToggleRecording,
