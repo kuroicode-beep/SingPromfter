@@ -263,6 +263,9 @@ class RecordingController extends ChangeNotifier {
   bool _isBackingProbing = false;
   double? _backingDbfs;
 
+  /// 프로브 동안 관측한 최대 레벨. 녹음 전 입력 점검에 쓴다.
+  double? _probePeakDbfs;
+
   bool _isRecording = false;
   bool _stopping = false;
   Duration _elapsed = Duration.zero;
@@ -553,11 +556,15 @@ class RecordingController extends ChangeNotifier {
       _probeJob = job;
       _isProbing = true;
       _dbfs = null;
+      _probePeakDbfs = null;
       _probeSub = job.lines.listen(
         (line) {
           final rms = parseRmsLevel(line);
           if (rms != null) {
             _dbfs = rms;
+            if (_probePeakDbfs == null || rms > _probePeakDbfs!) {
+              _probePeakDbfs = rms;
+            }
             notifyListeners();
           }
         },
@@ -599,6 +606,32 @@ class RecordingController extends ChangeNotifier {
       debugPrint('반주 채널 테스트 시작 실패: $e');
       await _stopBackingLevelProbe();
     }
+  }
+
+  /// 녹음을 걸기 전에 입력이 살아 있는지 **미리** 잰다.
+  ///
+  /// 관측한 최대 레벨(dBFS)을 돌려준다. 프로브를 못 띄웠으면 null.
+  /// 장치를 여는 데 수백 ms가 걸리므로 첫 값이 온 뒤부터 [window]를 센다 —
+  /// 고정 시간만 기다리면 장치가 늦게 열렸을 때 아무것도 못 잰다.
+  Future<double?> probeInputLevel({
+    Duration window = const Duration(milliseconds: 900),
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    if (_isRecording || _isProbing) return null;
+    if (!await startLevelProbe()) return null;
+
+    final deadline = DateTime.now().add(timeout);
+    DateTime? firstSeen;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      if (_probePeakDbfs != null) {
+        firstSeen ??= DateTime.now();
+        if (DateTime.now().difference(firstSeen) >= window) break;
+      }
+    }
+    final peak = _probePeakDbfs;
+    await stopLevelProbe();
+    return peak;
   }
 
   Future<void> stopLevelProbe() async {

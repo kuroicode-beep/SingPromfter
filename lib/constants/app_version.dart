@@ -12,9 +12,22 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.14.0';
+  static const String current = '5.15.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.15.0',
+      '2026-09-21',
+      '녹음 전 입력 점검 — 이제 사후 경고가 아니라 **시작 전에 막습니다.** '
+          '녹음 고정을 켤 때와 그날 첫 녹음 직전에 입력을 1초 재서, 소리가 '
+          '안 들어오면 화면 가운데 큰 글씨 경고를 띄우고 녹음을 시작하지 '
+          '않습니다. 무음은 헤드폰으로 확인이 안 되는 실패라 화면이 막아 줘야 '
+          '합니다 — FLOW 8은 PC로 가는 소리만 마스터를 지나서, 마스터가 '
+          '내려가 있으면 귀에는 멀쩡히 들리는데 녹음만 무음입니다. 경고문에 '
+          '확인할 곳(입력 장치·마스터 노브·마이크 슬라이더)을 함께 적었습니다. '
+          '한 번 확인하면 장치를 바꾸기 전까지는 다시 재지 않아 조각 받는 '
+          '흐름이 끊기지 않습니다',
+    ),
     AppVersionEntry(
       '5.14.0',
       '2026-09-21',

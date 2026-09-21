@@ -65,6 +65,7 @@ import '../widgets/song_list_screen_content.dart';
 import '../widgets/training_session_card.dart';
 import '../widgets/youtube_search_panel.dart';
 import '../theme/app_theme.dart';
+import '../widgets/center_alert.dart';
 import '../widgets/snack_message.dart';
 import '../widgets/prompter_keyboard_scope.dart';
 import '../widgets/prompter_space_background.dart'
@@ -130,6 +131,10 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 녹음 고정(Alt+R). 켜 두면 Space 하나로 재생과 녹음이 함께 시작·정지한다.
   /// 한 줄씩 조각을 받을 때 Space·R을 따로 누르면 그 사이만큼 박이 흔들린다.
   bool _recordArmed = false;
+
+  /// 이번 세션에서 입력이 살아 있는 걸 확인했는가. 매번 1초씩 재면 조각을
+  /// 받는 흐름이 끊겨서, 한 번 확인하면 장치가 바뀔 때까지 믿는다.
+  bool _inputVerified = false;
   // 녹음 당시 실제 재생 파일(변형본 포함)·템포 — 반주 조각을 자르는 데 쓴다.
   String? _recordingSourcePath;
   double _recordingTempo = 1.0;
@@ -361,6 +366,41 @@ class _SongListScreenState extends State<SongListScreen> {
     if (mounted) setState(() {});
   }
 
+  /// 녹음 전 입력 점검 — 소리가 안 들어오면 **큰 경고로 막는다.**
+  ///
+  /// 무음은 헤드폰으로 확인이 안 된다. FLOW 8은 PC로 가는 소리만 마스터를
+  /// 지나서, 마스터가 내려가 있으면 귀에는 멀쩡히 들리는데 녹음만 무음이다
+  /// (2026-09-15·09-21 같은 원인으로 반복). 사후 경고만으로는 이미 늦어서
+  /// 시작 전에 한 번 재고 막는다.
+  Future<bool> _verifyInputOrBlock() async {
+    if (_inputVerified) return true;
+    if (_settings.recordingDevice != null) {
+      _recording.deviceName = _settings.recordingDevice;
+    }
+    final peak = await _recording.probeInputLevel();
+    if (!mounted) return false;
+    if (peak == null) {
+      // 프로브 자체를 못 띄웠다 — 알리되 막지는 않는다(녹음까지 막을 근거는 아니다).
+      _showSnack('입력을 미리 확인하지 못했습니다. 그대로 진행합니다.');
+      return true;
+    }
+    if (!isSilentTake(peak)) {
+      _inputVerified = true;
+      return true;
+    }
+    CenterAlert.show(
+      context,
+      title: '녹음 입력에 소리가 없습니다',
+      detail:
+          '지금 녹음하면 무음만 저장됩니다.\n\n'
+          '· 설정 > 녹음에서 입력 장치를 확인해 주세요\n'
+          '· FLOW 8이면 마스터 노브와 1번 마이크 슬라이더가 내려가 있는지 보세요 '
+          '(헤드폰에는 들려도 PC로 가는 소리만 죽습니다)\n'
+          '· Ctrl+Alt+. 로 방송 점검을 돌려도 같이 잡힙니다',
+    );
+    return false;
+  }
+
   /// Alt+R — 녹음 고정을 켜고 끈다. 끌 때 녹음 중이면 함께 끝낸다.
   Future<void> _toggleRecordArm() async {
     if (_recordArmed) {
@@ -375,6 +415,8 @@ class _SongListScreenState extends State<SongListScreen> {
       _showSnack('먼저 곡을 선택해 주세요.');
       return;
     }
+    // 고정을 켜는 순간이 「준비」 시점이라 여기서 재는 게 흐름을 안 끊는다.
+    if (!await _verifyInputOrBlock()) return;
     _recordArmed = true;
     if (!mounted) return;
     setState(() {});
@@ -423,6 +465,11 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _updateSettings(PrompterSettings next) async {
     final syncChanged =
         next.syncServerEnabled != _settings.syncServerEnabled;
+    // 입력 장치를 바꾸면 이전 확인은 무효다 — 새 장치로 다시 재야 한다.
+    if (next.recordingDevice != _settings.recordingDevice ||
+        next.recordingBackingDevice != _settings.recordingBackingDevice) {
+      _inputVerified = false;
+    }
     await _app.updateSettings(next);
     // 동기화 토글은 바인딩 주소를 바꾼다 — 재기동하지 않으면 다음 실행에야
     // 반영된다(껐는데 LAN에 열려 있는 상태가 더 위험하다).
@@ -1421,6 +1468,8 @@ class _SongListScreenState extends State<SongListScreen> {
       _showSnack('녹음 장치를 찾지 못했습니다. 마이크 연결과 ffmpeg 설치를 확인해 주세요.');
       return;
     }
+    // 이번 세션 첫 녹음이면 입력을 한 번 재고 시작한다.
+    if (!await _verifyInputOrBlock()) return;
 
     // 설정에서 고른 입력 장치·볼륨을 적용한다.
     if (_settings.recordingDevice != null) {
