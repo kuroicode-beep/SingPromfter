@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.13.0';
+  static const String current = '5.13.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.13.1',
+      '2026-09-21',
+      '조작판에 [녹음 고정] 버튼을 달았습니다. Windows에서 Alt+문자가 창 메뉴로 '
+          '먹혀 앱까지 오지 않는 경우가 있어, Alt+R 없이도 켜고 끌 수 있게 했습니다. '
+          '켜져 있는지 눈으로 바로 보이는 것이 외울 키를 늘리는 것보다 낫습니다',
+    ),
     AppVersionEntry(
       '5.13.0',
       '2026-09-21',

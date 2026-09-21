@@ -112,6 +112,7 @@ class SongListScreenContent extends StatelessWidget {
   final MusicKey? pitchBaseKey;
   final bool isRecording;
   final bool recordArmed;
+  final VoidCallback? onToggleRecordArm;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -321,6 +322,7 @@ class SongListScreenContent extends StatelessWidget {
     this.pitchBaseKey,
     required this.isRecording,
     this.recordArmed = false,
+    this.onToggleRecordArm,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -542,6 +544,7 @@ class SongListScreenContent extends StatelessWidget {
       onAdjustTempo: onAdjustTempo,
       isRecording: isRecording,
       recordArmed: recordArmed,
+      onToggleRecordArm: onToggleRecordArm,
       recordingLevelLabel: recordingLevelLabel,
       recordingElapsed: recordingElapsed,
       onToggleRecording: onToggleRecording,

@@ -34,6 +34,7 @@ void main() {
     bool aiWiring = true,
     bool recordArmed = false,
     bool isRecording = false,
+    VoidCallback? onToggleRecordArm,
   }) async {
     final fake = buildFakePlayback(song: fakeSong());
     await tester.pumpWidget(
@@ -71,6 +72,7 @@ void main() {
                 onAdjustTempo: (_) {},
                 isRecording: isRecording,
                 recordArmed: recordArmed,
+                onToggleRecordArm: onToggleRecordArm ?? () {},
                 recordingLevelLabel: '',
                 recordingElapsed: Duration.zero,
                 onToggleRecording: () {},
@@ -340,6 +342,27 @@ void main() {
     testWidgets('꺼져 있으면 표시가 없다', (tester) async {
       final fake = await pumpBar(tester, width: 720);
       expect(find.text('● 녹음 고정'), findsNothing);
+      fake.dispose();
+    });
+
+    testWidgets('버튼으로도 켤 수 있다 — Alt 키가 안 먹는 환경 대비', (tester) async {
+      var toggled = 0;
+      final fake = await pumpBar(
+        tester,
+        width: 720,
+        onToggleRecordArm: () => toggled++,
+      );
+      await tester.tap(
+        find.bySemanticsLabel('녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께'),
+      );
+      await tester.pump();
+      expect(toggled, 1);
+      fake.dispose();
+    });
+
+    testWidgets('켜지면 버튼 라벨이 끄기로 바뀐다', (tester) async {
+      final fake = await pumpBar(tester, width: 720, recordArmed: true);
+      expect(find.bySemanticsLabel('녹음 고정 끄기 (Alt+R)'), findsOneWidget);
       fake.dispose();
     });
 

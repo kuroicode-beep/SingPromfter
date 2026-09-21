@@ -73,6 +73,13 @@ class PrompterBottomBar extends StatefulWidget {
 
   /// 녹음 고정(Alt+R) 켜짐. 스페이스가 재생과 녹음을 함께 다룬다.
   final bool recordArmed;
+
+  /// 녹음 고정 토글. null이면 버튼이 사라진다.
+  ///
+  /// 버튼을 따로 두는 이유: Windows에서 Alt+문자가 창 메뉴 활성화로 먹혀
+  /// 앱까지 안 오는 경우가 있다. 그리고 켜졌는지 눈으로 보이는 편이
+  /// 외울 키를 늘리는 것보다 낫다.
+  final VoidCallback? onToggleRecordArm;
   final String recordingLevelLabel;
   final Duration recordingElapsed;
   final VoidCallback onToggleRecording;
@@ -120,6 +127,7 @@ class PrompterBottomBar extends StatefulWidget {
     required this.onAdjustTempo,
     required this.isRecording,
     this.recordArmed = false,
+    this.onToggleRecordArm,
     required this.recordingLevelLabel,
     required this.recordingElapsed,
     required this.onToggleRecording,
@@ -243,6 +251,17 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                 toggled: widget.isRecording,
                 onTap: widget.onToggleRecording,
               ),
+              if (widget.onToggleRecordArm != null)
+                CompactBtn(
+                  icon: widget.recordArmed
+                      ? Icons.lock_clock
+                      : Icons.lock_open,
+                  semanticsLabel: widget.recordArmed
+                      ? '녹음 고정 끄기 (Alt+R)'
+                      : '녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께',
+                  toggled: widget.recordArmed,
+                  onTap: widget.onToggleRecordArm!,
+                ),
               // 고정은 켜 두면 스페이스 동작이 달라진다 — 모르고 누르면
               // 사고라서, 색이 아니라 글자로 항상 알린다.
               if (widget.recordArmed && !widget.isRecording)

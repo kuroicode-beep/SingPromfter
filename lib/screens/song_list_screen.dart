@@ -2756,6 +2756,7 @@ class _SongListScreenState extends State<SongListScreen> {
             : _app.trackBaseKeyFor(_selectedSong!, _selectedTrackSlot),
         isRecording: _recording.isRecording,
         recordArmed: _recordArmed,
+        onToggleRecordArm: _toggleRecordArm,
         recordingLevelLabel: _recording.levelLabel,
         recordingElapsed: _recording.elapsed,
         onToggleRecording: _toggleRecording,
