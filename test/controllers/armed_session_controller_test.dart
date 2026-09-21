@@ -1123,12 +1123,18 @@ void main() {
           44 + open.durationMs * kSessionBytesPerMs,
         );
 
-        // PCM은 고아가 쥐고 있어 못 지운다 — 사이드카가 「복구 끝」으로 남는다.
-        expect(File(pcmOf('a')).existsSync(), isTrue);
-        final kept = SessionSidecar.tryDecode(
-          File(jsonOf('a')).readAsStringSync(),
-        )!;
-        expect(kept.hasUnsaved, isFalse);
+        if (Platform.isWindows) {
+          // PCM은 고아가 쥐고 있어 못 지운다 — 사이드카가 「복구 끝」으로 남는다.
+          expect(File(pcmOf('a')).existsSync(), isTrue);
+          final kept = SessionSidecar.tryDecode(
+            File(jsonOf('a')).readAsStringSync(),
+          )!;
+          expect(kept.hasUnsaved, isFalse);
+        } else {
+          // 열린 파일도 지워지는 OS(CI의 리눅스)에서는 그 자리에서 치워진다 —
+          // 「못 지우는 고아」는 Windows의 공유 삭제 규칙에서만 생기는 상황이다.
+          expect(File(pcmOf('a')).existsSync(), isFalse);
+        }
       } finally {
         orphan.stop();
       }
