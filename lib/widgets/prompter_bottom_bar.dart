@@ -254,18 +254,22 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
               if (widget.onToggleRecordArm != null)
                 CompactBtn(
                   icon: widget.recordArmed
-                      ? Icons.lock_clock
-                      : Icons.lock_open,
+                      ? Icons.fiber_manual_record
+                      : Icons.radio_button_unchecked,
                   semanticsLabel: widget.recordArmed
                       ? '녹음 고정 끄기 (Alt+R)'
                       : '녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께',
                   toggled: widget.recordArmed,
+                  // toggled는 스크린리더용일 뿐 화면은 안 바뀐다 —
+                  // 눌린 게 안 보인다는 보고로 highlighted를 함께 건다.
+                  highlighted: widget.recordArmed,
                   onTap: widget.onToggleRecordArm!,
                 ),
               // 고정은 켜 두면 스페이스 동작이 달라진다 — 모르고 누르면
-              // 사고라서, 색이 아니라 글자로 항상 알린다.
-              if (widget.recordArmed && !widget.isRecording)
-                Text('● 녹음 고정', style: AppTypography.emphasis),
+              // 사고라서, 색이 아니라 글자로 항상 알린다. 녹음이 도는 중에도
+              // 계속 띄운다(고정이 켜진 줄 모르는 게 제일 위험하다).
+              if (widget.recordArmed)
+                Text('● 고정 ON', style: AppTypography.emphasis),
               // 녹음 상태 세 조각은 한 덩어리로 접힌다 — 시간과 레벨이
               // 서로 다른 줄로 갈라지면 읽을 수 없다.
               if (widget.isRecording)

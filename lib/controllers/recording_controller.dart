@@ -26,6 +26,23 @@ bool shouldAutoAdvance({
   return queueHasNext;
 }
 
+/// 녹음에 소리가 안 들어왔다고 볼 기준(dBFS).
+///
+/// 진짜 마이크는 조용한 방에서도 -60~-70dB대 노이즈 플로어가 있다.
+/// 그보다 낮으면 장치가 **디지털 무음**을 보내고 있다는 뜻이다 —
+/// 꺼진 무선 헤드셋, 믹서 루프백, 뽑힌 마이크가 전부 여기 걸린다.
+const double kSilentTakeDbfs = -75;
+
+/// 이 테이크에 소리가 없었는가. (순수 함수 — 테스트 대상)
+///
+/// 2026-09-21에 같은 사고가 두 번 났다. 잘못된 장치를 녹음해 **디지털 무음**이
+/// 저장됐는데, 저장까지 정상으로 끝나서 들어 보기 전에는 알 수가 없었다.
+/// 조용히 실패하는 게 가장 비싸다 — 그 자리에서 알려야 한다.
+bool isSilentTake(double? peakDbfs) {
+  if (peakDbfs == null) return true;
+  return peakDbfs < kSilentTakeDbfs;
+}
+
 /// 저장할 가치가 있는 최소 녹음 길이.
 ///
 /// 실수로 누른 R만 거르는 선이다. 예전 3초 기준은 **한 줄씩 끊어 녹음한
@@ -250,6 +267,9 @@ class RecordingController extends ChangeNotifier {
   bool _stopping = false;
   Duration _elapsed = Duration.zero;
   double? _dbfs;
+
+  /// 이번 녹음에서 관측한 가장 큰 입력 레벨. 무음 판정에 쓴다.
+  double? _peakDbfs;
   String? _currentFileName;
   String? _currentBackingFileName;
   final Map<int, double> _inputStarts = {};
@@ -388,6 +408,7 @@ class RecordingController extends ChangeNotifier {
       _inputStarts.clear();
       _elapsed = Duration.zero;
       _dbfs = null;
+      _peakDbfs = null;
 
       final errorLines = <String>[];
       _sub = job.lines.listen(
@@ -395,6 +416,7 @@ class RecordingController extends ChangeNotifier {
           final rms = parseRmsLevel(line);
           if (rms != null) {
             _dbfs = rms;
+            if (_peakDbfs == null || rms > _peakDbfs!) _peakDbfs = rms;
             notifyListeners();
             return;
           }
@@ -452,6 +474,7 @@ class RecordingController extends ChangeNotifier {
       String? backingFileName,
       int backingSkewMs,
       Duration duration,
+      double? peakDbfs,
     })?
   >
   stop() async {
@@ -461,6 +484,7 @@ class RecordingController extends ChangeNotifier {
     final fileName = _currentFileName;
     final backingFileName = _currentBackingFileName;
     final skewMs = _measuredSkewMs();
+    final peak = _peakDbfs;
     final job = _job;
 
     // 'q'로 우아하게 끝내야 WAV 헤더 크기가 제대로 기록된다.
@@ -483,6 +507,7 @@ class RecordingController extends ChangeNotifier {
       backingFileName: backingFileName,
       backingSkewMs: skewMs,
       duration: duration,
+      peakDbfs: peak,
     );
   }
 
@@ -623,6 +648,7 @@ class RecordingController extends ChangeNotifier {
     _currentFileName = null;
     _currentBackingFileName = null;
     _inputStarts.clear();
+    _peakDbfs = null;
     _dbfs = null;
     notifyListeners();
   }

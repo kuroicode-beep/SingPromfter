@@ -336,6 +336,32 @@ void _ffmpegRecordingTests() {
     });
   });
 
+  group('isSilentTake — 조용히 실패하는 녹음을 잡는다', () {
+    // 2026-09-21 실측. 같은 PC의 세 장치를 3초씩 받아 본 최대 레벨:
+    //   RØDE NT-USB Mini  -68.7dB  ← 살아 있는 마이크(실제 노이즈 플로어)
+    //   FLOW 8 MAIN L/R   -84.3dB  ← 아무것도 안 들어옴
+    //   Razer(꺼진 헤드셋) -90.3dB  ← 완전 디지털 무음
+    test('살아 있는 마이크의 노이즈 플로어는 무음이 아니다', () {
+      expect(isSilentTake(-68.7), isFalse);
+    });
+
+    test('아무것도 안 들어오는 장치는 무음으로 잡는다', () {
+      expect(isSilentTake(-84.3), isTrue);
+      expect(isSilentTake(-90.3), isTrue);
+      expect(isSilentTake(-102), isTrue);
+    });
+
+    test('레벨을 한 번도 못 읽었으면 무음으로 본다', () {
+      // 캡처가 즉사하면 astats 줄이 한 번도 안 온다.
+      expect(isSilentTake(null), isTrue);
+    });
+
+    test('정상 노래 레벨은 당연히 무음이 아니다', () {
+      expect(isSilentTake(-20), isFalse);
+      expect(isSilentTake(-3), isFalse);
+    });
+  });
+
   group('preferredInputDevice — 자동 선택이 믹서를 잡지 않게', () {
     // 2026-09-21 실사고: dshow 열거 순서가 바뀌어 FLOW 8 MAIN L/R이 1번으로
     // 올라왔고, 그걸 녹음한 테이크가 디지털 무음으로 남았다. 반주도 목소리도

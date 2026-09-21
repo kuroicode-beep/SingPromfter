@@ -335,13 +335,13 @@ void main() {
   group('녹음 고정(Alt+R) 표시', () {
     testWidgets('고정을 켜면 글자로 알린다 — 스페이스 동작이 달라지므로', (tester) async {
       final fake = await pumpBar(tester, width: 720, recordArmed: true);
-      expect(find.text('● 녹음 고정'), findsOneWidget);
+      expect(find.text('● 고정 ON'), findsOneWidget);
       fake.dispose();
     });
 
     testWidgets('꺼져 있으면 표시가 없다', (tester) async {
       final fake = await pumpBar(tester, width: 720);
-      expect(find.text('● 녹음 고정'), findsNothing);
+      expect(find.text('● 고정 ON'), findsNothing);
       fake.dispose();
     });
 
@@ -373,8 +373,8 @@ void main() {
         recordArmed: true,
         isRecording: true,
       );
-      // 고정과 녹음 중을 같이 띄우면 무슨 상태인지 흐려진다.
-      expect(find.text('● 녹음 고정'), findsNothing);
+      // 고정이 켜진 줄 모르는 게 제일 위험하다 — 녹음 중에도 계속 띄운다.
+      expect(find.text('● 고정 ON'), findsOneWidget);
       expect(find.text('● 녹음 중'), findsOneWidget);
       fake.dispose();
     });

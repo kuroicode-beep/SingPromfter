@@ -1521,6 +1521,22 @@ class _SongListScreenState extends State<SongListScreen> {
     await _recordingLibrary.add(take);
     if (!mounted) return;
     setState(() {});
+
+    // 🔴 소리가 안 들어왔으면 그 자리에서 알린다. 2026-09-21에 같은 사고가
+    // 두 번 났다 — 잘못된 장치(꺼진 무선 헤드셋·믹서 루프백)를 녹음해
+    // 디지털 무음이 저장됐는데, 저장까지 정상으로 끝나서 들어 보기 전에는
+    // 알 수가 없었다. 조각을 여러 개 쌓은 뒤에 알면 전부 다시 불러야 한다.
+    if (isSilentTake(result.peakDbfs)) {
+      SnackMessage.show(
+        context,
+        '녹음에 소리가 없습니다 — 입력 장치를 확인해 주세요. '
+        '설정 > 녹음에서 마이크를 직접 고르고 [마이크 테스트]로 막대가 '
+        '움직이는지 본 뒤 다시 받으세요.',
+        duration: const Duration(seconds: 12),
+      );
+      return;
+    }
+
     if (dual) {
       _showSnack('2채널 녹음을 저장했습니다. 합친 곡을 만드는 중...');
       // 미리 듣기는 합친 한 곡이 기본이라 저장 직후 바로 만들어 둔다.

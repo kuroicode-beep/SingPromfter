@@ -12,9 +12,19 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.13.1';
+  static const String current = '5.14.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.14.0',
+      '2026-09-21',
+      '무음 녹음 경고 — 소리가 안 들어온 녹음을 저장하고도 아무 말 없이 끝나던 '
+          '문제를 고쳤습니다. 꺼진 무선 헤드셋이나 믹서 루프백을 잡으면 디지털 '
+          '무음이 저장되는데, 조각을 여러 개 쌓은 뒤에야 알면 전부 다시 불러야 '
+          '합니다. 이제 그 자리에서 알리고 입력 장치를 확인하라고 안내합니다. '
+          '[녹음 고정] 버튼도 켜졌을 때 배경색이 바뀌고 「● 고정 ON」이 녹음 '
+          '중에도 계속 보이도록 했습니다 — 눌렸는지 표시가 약하다는 보고 반영',
+    ),
     AppVersionEntry(
       '5.13.1',
       '2026-09-21',
