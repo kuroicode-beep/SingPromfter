@@ -131,6 +131,9 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<RecordingTake> onCutTakeAccompaniment;
   final ValueChanged<RecordingTake> onTakeMixSettings;
   final ValueChanged<RecordingTake> onExportTake;
+
+  /// 같은 곡 조각들을 한 벌로 잇는다(펀치인 녹음 합치기).
+  final ValueChanged<RecordingTake> onStitchTakes;
   // v3.0.0 — 설정 '녹음' 섹션.
   final List<String> recordingDevices;
   final VoidCallback onRefreshRecordingDevices;
@@ -335,6 +338,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onCutTakeAccompaniment,
     required this.onTakeMixSettings,
     required this.onExportTake,
+    required this.onStitchTakes,
     this.recordingDevices = const [],
     required this.onRefreshRecordingDevices,
     this.micTesting = false,
@@ -693,6 +697,7 @@ class SongListScreenContent extends StatelessWidget {
         onCutAccompaniment: onCutTakeAccompaniment,
         onMixSettings: onTakeMixSettings,
         onExport: onExportTake,
+        onStitch: onStitchTakes,
       ),
       composePanel: ComposePanel(
         composeStatusLabel: composeStatusLabel,

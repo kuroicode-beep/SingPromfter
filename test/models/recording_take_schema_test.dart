@@ -98,4 +98,41 @@ void main() {
       expect(take.copyWith(rating: 5).dualChannel, isTrue);
     });
   });
+
+  group('songPositionMs — 조각 이어붙이기 좌표 (v5.12.0)', () {
+    RecordingTake make({int? pos}) => RecordingTake(
+      id: 't1',
+      songId: 's1',
+      songTitle: '곡',
+      fileName: 't1.wav',
+      recordedAt: DateTime(2026, 9, 21),
+      durationMs: 5000,
+      songPositionMs: pos,
+    );
+
+    test('옛 기록에는 없어서 null — 조각 대상이 아니다', () {
+      final old = RecordingTake.fromJson(const {});
+      expect(old.songPositionMs, isNull);
+      expect(old.hasSongPosition, isFalse);
+    });
+
+    test('JSON 왕복에 살아남는다', () {
+      final t = make(pos: 126161);
+      expect(RecordingTake.fromJson(t.toJson()).songPositionMs, 126161);
+      expect(t.hasSongPosition, isTrue);
+    });
+
+    test('0도 유효한 좌표다 (곡 처음부터)', () {
+      final t = make(pos: 0);
+      expect(RecordingTake.fromJson(t.toJson()).songPositionMs, 0);
+      expect(t.hasSongPosition, isTrue);
+    });
+
+    test('alignOffsetMs와 별개로 남는다', () {
+      // 2채널은 alignOffsetMs가 0이어도 곡 위치는 지켜져야 한다.
+      final t = make(pos: 120380).copyWith(alignOffsetMs: 0);
+      expect(t.alignOffsetMs, 0);
+      expect(t.songPositionMs, 120380);
+    });
+  });
 }

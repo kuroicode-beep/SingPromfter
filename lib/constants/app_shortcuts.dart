@@ -61,6 +61,13 @@ class AppShortcuts {
       spokenDescription: '녹음을 시작하거나 중지합니다.',
     ),
     ShortcutHelpEntry(
+      keys: 'Ctrl + R',
+      description: '직전 녹음 취소',
+      clipId: 'help_ctrl_r',
+      spokenKeys: '컨트롤 알',
+      spokenDescription: '방금 저장된 녹음을 취소합니다. 바로 되살릴 수 있습니다.',
+    ),
+    ShortcutHelpEntry(
       keys: '← / →',
       description: '가사 0.2초 늦추기 / 앞당기기 (꾹 누르면 연속)',
       clipId: 'help_arrows_lr',

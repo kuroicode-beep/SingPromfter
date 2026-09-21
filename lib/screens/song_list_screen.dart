@@ -57,6 +57,7 @@ import '../services/library_maintenance_service.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../services/take_mix_service.dart';
+import '../services/take_stitch_service.dart';
 import '../services/vocal_separation_client.dart';
 import '../services/control_server.dart';
 import '../utils/file_name_sanitizer.dart';
@@ -120,6 +121,11 @@ class _SongListScreenState extends State<SongListScreen> {
   int? _recordingSlot;
   int _recordingPitch = 0;
   int _recordingAlignMs = 0;
+
+  /// Ctrl+R로 방금 물린 테이크. 실행취소를 누르면 되살리고, 시간이 지나면
+  /// 파일까지 치운다. 목록에서만 빼 둔 상태라 파일은 아직 남아 있다.
+  RecordingTake? _discardedTake;
+  Timer? _discardPurgeTimer;
   // 녹음 당시 실제 재생 파일(변형본 포함)·템포 — 반주 조각을 자르는 데 쓴다.
   String? _recordingSourcePath;
   double _recordingTempo = 1.0;
@@ -184,6 +190,7 @@ class _SongListScreenState extends State<SongListScreen> {
   PrompterActions get _prompterActions => PrompterActions(
     togglePlayPause: _togglePlayPause,
     toggleRecording: _toggleRecording,
+    discardLastRecording: _discardLastRecording,
     resetLyricsSync: _resetLyricsSync,
     anchorFirstLine: _anchorFirstLine,
     nudgeLyricsOffset: _adjustLyricsOffset,
@@ -276,6 +283,12 @@ class _SongListScreenState extends State<SongListScreen> {
   void dispose() {
     for (final timer in _pendingDeleteTimers.values) {
       timer.cancel();
+    }
+    // Ctrl+R로 물려 둔 테이크는 파일이 남아 있다 — 앱이 닫히면 치운다.
+    _discardPurgeTimer?.cancel();
+    final discarded = _discardedTake;
+    if (discarded != null) {
+      unawaited(_recordingLibrary.purgeFiles(discarded));
     }
     _playback.state.removeListener(_onPlaybackStateChanged);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
@@ -1454,6 +1467,8 @@ class _SongListScreenState extends State<SongListScreen> {
       tempoScale: _recordingTempo,
       accompanimentFileName: dual ? recordedBacking : null,
       dualChannel: dual,
+      // 채널 수와 무관하게 「곡의 어디였는지」를 남긴다 — 조각 이어붙이기의 좌표.
+      songPositionMs: _recordingAlignMs,
     );
     await _recordingLibrary.add(take);
     if (!mounted) return;
@@ -1581,6 +1596,163 @@ class _SongListScreenState extends State<SongListScreen> {
     await _recordingLibrary.update(take.copyWith(isKeep: !take.isKeep));
     if (!mounted) return;
     setState(() {});
+  }
+
+  /// 같은 곡의 조각들을 한 벌의 보컬로 잇고 반주에 얹는다.
+  ///
+  /// 랩처럼 빠른 구간은 두 줄씩 끊어 녹음하게 된다(펀치인). 조각마다 곡
+  /// 재생 위치가 남아 있어 이어붙이기는 귀로 맞추는 일이 아니라 계산이다.
+  Future<void> _stitchTakes(RecordingTake take) async {
+    final siblings = _recordingLibrary.takes
+        .where((t) => t.songId == take.songId && t.hasSongPosition)
+        .toList();
+    if (siblings.length < 2) {
+      _showSnack('이어붙이려면 같은 곡 조각이 둘 이상 필요합니다.');
+      return;
+    }
+
+    final dir = (await _recordingLibrary.directory()).path;
+    // 분리 보컬이 있으면 그걸 쓴다(스피커 녹음 정리본).
+    final segments = [
+      for (final t in siblings)
+        StitchSegment(
+          vocalPath:
+              '$dir/${t.hasSeparatedVocal ? t.separatedFileName : t.fileName}',
+          songPositionMs: t.songPositionMs!,
+          durationMs: t.durationMs,
+        ),
+    ];
+
+    if (!mounted) return;
+    _showSnack('조각 ${segments.length}개를 잇는 중...');
+    final stitcher = TakeStitchService();
+    // 리드인 무음을 재서 내용이 실제로 시작하는 자리를 찾는다.
+    final measured = await stitcher.withDetectedOffsets(segments);
+
+    // 이음새를 박 위에 두려고 싱크 가사 줄 경계를 쓴다(있을 때만).
+    var lineStarts = const <int>[];
+    final matches = _songs.where((x) => x.id == take.songId).toList();
+    if (matches.isNotEmpty) {
+      final timed = await _app.lyricsSync.loadFor(matches.first);
+      if (timed != null && timed.lines.isNotEmpty) {
+        lineStarts = [
+          for (final l in timed.lines) l.time.inMilliseconds + timed.offsetMs,
+        ];
+      }
+    }
+
+    final spans = computeStitchSpans(
+      segments: measured,
+      lineStartsMs: lineStarts,
+    );
+    if (spans.length < 2) {
+      if (mounted) _showSnack('조각들이 서로 겹쳐서 이을 구간이 없습니다.');
+      return;
+    }
+
+    final newId = const Uuid().v4();
+    final vocalName = '$newId.wav';
+    final result = await stitcher.stitchVocals(
+      segments: measured,
+      outputPath: '$dir/$vocalName',
+      lineStartsMs: lineStarts,
+    );
+    if (!mounted) return;
+    if (!result.success) {
+      _showSnack(result.message ?? '조각 이어붙이기에 실패했습니다.');
+      return;
+    }
+
+    // 이어붙인 보컬은 이미 곡 타임라인 위에 놓였다 — 정렬 보정이 0이고,
+    // 반주 조각이 아니라 **원본 반주 한 벌**에 얹어야 한다.
+    final stitched = RecordingTake(
+      id: newId,
+      songId: take.songId,
+      songTitle: take.songTitle,
+      fileName: vocalName,
+      recordedAt: DateTime.now(),
+      durationMs: spans.last.endMs,
+      backingTrackSlot: take.backingTrackSlot,
+      pitchSemitones: take.pitchSemitones,
+      alignOffsetMs: 0,
+      sourceAudioPath: take.sourceAudioPath,
+      tempoScale: take.tempoScale,
+      songPositionMs: 0,
+      comment: '조각 ${spans.length}개 이어붙임',
+    );
+    await _recordingLibrary.add(stitched);
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('조각 ${spans.length}개를 이었습니다. 반주와 합치는 중...');
+    await _mixTake(stitched, silent: true);
+  }
+
+  /// Ctrl+R — 직전 녹음을 물린다. 조각을 여러 번 다시 받을 때,
+  /// 맘에 안 든 것을 그 자리에서 버려 **최종본만 순서대로 쌓이게** 한다.
+  ///
+  /// 파일은 바로 지우지 않는다 — 잘못 눌렀을 때 되돌릴 수 없으면 안 된다.
+  Future<void> _discardLastRecording() async {
+    if (_recording.isRecording) {
+      _showSnack('녹음 중입니다. R로 정지한 뒤에 취소해 주세요.');
+      return;
+    }
+    final takes = _recordingLibrary.takes; // 최신순
+    if (takes.isEmpty) {
+      _showSnack('취소할 녹음이 없습니다.');
+      return;
+    }
+    // 앞서 물려 둔 게 있으면 이제 확정 — 파일을 치운다.
+    await _purgeDiscarded();
+
+    final take = takes.first;
+    await _recordingLibrary.removeRecordOnly(take);
+    _discardedTake = take;
+    if (!mounted) return;
+    setState(() {});
+
+    final at = take.songPositionMs;
+    final where = at == null ? '' : ' (${_formatPosition(at)} 조각)';
+    // 토스트가 사라지면 확정 — 그때까지는 되살릴 수 있다.
+    _discardPurgeTimer?.cancel();
+    _discardPurgeTimer = Timer(
+      const Duration(milliseconds: 6000),
+      () => unawaited(_purgeDiscarded()),
+    );
+    SnackMessage.show(
+      context,
+      '직전 녹음을 취소했습니다$where.',
+      actionLabel: '실행취소',
+      onAction: _restoreDiscarded,
+    );
+  }
+
+  /// 물려 둔 테이크를 목록에 되돌린다.
+  Future<void> _restoreDiscarded() async {
+    final take = _discardedTake;
+    if (take == null) return;
+    _discardPurgeTimer?.cancel();
+    _discardPurgeTimer = null;
+    _discardedTake = null;
+    await _recordingLibrary.add(take);
+    if (!mounted) return;
+    setState(() {});
+    _showSnack('녹음을 되살렸습니다.');
+  }
+
+  /// 물려 둔 테이크의 파일을 실제로 치운다(되살릴 기회가 지났다).
+  Future<void> _purgeDiscarded() async {
+    final take = _discardedTake;
+    _discardPurgeTimer?.cancel();
+    _discardPurgeTimer = null;
+    _discardedTake = null;
+    if (take == null) return;
+    await _recordingLibrary.purgeFiles(take);
+  }
+
+  /// 곡 위치를 분:초로 — 조각을 알아보는 이름이 된다.
+  static String _formatPosition(int ms) {
+    final total = ms ~/ 1000;
+    return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
   }
 
   Future<void> _deleteTake(RecordingTake take) async {
@@ -2559,6 +2731,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onCutTakeAccompaniment: _cutAccompanimentForTake,
         onTakeMixSettings: _showTakeMixSettings,
         onExportTake: _exportTake,
+        onStitchTakes: _stitchTakes,
         recordingDevices: _recording.devices,
         onRefreshRecordingDevices: _refreshRecordingDevices,
         micTesting: _recording.isProbing,

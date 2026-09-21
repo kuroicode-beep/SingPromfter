@@ -11,11 +11,13 @@ import 'package:singpromfter_app/theme/app_theme.dart';
 import 'package:singpromfter_app/widgets/recordings_panel.dart';
 
 RecordingTake _take({
+  String id = 't1',
   String? accompaniment,
   String? mixed,
   bool dualChannel = false,
+  int? songPositionMs,
 }) => RecordingTake(
-  id: 't1',
+  id: id,
   songId: 's1',
   songTitle: '테스트 곡',
   fileName: 't1.wav',
@@ -24,17 +26,19 @@ RecordingTake _take({
   accompanimentFileName: accompaniment,
   mixedFileName: mixed,
   dualChannel: dualChannel,
+  songPositionMs: songPositionMs,
 );
 
 Widget _panel({
   ValueChanged<RecordingTake>? onAnalyze,
   ValueChanged<RecordingTake>? onCorrect,
   RecordingTake? take,
+  List<RecordingTake>? takes,
 }) => MaterialApp(
   theme: AppTheme.dark(),
   home: Scaffold(
     body: RecordingsPanel(
-      takes: [take ?? _take()],
+      takes: takes ?? [take ?? _take()],
       query: '',
       filterMode: RecordingFilterMode.all,
       playingTakeId: null,
@@ -54,6 +58,7 @@ Widget _panel({
       onCutAccompaniment: (_) {},
       onMixSettings: (_) {},
       onExport: (_) {},
+      onStitch: (_) {},
     ),
   ),
 );
@@ -128,5 +133,45 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('2채널'), findsNothing);
+  });
+
+  group('조각(펀치인) 표시와 잇기 버튼', () {
+    testWidgets('곡 위치가 있으면 메타 줄에 조각으로 표시된다', (tester) async {
+      await tester.pumpWidget(_panel(take: _take(songPositionMs: 126161)));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('2:06 조각'), findsOneWidget);
+    });
+
+    testWidgets('조각이 하나뿐이면 잇기 버튼이 없다', (tester) async {
+      await tester.pumpWidget(_panel(take: _take(songPositionMs: 120000)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('조각 잇기'), findsNothing);
+    });
+
+    testWidgets('같은 곡 조각이 둘 이상이면 잇기 버튼이 보인다', (tester) async {
+      await tester.pumpWidget(
+        _panel(
+          takes: [
+            _take(id: 't1', songPositionMs: 120000),
+            _take(id: 't2', songPositionMs: 123050),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('조각 잇기'), findsNWidgets(2));
+    });
+
+    testWidgets('곡 위치가 없는 옛 녹음은 잇기 대상이 아니다', (tester) async {
+      await tester.pumpWidget(
+        _panel(takes: [_take(id: 't1'), _take(id: 't2')]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('조각 잇기'), findsNothing);
+      expect(find.textContaining('조각'), findsNothing);
+    });
   });
 }

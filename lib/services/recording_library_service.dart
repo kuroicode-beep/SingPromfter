@@ -161,6 +161,27 @@ class RecordingLibraryService {
     await _store.save(_takes);
   }
 
+  /// 목록에서만 빼고 **파일은 남긴다.** 실행취소(Ctrl+R 직후)를 위한 경로다 —
+  /// 파일까지 지우면 되돌릴 수가 없다. 되살리지 않으면 [purgeFiles]로 치운다.
+  Future<void> removeRecordOnly(RecordingTake take) async {
+    _takes = _takes.where((t) => t.id != take.id).toList();
+    await _store.save(_takes);
+  }
+
+  /// [removeRecordOnly]로 뺀 테이크의 파일들을 실제로 지운다.
+  Future<void> purgeFiles(RecordingTake take) async {
+    await _store.deleteFile(take.fileName);
+    for (final attached in [
+      take.accompanimentFileName,
+      take.mixedFileName,
+      take.separatedFileName,
+    ]) {
+      if (attached != null && attached.isNotEmpty) {
+        await _store.deleteFile(attached);
+      }
+    }
+  }
+
   Future<String> pathFor(RecordingTake take) => _store.pathFor(take.fileName);
 
   Future<Directory> directory() => _store.recordingsDir;

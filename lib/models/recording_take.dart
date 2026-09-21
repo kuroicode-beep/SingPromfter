@@ -86,6 +86,14 @@ class RecordingTake {
   /// 분리 서버로 정리한 순수 보컬 파일명(`<id>_sep.wav`). data/recordings 안.
   final String? separatedFileName;
 
+  /// 녹음을 시작한 순간의 **곡 재생 위치**(ms). 곡을 나눠 녹음한 조각들을
+  /// 다시 곡 타임라인 위에 놓을 때 쓴다 — 조각 이어붙이기의 좌표다.
+  ///
+  /// alignOffsetMs와 다르다: 그쪽은 「반주와 합칠 때 보컬을 얼마나 늦출지」이고
+  /// 2채널에서는 반주를 함께 녹음하므로 0이 된다. 이 값은 채널 수와 무관하게
+  /// 「곡의 어디였는지」를 남긴다. null이면 기록 이전에 만들어진 테이크다.
+  final int? songPositionMs;
+
   /// 독립 2채널로 받은 테이크인가. 보컬에 반주가 섞이지 않았다는 뜻이라
   /// AI 보컬 분리를 권할 이유가 없다(반주는 잘라낸 조각이 아니라 녹음본).
   final bool dualChannel;
@@ -113,6 +121,7 @@ class RecordingTake {
     this.noiseReduction = false,
     this.separatedFileName,
     this.dualChannel = false,
+    this.songPositionMs,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -128,6 +137,9 @@ class RecordingTake {
   bool get hasAccompaniment => (accompanimentFileName ?? '').isNotEmpty;
 
   bool get hasSeparatedVocal => (separatedFileName ?? '').isNotEmpty;
+
+  /// 곡 타임라인 위 조각으로 쓸 수 있는가(이어붙이기 대상).
+  bool get hasSongPosition => songPositionMs != null;
 
   RecordingTake copyWith({
     String? mixedFileName,
@@ -146,6 +158,7 @@ class RecordingTake {
     bool? noiseReduction,
     String? separatedFileName,
     bool? dualChannel,
+    int? songPositionMs,
   }) {
     return RecordingTake(
       id: id,
@@ -171,6 +184,7 @@ class RecordingTake {
       noiseReduction: noiseReduction ?? this.noiseReduction,
       separatedFileName: separatedFileName ?? this.separatedFileName,
       dualChannel: dualChannel ?? this.dualChannel,
+      songPositionMs: songPositionMs ?? this.songPositionMs,
     );
   }
 
@@ -197,6 +211,7 @@ class RecordingTake {
     'noiseReduction': noiseReduction,
     'separatedFileName': separatedFileName,
     'dualChannel': dualChannel,
+    'songPositionMs': songPositionMs,
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -228,6 +243,7 @@ class RecordingTake {
       noiseReduction: json['noiseReduction'] as bool? ?? false,
       separatedFileName: json['separatedFileName'] as String?,
       dualChannel: json['dualChannel'] as bool? ?? false,
+      songPositionMs: (json['songPositionMs'] as num?)?.toInt(),
     );
   }
 }

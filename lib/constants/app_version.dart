@@ -12,9 +12,22 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.11.0';
+  static const String current = '5.12.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.12.0',
+      '2026-09-21',
+      '조각 이어붙이기 — 빠른 랩처럼 한 번에 뱉기 어려운 구간을 두 줄씩 끊어 '
+          '녹음한 뒤 한 벌로 이을 수 있습니다. 조각마다 녹음을 시작한 곡 위치가 '
+          '남아 이어붙이기는 귀로 맞추는 일이 아니라 계산입니다. 리드인 무음을 '
+          '재서 소리가 실제로 시작하는 자리를 찾고, 이음새는 싱크 가사 줄 경계에 '
+          '둡니다 — 박 위이면서 말이 끊기는 자리라 단어 중간이 아니라 빈 곳에서 '
+          '잘립니다. 녹음 목록에 「2:06 조각」처럼 위치가 표시되고, 조각이 둘 '
+          '이상이면 [조각 잇기] 버튼이 나옵니다. 그리고 Ctrl+R로 직전 녹음을 '
+          '바로 취소할 수 있습니다(실행취소 가능) — 맘에 안 든 조각을 그 자리에서 '
+          '버려 최종본만 순서대로 쌓입니다',
+    ),
     AppVersionEntry(
       '5.11.0',
       '2026-09-21',

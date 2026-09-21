@@ -29,6 +29,9 @@ class RecordingsPanel extends StatelessWidget {
   final ValueChanged<RecordingTake> onMixSettings;
   final ValueChanged<RecordingTake> onExport;
 
+  /// 같은 곡 조각들을 한 벌로 잇는다. 조각이 둘 이상일 때만 버튼이 보인다.
+  final ValueChanged<RecordingTake> onStitch;
+
   /// v3.0.0 음정 코치 — 채점과 AI 보정.
   /// v5.6.0부터 nullable — AI 기능이 꺼져 있으면 null이 오고 버튼이 사라진다
   /// (반주 만들기·합치기 같은 ffmpeg 기능은 AI가 아니라서 항상 남는다).
@@ -65,6 +68,7 @@ class RecordingsPanel extends StatelessWidget {
     required this.onCutAccompaniment,
     required this.onMixSettings,
     required this.onExport,
+    required this.onStitch,
     this.playingPosition = Duration.zero,
     this.playingDuration = Duration.zero,
     this.onSeek,
@@ -178,6 +182,18 @@ class RecordingsPanel extends StatelessWidget {
                       onCutAccompaniment: () => onCutAccompaniment(take),
                       onMixSettings: () => onMixSettings(take),
                       onExport: () => onExport(take),
+                      // 곡 위치가 있는 같은 곡 조각이 둘 이상일 때만 보인다.
+                      onStitch:
+                          takes
+                                  .where(
+                                    (t) =>
+                                        t.songId == take.songId &&
+                                        t.songPositionMs != null,
+                                  )
+                                  .length >=
+                              2
+                          ? () => onStitch(take)
+                          : null,
                     );
                   },
                 ),
@@ -316,6 +332,9 @@ class _TakeRow extends StatelessWidget {
   final VoidCallback onMixSettings;
   final VoidCallback onExport;
 
+  /// 조각 잇기. 조각이 둘 미만이면 null이라 버튼이 사라진다.
+  final VoidCallback? onStitch;
+
   const _TakeRow({
     required this.take,
     required this.playing,
@@ -336,7 +355,14 @@ class _TakeRow extends StatelessWidget {
     required this.onCutAccompaniment,
     required this.onMixSettings,
     required this.onExport,
+    this.onStitch,
   });
+
+  /// 곡 위치를 분:초로 — 「2:06 조각」처럼 조각을 알아보는 이름이 된다.
+  static String _formatPosition(int ms) {
+    final total = ms ~/ 1000;
+    return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
+  }
 
   static String _formatDuration(Duration d) {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -355,7 +381,8 @@ class _TakeRow extends StatelessWidget {
     final meta =
         '${_formatDuration(take.duration)} · '
         '${formatKeyLabel(take.pitchSemitones)}'
-        '${take.dualChannel ? ' · 2채널(보컬+반주)' : ''}';
+        '${take.dualChannel ? ' · 2채널(보컬+반주)' : ''}'
+        '${take.songPositionMs == null ? '' : ' · ${_formatPosition(take.songPositionMs!)} 조각'}';
 
     return Semantics(
       label:
@@ -543,6 +570,19 @@ class _TakeRow extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (onStitch != null)
+                  OutlinedButton.icon(
+                    onPressed: onStitch,
+                    icon: const Icon(Icons.link),
+                    label: const Text('조각 잇기'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(110, AppConstants.minTouchTarget),
+                      side: const BorderSide(
+                        color: AppColors.borderStrong,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 OutlinedButton.icon(
                   onPressed: onExport,
                   icon: const Icon(Icons.drive_file_move_outline),
