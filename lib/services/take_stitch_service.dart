@@ -33,9 +33,16 @@
 //   잘렸다.** 리드인 + 250ms부터 잰다.
 // · 스냅이 조각 자기 시작보다 앞으로 가면 파일 오프셋이 음수가 된다 — 없는 소리를
 //   자르는 셈이라 조각이 그만큼 일찍 놓인다. 자기 시작에서 막는다.
+//
+// ── v5.17.0에서 고친 것 ─────────────────────────────────────────
+// · 같은 줄을 다시 받은 조각: 예전에는 「내용 시작이 몇 ms 늦은 쪽」이 남았다. 새로 받은
+//   조각이 50ms 일찍 들어오면 **옛 조각이 이겼고**, 가사가 없는 곡에서는 옛 조각의
+//   80ms 토막 뒤에 새 조각이 붙어 첫 음절이 두 번 났다. 이제 같은 자리의 조각은
+//   **받은 시각이 가장 늦은 것 하나만** 쓰고 나머지는 통째로 뺀다([dedupeSameLineSegments]).
 import 'dart:io';
 
 import '../controllers/recording_controller.dart' show isSilentTake;
+import '../models/recording_take.dart';
 import '../models/timed_lyrics.dart';
 import 'lyrics_sync_math.dart';
 import 'process/external_tool_locator.dart';
@@ -63,6 +70,10 @@ class StitchSegment {
   /// 녹음할 때 잰 최대 레벨(dBFS). null이면 모른다(파일을 직접 재서 가린다).
   final double? peakDbfs;
 
+  /// 이 조각을 받은 시각. 같은 줄을 다시 받은 조각들 가운데 **최신 것**을 고르는 근거다.
+  /// null이면 모른다 — 시각을 아는 조각에게 지고, 서로 모르면 입력 순서상 뒤가 이긴다.
+  final DateTime? recordedAt;
+
   const StitchSegment({
     required this.vocalPath,
     required this.songPositionMs,
@@ -70,6 +81,7 @@ class StitchSegment {
     this.contentOffsetMs = 0,
     this.leadInMs = 0,
     this.peakDbfs,
+    this.recordedAt,
   });
 
   /// 곡 타임라인 기준, 이 조각의 내용이 시작하는 시각(ms).
@@ -86,6 +98,7 @@ class StitchSegment {
     contentOffsetMs: offsetMs,
     leadInMs: leadInMs,
     peakDbfs: peakDbfs,
+    recordedAt: recordedAt,
   );
 }
 
@@ -113,6 +126,24 @@ class StitchSpan {
 /// 템포는 5% 단위로만 바뀌므로 0.5% 안쪽이면 같은 값이다.
 bool isSameStitchTimeline(double tempoScaleA, double tempoScaleB) =>
     (tempoScaleA - tempoScaleB).abs() < 0.005;
+
+/// [picked]와 한 벌로 이을 **재료**를 고른다. (순수 함수)
+///
+/// 같은 곡 · 곡 좌표가 있음 · 같은 템포 · **이어붙인 결과물이 아님**.
+///
+/// 🔴 결과물은 곡 좌표 0에서 시작하는 한 벌이라 좌표만 보면 조각과 구분이 안 된다.
+/// 재료에 끼면 첫 조각과 같은 자리를 차지해 첫 조각을 밀어내고, 그사이 **지운 조각의
+/// 소리까지 되살린다**(결과물 안에 그 소리가 들어 있다). 표식([RecordingTake.stitched])으로 뺀다.
+List<RecordingTake> stitchSiblings(
+  Iterable<RecordingTake> takes,
+  RecordingTake picked,
+) => [
+  for (final t in takes)
+    if (t.songId == picked.songId &&
+        t.isStitchable &&
+        isSameStitchTimeline(t.tempoScale, picked.tempoScale))
+      t,
+];
 
 /// 싱크 가사 줄 시작을 **플레이어 축**(ms)으로 옮긴다. (순수 함수)
 ///
@@ -181,6 +212,107 @@ int snappedContentStartMs(StitchSegment segment, List<int> lineStartsMs) {
   return snapped < segment.songPositionMs ? segment.songPositionMs : snapped;
 }
 
+/// 같은 자리를 다시 받은 조각을 가려낸 결과.
+class StitchDedupe {
+  /// 남긴 조각 — 시작이 이른 순.
+  final List<StitchSegment> kept;
+
+  /// [kept]와 같은 순서의 시작 시각(ms, 줄 경계로 스냅된 값).
+  final List<int> startsMs;
+
+  /// 더 늦게 받은 조각에 밀려 **통째로 빠진** 조각 수.
+  final int droppedCount;
+
+  const StitchDedupe({
+    required this.kept,
+    required this.startsMs,
+    required this.droppedCount,
+  });
+}
+
+/// 입력 순번·조각·스냅된 시작을 한데 묶은 것([dedupeSameLineSegments] 안에서만 쓴다).
+typedef _StitchEntry = ({int index, StitchSegment segment, int startMs});
+
+/// [candidate]가 [best]보다 나중에 받은 조각인가. (순수 함수)
+///
+/// 받은 시각으로 가리고, 시각을 모르는 조각은 아는 조각에게 진다. 둘 다 모르거나 같으면
+/// 입력 순서상 뒤가 이긴다 — 시각 없이 부르던 예전 호출부의 동작이다.
+bool _isNewerStitchEntry(_StitchEntry candidate, _StitchEntry best) {
+  final a = candidate.segment.recordedAt;
+  final b = best.segment.recordedAt;
+  if (a != null && b != null && !a.isAtSameMomentAs(b)) return a.isAfter(b);
+  if ((a == null) != (b == null)) return a != null;
+  return candidate.index > best.index;
+}
+
+/// 같은 자리를 다시 받은 조각들 가운데 **가장 늦게 받은 것만** 남긴다. (순수 함수)
+///
+/// 「같은 자리」 = 스냅된 내용 시작이 같은 줄이거나, 서로 [kStitchSnapToleranceMs] 안쪽으로
+/// 이어진 묶음. 가사가 없는 곡에서는 스냅할 줄이 없어 시작이 몇십 ms씩 어긋나는데, 그걸
+/// 다른 자리로 보면 옛 조각의 토막이 새 조각 앞에 남아 첫 음절이 두 번 난다.
+///
+/// 🔴 진 조각은 **통째로** 뺀다. 조각 하나는 구간을 하나만 맡으므로, 옛 조각이 더 길어
+/// 다음 줄까지 덮고 있었더라도 그 뒷부분은 쓰지 않는다 — 다시 받았다는 것은 그 자리의
+/// 옛 소리를 버리겠다는 뜻이다. 몇 개를 뺐는지는 [StitchDedupe.droppedCount]로 알린다.
+///
+/// 정렬 기준은 스냅된 시작이다(입력 순번으로 동률을 가른다 — List.sort는 안정 정렬이
+/// 아니다). 남긴 조각끼리는 허용 오차보다 멀리 떨어지므로 두 번 걸러도 결과가 같다.
+StitchDedupe dedupeSameLineSegments({
+  required List<StitchSegment> segments,
+  List<int> lineStartsMs = const [],
+}) {
+  final lines = [...lineStartsMs]..sort();
+  final entries = <_StitchEntry>[
+    for (var i = 0; i < segments.length; i++)
+      (
+        index: i,
+        segment: segments[i],
+        startMs: snappedContentStartMs(segments[i], lines),
+      ),
+  ];
+  entries.sort((a, b) {
+    final byStart = a.startMs.compareTo(b.startMs);
+    return byStart != 0 ? byStart : a.index.compareTo(b.index);
+  });
+
+  final kept = <StitchSegment>[];
+  final starts = <int>[];
+  var dropped = 0;
+  var from = 0;
+  while (from < entries.length) {
+    // 바로 앞 조각과 시작이 허용 오차 안으로 이어지는 동안이 한 묶음이다.
+    var to = from + 1;
+    while (to < entries.length &&
+        entries[to].startMs - entries[to - 1].startMs <=
+            kStitchSnapToleranceMs) {
+      to++;
+    }
+    var winner = entries[from];
+    for (var k = from + 1; k < to; k++) {
+      if (_isNewerStitchEntry(entries[k], winner)) winner = entries[k];
+    }
+    kept.add(winner.segment);
+    starts.add(winner.startMs);
+    dropped += to - from - 1;
+    from = to;
+  }
+  return StitchDedupe(kept: kept, startsMs: starts, droppedCount: dropped);
+}
+
+/// 이어붙이기 안내에 붙는 「뺀 조각」 설명. 뺀 것이 없으면 빈 문자열. (순수 함수)
+///
+/// 조용히 빼면 「분명히 받았는데 왜 안 들리지」가 된다 — 몇 개를 왜 뺐는지 말한다.
+String stitchExclusionNote({
+  required int silentCount,
+  required int retakeCount,
+}) {
+  final parts = [
+    if (silentCount > 0) '무음 조각 $silentCount개 제외',
+    if (retakeCount > 0) '같은 줄을 다시 받은 조각 $retakeCount개는 최신 것만 사용',
+  ];
+  return parts.isEmpty ? '' : ' (${parts.join(' · ')})';
+}
+
 /// 조각들의 이음새를 정한다. (순수 함수 — 테스트 대상)
 ///
 /// 각 조각의 내용 시작점(리드인 무음을 걷어낸 자리)을 기준으로,
@@ -191,17 +323,20 @@ int snappedContentStartMs(StitchSegment segment, List<int> lineStartsMs) {
 /// 🔴 앞 조각의 꼬리는 다음 조각의 **녹음 시작이 아니라 말 시작**에서 끝난다.
 /// 다음 조각은 2마디 앞에서 녹음을 걸기 때문에, 녹음 시작에서 자르면 앞 조각의
 /// 마지막 줄이 통째로 날아간다.
+///
+/// 같은 자리를 다시 받은 조각은 먼저 [dedupeSameLineSegments]로 최신 것만 남긴다.
 List<StitchSpan> computeStitchSpans({
   required List<StitchSegment> segments,
   List<int> lineStartsMs = const [],
 }) {
   if (segments.isEmpty) return const [];
 
-  final sorted = [...segments]
-    ..sort((a, b) => a.contentStartMs.compareTo(b.contentStartMs));
-  final lines = [...lineStartsMs]..sort();
-
-  final starts = [for (final s in sorted) snappedContentStartMs(s, lines)];
+  final deduped = dedupeSameLineSegments(
+    segments: segments,
+    lineStartsMs: lineStartsMs,
+  );
+  final sorted = deduped.kept;
+  final starts = deduped.startsMs;
 
   final spans = <StitchSpan>[];
   for (var i = 0; i < sorted.length; i++) {
@@ -211,7 +346,9 @@ List<StitchSpan> computeStitchSpans({
     var end = i + 1 < sorted.length ? starts[i + 1] : seg.songEndMs;
     // 내 녹음이 거기까지 닿지 않으면 닿는 데까지만.
     if (end > seg.songEndMs) end = seg.songEndMs;
-    if (end <= start) continue; // 다음 조각에 완전히 덮였다 — 버린다.
+    // 자기 녹음이 내용 시작에도 못 닿는 조각(길이 0·오프셋이 길이를 넘음) — 버린다.
+    // 같은 자리의 중복은 위에서 이미 걸렀다.
+    if (end <= start) continue;
     spans.add(StitchSpan(segment: seg, startMs: start, endMs: end));
   }
   return spans;

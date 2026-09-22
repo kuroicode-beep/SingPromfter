@@ -73,7 +73,9 @@ class ArmedTakeContext {
   final int? trackSlot;
   final int pitchSemitones;
 
-  /// 그 순간 실제로 재생되던 파일(키·템포 변형본 포함) — 반주 조각을 여기서 자른다.
+  /// 그 순간 실제로 재생되던 파일(키·템포 변형본·위치 보정본 포함) — 반주 조각을
+  /// 여기서 자른다. 위치 보정본(캐시의 WAV)은 축출될 수 있다 — 저장·복구 때 없으면
+  /// 원본 슬롯 파일로 물러난다(ffmpeg 시간축에서는 둘이 같다).
   final String? activeAudioPath;
   final double tempoScale;
 

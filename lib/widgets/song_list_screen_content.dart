@@ -20,6 +20,7 @@ import '../models/song.dart';
 import '../services/bgm_compose_client.dart';
 import '../services/prompter_settings_service.dart';
 import '../utils/music_key.dart';
+import '../utils/playback_copy_plan.dart';
 import '../services/song_filter_service.dart';
 import '../services/song_sort_service.dart';
 import '../theme/app_theme.dart';
@@ -141,6 +142,9 @@ class SongListScreenContent extends StatelessWidget {
   final ValueChanged<RecordingTake> onStitchTakes;
   // v3.0.0 — 설정 '녹음' 섹션.
   final List<String> recordingDevices;
+
+  /// 입력 장치 드롭다운 아래 상태 줄(「자동 — 지금은 …」). null이면 패널이 스스로 만든다.
+  final String? recordingDeviceStatus;
   final VoidCallback onRefreshRecordingDevices;
   final bool micTesting;
   final double micLevel;
@@ -348,6 +352,7 @@ class SongListScreenContent extends StatelessWidget {
     required this.onExportTake,
     required this.onStitchTakes,
     this.recordingDevices = const [],
+    this.recordingDeviceStatus,
     required this.onRefreshRecordingDevices,
     this.micTesting = false,
     this.micLevel = 0,
@@ -621,6 +626,8 @@ class SongListScreenContent extends StatelessWidget {
       selectedSong: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
+      // 위치 보정본(VBR MP3의 WAV 사본)을 틀고 있을 때만 글자가 붙는다.
+      playbackNote: playbackSourceNote(playback.snapshot.sourceKind),
       queueLength: queue.length,
       queueSidebarOpen: settings.queueSidebarOpen,
       onQueueSidebarChanged: (open) =>
@@ -769,10 +776,17 @@ class SongListScreenContent extends StatelessWidget {
         onAccessibilityPreset: onAccessibilityPreset,
         onPullFromPc: onPullFromPc,
         recordingDevices: recordingDevices,
+        recordingDeviceStatus: recordingDeviceStatus,
         onRefreshRecordingDevices: onRefreshRecordingDevices,
         micTesting: micTesting,
         micLevel: micLevel,
         micLevelLabel: micLevelLabel,
+        // 🔴 반주 채널 값도 넘겨야 한다 — 빠져 있어서 2채널 마이크 테스트가 실제
+        // 앱에서는 늘 「반주 채널을 열지 못했습니다」로 보였다(패널 테스트는 직접
+        // 넣어 줘서 초록이었다).
+        backingTesting: backingTesting,
+        backingLevel: backingLevel,
+        backingLevelLabel: backingLevelLabel,
         onToggleMicTest: onToggleMicTest,
         composeStatusLabel: composeStatusLabel,
         bgmStatusLabel: bgmStatusLabel,

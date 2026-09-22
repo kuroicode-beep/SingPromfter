@@ -4,6 +4,8 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_constants.dart';
+import '../controllers/capture_session.dart'
+    show InputLevelBucket, InputLevelBucketLabel;
 import '../controllers/playback_controller.dart';
 import '../models/prompter_settings.dart';
 import '../models/song.dart';
@@ -26,9 +28,20 @@ const String kArmedDefaultLabel = '● 고정 ON';
 ///
 /// 마이크 상태 문구가 있으면 덧붙인다. 앞머리의 「●」는 눈으로 보는 표식이라
 /// 읽어 주면 소음이다 — 떼고 붙인다.
+///
+/// 🔴 입력 레벨(입력 없음·작음·좋음)은 라벨에 넣지 않는다. 최근 2초의 최대 레벨이라
+/// 소절 사이마다 뒤집히는데, 그때마다 버튼의 시맨틱스 라벨이 바뀌어 접근성 브리지로
+/// 갱신이 나간다(크래시가 난 길 — center_alert.dart 머리말). 라벨에 남는 것은 마이크가
+/// **여는 중·열림·끊김** 셋뿐이다. 레벨은 화면의 글자와 큰 경고가 맡는다 — 「열렸는데
+/// 입력 없음」은 스크린리더로는 안 들린다(저시력 기준의 의도된 절충).
+/// 떼어 낼 접미는 [InputLevelBucketLabel]에서 가져온다 — 문구의 단일 출처다.
 String armedButtonSemanticsLabel(String? status) {
   const base = '녹음 고정 끄기 (Alt+R)';
-  final spoken = (status ?? '').replaceFirst(RegExp('^●\\s*'), '').trim();
+  var spoken = (status ?? '').replaceFirst(RegExp('^●\\s*'), '');
+  for (final bucket in InputLevelBucket.values) {
+    spoken = spoken.replaceFirst(' · ${bucket.label}', '');
+  }
+  spoken = spoken.trim();
   return spoken.isEmpty ? base : '$base — $spoken';
 }
 
@@ -286,6 +299,7 @@ class _PrompterBottomBarState extends State<PrompterBottomBar> {
                         // 마이크 상태는 글자(아래 ExcludeSemantics)로만 보인다 —
                         // 스크린리더에는 이 버튼의 라벨에 덧붙여 알린다. 버튼 노드는
                         // 늘 있으므로 라벨이 바뀌어도 노드가 생기거나 사라지지 않는다.
+                        // 라벨에는 여는 중·열림·끊김만 실린다(입력 레벨은 글자에만).
                         semanticsLabel: widget.recordArmed
                             ? armedButtonSemanticsLabel(widget.armedStatusLabel)
                             : '녹음 고정 켜기 (Alt+R) — 스페이스로 재생과 녹음을 함께',

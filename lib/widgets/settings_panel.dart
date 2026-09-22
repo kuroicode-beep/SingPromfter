@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_shortcuts.dart';
 import '../constants/app_version.dart';
+import '../controllers/auto_input_selection.dart' show inputDeviceStatusLabel;
 import '../models/practice_session.dart';
 import '../models/prompter_display_mode.dart';
 import '../models/prompter_settings.dart';
@@ -26,6 +27,7 @@ import '../theme/app_theme.dart';
 import '../theme/prompter_levels.dart';
 import '../utils/key_label.dart';
 import '../utils/platform_capabilities.dart';
+import '../utils/recording_latency.dart';
 import 'sync_section.dart';
 import 'preset_btn.dart';
 import 'prompter_space_background.dart'
@@ -83,6 +85,10 @@ class SettingsPanel extends StatefulWidget {
 
   /// 녹음 입력 장치 선택.
   final List<String> recordingDevices;
+
+  /// 입력 장치 드롭다운 아래 상태 줄 — 「자동」이 지금 어느 장치를 쓰는지 글자로
+  /// 알린다. null이면 장치 목록과 설정만으로 만든다(소리 확인 결과 없이).
+  final String? recordingDeviceStatus;
   final VoidCallback? onRefreshRecordingDevices;
 
   // ── 녹음 섹션 마이크 테스트 (v5.0.0) ──
@@ -121,6 +127,7 @@ class SettingsPanel extends StatefulWidget {
     this.fontOptions = const {},
     this.separatorStatusLabel = '',
     this.recordingDevices = const [],
+    this.recordingDeviceStatus,
     this.onRefreshRecordingDevices,
     this.micTesting = false,
     this.micLevel = 0,
@@ -320,6 +327,7 @@ class _SettingsPanelState extends State<SettingsPanel> {
             settings: widget.settings,
             onChanged: widget.onSettingsChanged,
             devices: widget.recordingDevices,
+            deviceStatus: widget.recordingDeviceStatus,
             onRefreshDevices: widget.onRefreshRecordingDevices,
             micTesting: widget.micTesting,
             micLevel: widget.micLevel,
@@ -1190,6 +1198,7 @@ class _RecordingSection extends StatelessWidget {
   final PrompterSettings settings;
   final ValueChanged<PrompterSettings> onChanged;
   final List<String> devices;
+  final String? deviceStatus;
   final VoidCallback? onRefreshDevices;
   final bool micTesting;
   final double micLevel;
@@ -1203,6 +1212,7 @@ class _RecordingSection extends StatelessWidget {
     required this.settings,
     required this.onChanged,
     required this.devices,
+    required this.deviceStatus,
     required this.onRefreshDevices,
     required this.micTesting,
     required this.micLevel,
@@ -1223,6 +1233,15 @@ class _RecordingSection extends StatelessWidget {
         ? settings.recordingBackingDevice
         : null;
     final gainPercent = (settings.recordingGain * 100).round();
+    // 🔴 이 줄은 **항상 떠 있고 글자만 바뀐다.** 조건부로 넣었다 뺐다 하면 접근성
+    // 노드가 생겼다 사라져 엔진이 죽는다(center_alert.dart 머리말). 빈 문자열도
+    // 노드를 없애므로, 화면이 값을 안 주면 목록과 설정만으로 같은 문구를 만든다.
+    final status = (deviceStatus ?? '').isNotEmpty
+        ? deviceStatus!
+        : inputDeviceStatusLabel(
+            explicitDevice: settings.recordingDevice,
+            devices: devices,
+          );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1238,13 +1257,15 @@ class _RecordingSection extends StatelessWidget {
                 isExpanded: true,
                 initialValue: selectedDevice,
                 hint: Text(
-                  devices.isEmpty ? '장치 없음 — 새로고침을 눌러 주세요' : '자동 (첫 번째 장치)',
+                  devices.isEmpty
+                      ? '장치 없음 — 새로고침을 눌러 주세요'
+                      : '자동 (소리가 들어오는 마이크)',
                   style: AppTypography.bodyMuted,
                 ),
                 items: [
                   const DropdownMenuItem<String>(
                     value: null,
-                    child: Text('자동 (첫 번째 장치)'),
+                    child: Text('자동 (소리가 들어오는 마이크)'),
                   ),
                   ...devices.map(
                     (d) => DropdownMenuItem<String>(
@@ -1272,6 +1293,10 @@ class _RecordingSection extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: 4),
+        // 자동이 지금 어느 마이크를 쓰는지 — 색이 아니라 글자로. 상태를 알리는 줄이라
+        // 설명 글(bodyMuted)이 아니라 본문색(대비 16:1)으로 쓴다.
+        Text(status, style: AppTypography.body),
         const SizedBox(height: 16),
         Text('반주(PC 재생) 입력 장치 — 2채널 녹음', style: AppTypography.bodyMuted),
         const SizedBox(height: 4),
@@ -1329,6 +1354,8 @@ class _RecordingSection extends StatelessWidget {
               onChanged(settings.copyWith(recordingGain: value)),
         ),
         const SizedBox(height: 8),
+        _RecordingLatencyStepper(settings: settings, onChanged: onChanged),
+        const SizedBox(height: 16),
         Row(
           children: [
             SizedBox(
@@ -1373,6 +1400,128 @@ class _RecordingSection extends StatelessWidget {
           ],
         ],
       ],
+    );
+  }
+}
+
+/// 녹음 지연 보정 — 「−5 ms」「+5 ms」 버튼, 지금 값, 0으로 되돌리기, 도움말. (v5.17.0)
+///
+/// 🔴 이 안의 위젯은 값과 무관하게 **항상 같은 개수**다. 범위 끝에서 버튼을 끄거나
+/// 값이 0일 때 [0으로 되돌리기]를 숨기면 접근성 노드가 생겼다 사라지거나 성질이
+/// 바뀐다(center_alert.dart 머리말의 크래시 규칙). 그래서 버튼은 늘 켜 두고, 더 못
+/// 가는 이유는 값 글자에 적는다(「+300 ms (최대)」). 상태는 색이 아니라 글자로만 말한다.
+class _RecordingLatencyStepper extends StatelessWidget {
+  final PrompterSettings settings;
+  final ValueChanged<PrompterSettings> onChanged;
+
+  const _RecordingLatencyStepper({
+    required this.settings,
+    required this.onChanged,
+  });
+
+  /// 값이 실제로 바뀔 때만 알린다 — 범위 끝·0에서의 헛누름이 설정 저장을 돌리지 않게.
+  void _set(int next) {
+    if (next == settings.recordingLatencyMs) return;
+    onChanged(settings.copyWith(recordingLatencyMs: next));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ms = clampRecordingLatencyMs(settings.recordingLatencyMs);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('녹음 지연 보정', style: AppTypography.bodyMuted),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                formatRecordingLatencyMs(ms),
+                key: const Key('recordingLatencyValue'),
+                semanticsLabel: recordingLatencySemanticsLabel(ms),
+                style: AppTypography.body,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // 패널이 좁으면 버튼이 다음 줄로 내려간다 — 잘리거나 넘치지 않게 Wrap.
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _LatencyButton(
+              key: const Key('recordingLatencyMinus'),
+              label: '−5 ms',
+              spoken: '녹음 지연 보정 5밀리초 줄이기',
+              onPressed: () => _set(stepRecordingLatencyMs(ms, -1)),
+            ),
+            _LatencyButton(
+              key: const Key('recordingLatencyPlus'),
+              label: '+5 ms',
+              spoken: '녹음 지연 보정 5밀리초 늘리기',
+              onPressed: () => _set(stepRecordingLatencyMs(ms, 1)),
+            ),
+            _LatencyButton(
+              key: const Key('recordingLatencyReset'),
+              label: '0으로 되돌리기',
+              spoken: '녹음 지연 보정을 0으로 되돌리기',
+              onPressed: () => _set(0),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '이어붙인 보컬이 반주보다 늦게 들리면 값을 올리세요. 앞서 들리면 내립니다.\n'
+          '새로 받는 녹음부터 적용됩니다 — 이미 저장된 녹음은 바뀌지 않습니다.\n'
+          // 원본 MP3·m4a 위에서 받은 조각은 플레이어 머리 상수(12~21ms)만큼 늦게 놓인다
+          // (playback_copy_plan.dart 머리말). 기준을 정해 주지 않으면 값이 오락가락한다.
+          '위치 보정본이나 WAV 반주로 받은 조각을 기준으로 맞추세요 — 원본 MP3로 받은 '
+          '조각은 십수 ms 늦게 놓입니다.',
+          style: AppTypography.bodyMuted,
+        ),
+      ],
+    );
+  }
+}
+
+/// 지연 보정 줄의 버튼 하나 — 높이 50px, 글자 15px, 테두리는 대비 3:1 이상.
+class _LatencyButton extends StatelessWidget {
+  final String label;
+  final String spoken;
+  final VoidCallback onPressed;
+
+  const _LatencyButton({
+    super.key,
+    required this.label,
+    required this.spoken,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 72),
+      child: SizedBox(
+        height: 50,
+        child: OutlinedButton(
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppColors.onSurface,
+            side: const BorderSide(color: AppColors.borderStrong),
+            shape: const RoundedRectangleBorder(
+              borderRadius: AppShapes.controlRadius,
+            ),
+          ),
+          // 기호(−·+)는 화면 읽기 프로그램이 건너뛰기 쉽다 — 말로 푼 라벨을 따로 준다.
+          child: Text(
+            label,
+            semanticsLabel: spoken,
+            style: AppTypography.listTitle,
+          ),
+        ),
+      ),
     );
   }
 }

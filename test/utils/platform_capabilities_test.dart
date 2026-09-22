@@ -8,7 +8,26 @@ import 'package:singpromfter_app/models/prompter_settings.dart';
 import 'package:singpromfter_app/utils/platform_capabilities.dart';
 
 void main() {
-  tearDown(() => PlatformCapabilities.debugIsMobileOverride = null);
+  tearDown(() {
+    PlatformCapabilities.debugIsMobileOverride = null;
+    PlatformCapabilities.debugIsWindowsOverride = null;
+  });
+
+  group('위치 보정본(VBR MP3의 재생용 WAV 사본)을 쓰는 플랫폼', () {
+    test('Windows 데스크탑에서만 쓴다 — seek가 어긋나는 것은 Media Foundation이다', () {
+      PlatformCapabilities.debugIsWindowsOverride = true;
+      expect(PlatformCapabilities.usesSeekSafePlaybackCopy, isTrue);
+
+      PlatformCapabilities.debugIsWindowsOverride = false;
+      expect(PlatformCapabilities.usesSeekSafePlaybackCopy, isFalse);
+    });
+
+    test('폰은 ffmpeg를 못 돌린다 — Windows 여부와 무관하게 쓰지 않는다', () {
+      PlatformCapabilities.debugIsMobileOverride = true;
+      PlatformCapabilities.debugIsWindowsOverride = true;
+      expect(PlatformCapabilities.usesSeekSafePlaybackCopy, isFalse);
+    });
+  });
 
   group('데스크탑(기본 실행 환경)', () {
     test('외부 도구·로컬AI·녹음·제어서버가 모두 가능', () {

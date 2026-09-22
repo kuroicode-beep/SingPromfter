@@ -7,7 +7,9 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:singpromfter_app/services/key_detection_service.dart';
 import 'package:singpromfter_app/services/level_analysis_service.dart';
 import 'package:singpromfter_app/services/pitch_variant_service.dart';
+import 'package:singpromfter_app/services/playback_copy_service.dart';
 import 'package:singpromfter_app/services/track_asset_service.dart';
+import 'package:singpromfter_app/utils/playback_copy_plan.dart';
 
 /// 임시 폴더를 Documents로 쓰게 만드는 테스트용 path_provider.
 class _FakePathProvider extends PathProviderPlatform
@@ -109,6 +111,44 @@ void main() {
 
   test('지울 게 없으면 0', () async {
     expect(await service.invalidate('없는파일_mr1.mp3'), 0);
+  });
+
+  test('위치 보정본(재생용 WAV 사본)도 함께 지운다 — 다른 반주의 사본은 남긴다', () async {
+    // 이 테스트의 path_provider는 캐시 폴더를 모른다 — 서비스가 Documents 아래로 물러난다.
+    final copies = PlaybackCopyService();
+    final copyDir = await copies.cacheDir;
+    expect(copyDir.path, contains('data/cache/playback'));
+    final withCopies = TrackAssetService(
+      pitch: service.pitch,
+      levels: service.levels,
+      keys: service.keys,
+      playbackCopies: copies,
+    );
+    final mine = playbackCopyFileName(
+      '밤편지_mr1.mp3',
+      sizeBytes: 10,
+      modifiedMs: 20,
+    );
+    final stale = playbackCopyFileName(
+      '밤편지_mr1.mp3',
+      sizeBytes: 11,
+      modifiedMs: 21,
+    );
+    final other = playbackCopyFileName(
+      '봄날_mr1.mp3',
+      sizeBytes: 10,
+      modifiedMs: 20,
+    );
+    await write(copyDir, mine);
+    await write(copyDir, stale);
+    await write(copyDir, other);
+
+    final removed = await withCopies.invalidate('밤편지_mr1.mp3');
+
+    expect(removed, 2);
+    expect(await exists(copyDir, mine), isFalse);
+    expect(await exists(copyDir, stale), isFalse);
+    expect(await exists(copyDir, other), isTrue);
   });
 
   test('빈 파일명은 아무것도 하지 않는다', () async {

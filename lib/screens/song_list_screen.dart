@@ -15,6 +15,7 @@ import '../controllers/app_controller.dart';
 import '../controllers/armed_capture_session.dart'
     show ArmedSessionState, TakeEndMark, TakeStartMark, armedSessionStatusLabel;
 import '../controllers/armed_transport.dart';
+import '../controllers/auto_input_selection.dart';
 import '../controllers/capture_session.dart' show InputLevelBucket;
 import '../controllers/compose_job_controller.dart';
 import '../controllers/import_job_controller.dart';
@@ -46,7 +47,9 @@ import '../models/song.dart';
 import '../models/track_variant.dart';
 import '../navigation/prompter_navigation.dart';
 import '../repository/song_repository.dart';
+import '../services/atomic_json_file.dart';
 import '../services/backup_service.dart';
+import '../services/data_load_report.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/practice_log_service.dart';
 import '../services/daily_goal_service.dart';
@@ -77,6 +80,8 @@ import '../widgets/prompter_space_background.dart'
 import '../widgets/prompter_line_list_view.dart' show LineEditRequest;
 import '../utils/ai_gate.dart';
 import '../utils/platform_capabilities.dart';
+import '../utils/playback_copy_plan.dart';
+import '../utils/recording_latency.dart';
 import '../services/sync_client.dart';
 import '../widgets/sync_section.dart';
 
@@ -143,6 +148,14 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 고정 토글이 도는 중 — 끝나기 전의 Alt+R은 버린다(세션을 두 번 여닫지 않게).
   bool _armToggleBusy = false;
 
+  /// R 녹음을 거는 중 — 끝나기 전의 R은 버린다. 자동 입력 선택이 후보의 소리를 재는
+  /// 동안(길면 몇 초) 또 누르면, 두 번째가 첫 번째의 확인을 끊고 녹음을 겹쳐 건다.
+  bool _recordStartBusy = false;
+
+  /// 토스트로 이미 알린 자동 선택 결과 — 건너뛴 장치는 결과가 바뀔 때만 다시 읽어 준다.
+  AutoInputSelection? _announcedAutoSelection;
+  bool _autoInputAnnounced = false;
+
   /// 고정 세션을 여닫는 일(켜기·끄기·재기동·끊김 뒷정리)을 한 줄로 세운다.
   /// 닫기와 열기가 겹치면 뒤늦게 끝난 닫기가 **새로 연 세션**을 「꺼짐」으로 덮어쓴다.
   Future<void> _armedSessionOps = Future<void>.value();
@@ -156,6 +169,10 @@ class _SongListScreenState extends State<SongListScreen> {
 
   /// 「고정 중에는 보컬 1채널」 안내를 이미 했는가(실행당 한 번이면 충분하다).
   bool _armedMonoNoticeShown = false;
+
+  /// 「이 반주는 VBR이라 이동 후 위치가 어긋날 수 있다」 안내 — 곡마다 한 번.
+  /// 위치 보정본을 쓰고 있으면 아무것도 알리지 않는다.
+  final VbrNoticeGate _vbrNotice = VbrNoticeGate();
 
   /// 장치·게인 변경 뒤의 세션 재기동을 잠깐 늦추는 타이머.
   Timer? _armedRestartTimer;
@@ -274,6 +291,8 @@ class _SongListScreenState extends State<SongListScreen> {
     _app.addListener(_onPlaybackStateChanged);
     // 재생 상태(저빈도)만 화면 재빌드에 연결한다. 위치(60Hz)는 구독 위젯이 직접 받는다.
     _playback.state.addListener(_onPlaybackStateChanged);
+    // 고정을 켠 채 물린 곡이 VBR 원본이면 곡마다 한 번 알린다.
+    _playback.state.addListener(_noticeVbrWhileArmed);
     _playback.lineIndex.addListener(_onPlaybackStateChanged);
     _importJobs.addListener(_onPlaybackStateChanged);
     _recording = RecordingController(pathBuilder: _buildRecordingPath)
@@ -292,6 +311,11 @@ class _SongListScreenState extends State<SongListScreen> {
     // 녹음 목록을 못 썼으면 큰 경고로 알린다 — 조용히 넘기면 다음 실행에서
     // 방금 녹음이 목록에 없다.
     _recordingLibrary.onSaveFailed = _alertRecordingIndexSaveFailed;
+    // 곡 목록·생성곡 목록도 같다 — 예전에는 저장 실패를 삼켰다.
+    _repo.onSaveFailed = (message) =>
+        _alertDataSaveFailed('곡 목록을 저장하지 못했습니다', message);
+    _app.composeLibrary.onSaveFailed = (message) =>
+        _alertDataSaveFailed('생성곡 목록을 저장하지 못했습니다', message);
     // 아웃트로를 부르는 중에 다음 곡으로 넘어가지 않도록 막는다.
     // 고정 조각은 isRecording이 아니라 isTakeOpen으로 선다 — 둘을 함께 본다.
     _playback.isRecordingProvider = () => _isCapturing;
@@ -392,9 +416,10 @@ class _SongListScreenState extends State<SongListScreen> {
     _discardPurgeTimer?.cancel();
     final discarded = _discardedTake;
     if (discarded != null) {
-      unawaited(_recordingLibrary.purgeFiles(discarded));
+      unawaited(_recordingLibrary.purgeParked(discarded.id));
     }
     _playback.state.removeListener(_onPlaybackStateChanged);
+    _playback.state.removeListener(_noticeVbrWhileArmed);
     _playback.lineIndex.removeListener(_onPlaybackStateChanged);
     _importJobs.removeListener(_onPlaybackStateChanged);
     _exitListener?.dispose();
@@ -416,6 +441,9 @@ class _SongListScreenState extends State<SongListScreen> {
     unawaited(_guideAudio.dispose());
     unawaited(_controlServer.stop());
     _ytClient.close();
+    // 저장소는 싱글턴이다 — 사라진 화면의 콜백을 쥐고 있지 않게 한다.
+    _repo.onSaveFailed = null;
+    _app.composeLibrary.onSaveFailed = null;
     _app.removeListener(_onPlaybackStateChanged);
     _app.dispose();
     super.dispose();
@@ -428,12 +456,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _reportRecordingIndexState();
     await _dailyGoals.load();
     await _app.bootstrap();
-    // 저장해 둔 녹음 입력 장치를 먼저 지정한 뒤 목록을 읽는다 —
-    // refreshDevices는 미지정일 때만 첫 장치를 채우므로 순서가 중요하다.
-    final savedDevice = _settings.recordingDevice;
-    if (savedDevice != null && savedDevice.isNotEmpty) {
-      _recording.deviceName = savedDevice;
-    }
+    _reportDataLoadStates();
+    // 저장해 둔 녹음 입력 장치(없으면 자동)를 먼저 지정한 뒤 목록을 읽는다.
+    _applyInputDeviceSetting();
     // 마이크 장치 열거는 ffmpeg DirectShow라 모바일에서는 시도하지 않는다.
     if (PlatformCapabilities.hasDeviceRecording) {
       unawaited(_recording.refreshDevices());
@@ -508,8 +533,17 @@ class _SongListScreenState extends State<SongListScreen> {
           _showSnack('먼저 곡을 선택해 주세요.');
           return;
         }
-        // 시작 마크(동기) → 같은 스택에서 곧바로 재생. 첫 await 전에 isTakeOpen이
-        // 뒤집히므로 재진입·유령 녹음이 구조적으로 없다.
+        // 고정을 켠 채 물린 VBR 곡(큐 자동 진행·목록 선택)은 그사이 구워진 위치 보정본으로
+        // 먼저 갈아탄다 — 이 분기는 멈춰 있고 조각도 없을 때만 오므로 adopt의 idle 조건과
+        // 같다. 안 하면 그 곡의 세션 내내 VBR seek 오차(−217~+742ms)를 안고 받는다.
+        // 마크는 갈아탄 **뒤**에 찍어 P0·activeAudioPath가 사본 기준으로 굳는다. 그동안의
+        // R은 _armedRecordKey의 busy 가드가 막는다. 토스트는 띄우지 않는다(곧 노래한다).
+        await _playback.adoptPlaybackCopyIfIdle();
+        // 기다리는 사이 고정이 풀렸거나 다른 곡을 물렸으면 그만둔다.
+        if (!mounted || !_recordArmed || _selectedSong?.id != song.id) return;
+        // 시작 마크(동기) → 같은 스택에서 곧바로 재생. 마크부터는 await가 없어
+        // isTakeOpen이 뒤집힌 뒤의 재진입·유령 녹음이 구조적으로 없다(그 앞의 갈아타기
+        // 동안은 _armedTransportBusy가 스페이스를, busy 가드가 R을 막는다).
         final open = _markArmedTakeStart(song, playbackAlreadyRunning: false);
         if (open == null) {
           _showSnack(_kArmedNotReadyMessage);
@@ -544,6 +578,8 @@ class _SongListScreenState extends State<SongListScreen> {
     // 장치·게인 변경으로 곧 닫힐 세션이다 — 스페이스·R 모두 여기서 막힌다(호출부가
     // 「마이크를 여는 중」으로 알리고, 스페이스는 재생도 걸지 않는다).
     if (_armedRestartPending) return null;
+    // 마크가 지금의 「녹음 지연 보정」을 굳혀 간다 — 저장·복구는 이 값으로 자른다.
+    _applyRecordingLatencySetting();
     final snapshot = _playback.snapshot;
     final context = ArmedTakeContext(
       songId: song.id,
@@ -637,6 +673,7 @@ class _SongListScreenState extends State<SongListScreen> {
         tempoScale: context.tempoScale,
         peakDbfs: sliced.peakDbfs,
         leadInMs: sliced.leadInMs,
+        latencyAppliedMs: sliced.latencyAppliedMs,
         savedMessage: armedTakeSavedMessage(
           songPositionMs: sliced.songPositionMs,
           leadInMs: sliced.leadInMs,
@@ -670,6 +707,39 @@ class _SongListScreenState extends State<SongListScreen> {
           '· 녹음 파일 자체는 녹음 폴더에 남아 있습니다\n'
           '· 다음 저장이 성공하면 목록도 함께 기록됩니다',
     );
+  }
+
+  /// 곡 목록·생성곡 목록 저장이 실패했다 — 그대로 끄면 방금 바꾼 내용이 사라진다.
+  void _alertDataSaveFailed(String title, String message) {
+    if (!mounted) return;
+    CenterAlert.show(
+      context,
+      title: title,
+      detail:
+          '$message\n\n'
+          '· 다음 저장이 성공하면 지금 내용도 함께 기록됩니다',
+    );
+  }
+
+  /// 부팅 때 곡 목록·생성곡·연습 기록·일일 목표를 정본에서 못 읽었으면 알린다.
+  ///
+  /// 못 읽은 목록은 빈 채로 뜬다 — 말없이 넘기면 「곡이 다 사라졌다」로만 보인다.
+  void _reportDataLoadStates() {
+    if (!mounted) return;
+    final others = <DataLoadEntry>[
+      (label: '곡 목록', state: _repo.songsLoadState),
+      (label: '생성곡 목록', state: _app.composeLibrary.loadState),
+      (label: '연습 기록', state: _practiceLog.loadState),
+      (label: '일일 목표', state: _dailyGoals.loadState),
+    ];
+    if (others.every((entry) => entry.state == AtomicLoadState.ok)) return;
+    // 큰 경고는 한 장뿐이라 앞서 띄운 녹음 목록 경고를 덮는다 — 그 상태도 함께 싣는다.
+    final alert = buildDataLoadAlert([
+      (label: '녹음 목록', state: _recordingLibrary.loadState),
+      ...others,
+    ]);
+    if (alert == null) return;
+    CenterAlert.show(context, title: alert.title, detail: alert.detail);
   }
 
   /// 부팅 때 녹음 목록을 정본에서 못 읽었으면 알린다. 정상이면 아무것도 안 한다.
@@ -757,10 +827,30 @@ class _SongListScreenState extends State<SongListScreen> {
   /// (2026-09-15·09-21 같은 원인으로 반복). 사후 경고만으로는 이미 늦어서
   /// 시작 전에 한 번 재고 막는다.
   Future<bool> _verifyInputOrBlock() async {
-    if (_inputVerified) return true;
-    if (_settings.recordingDevice != null) {
-      _recording.deviceName = _settings.recordingDevice;
+    _applyInputDeviceSetting();
+    if (_recording.usesAutoInput) {
+      // 자동이면 「소리가 들어오는 장치 고르기」가 곧 입력 점검이다. 이미 고른 뒤에는
+      // 장치를 다시 열지 않고 곧바로 돌아온다. 장치 목록이 달라졌거나 고른 장치가
+      // 무음이었으면 컨트롤러가 기억을 버려 둔 상태라, 여기서 다시 고른다.
+      if (_recording.autoInputNeedsProbe) {
+        // 후보마다 최대 1.7초 — 아무 표시 없이 기다리게 두지 않는다.
+        _showSnack('소리가 들어오는 마이크를 찾는 중입니다 — 잠시만 기다려 주세요.');
+      }
+      final selection = await _recording.resolveAutoInput();
+      if (!mounted) return false;
+      if (selection.allSilent) {
+        _inputVerified = false;
+        _showSilentInputAlert();
+        return false;
+      }
+      if (selection.inputConfirmed) {
+        _inputVerified = true;
+        return true;
+      }
+      // 후보가 하나뿐이라 재지 않았거나, 고른 장치가 살아는 있는데 아주 조용했다 —
+      // 아래의 기존 점검이 그 장치를 잰다(자동 선택이 안전망을 느슨하게 하지 않는다).
     }
+    if (_inputVerified) return true;
     final peak = await _recording.probeInputLevel();
     if (!mounted) return false;
     if (peak == null) {
@@ -778,17 +868,102 @@ class _SongListScreenState extends State<SongListScreen> {
       return true;
     }
     _showSilentInputAlert();
+    _forgetSilentInput();
     return false;
   }
 
+  /// 설정의 입력 장치를 컨트롤러에 넣는다 — **「자동」(null)도 그대로 넣는다.**
+  ///
+  /// 🔴 예전에는 null이면 대입을 건너뛰는 같은 코드가 다섯 군데 있었다. 그래서 설정을
+  /// 「직접 고름 → 자동」으로 되돌려도 앱을 다시 켤 때까지 예전 장치로 녹음했다.
+  void _applyInputDeviceSetting() =>
+      _recording.deviceName = _settings.recordingDevice;
+
+  /// 설정의 「녹음 지연 보정」을 컨트롤러에 넣는다. 테이크가 **시작하는 자리**(고정
+  /// 마크·R 녹음 시작)에서만 부른다 — 컨트롤러가 그 순간의 값을 굳혀 들고 가므로,
+  /// 도중에 설정을 바꿔도 받고 있던 테이크의 좌표는 흔들리지 않는다.
+  void _applyRecordingLatencySetting() =>
+      _recording.latencyCompensationMs = _settings.recordingLatencyMs;
+
+  /// 지금 쓰는 입력 장치가 **무음이었다** — 다음 시도에서 입력을 처음부터 다시 확인한다.
+  ///
+  /// 무선 동글은 앱을 켜 둔 사이에 꺼진다. 한 번 확인했다고 끝까지 믿으면 같은 무음
+  /// 녹음이 반복된다. 🔴 경고 문구를 만든 **뒤에** 부른다 — 기억을 버리면 어느
+  /// 장치가 무음이었는지도 함께 사라진다.
+  void _forgetSilentInput() {
+    _inputVerified = false;
+    _recording.invalidateAutoInput();
+  }
+
+  /// 멈춰 있으면 그사이 구워진 위치 보정본으로 갈아탄다. 갈아탔고 그 자리가 **재생으로
+  /// 도달한** 자리였으면 안내 문구를 돌려준다(같은 토스트에 얹는다). 아니면 null.
+  ///
+  /// VBR 원본을 듣다 멈춘 자리의 보고 위치는 실제 들린 내용과 최대 ±0.7초 어긋나 있어,
+  /// 사본으로 갈아타면 「방금 멈춘 자리」가 옮겨진 것으로 들린다(좌표는 옳다). 화살표로
+  /// 정한 자리면 옮겨지지 않으니 알리지 않는다. 갈아타기 **전에** 읽어야 한다 — 갈아타기가
+  /// 위치를 새로 물리기 때문이다.
+  Future<String?> _adoptPlaybackCopyWithNotice() async {
+    final heard = _playback.positionHeardSinceSeek;
+    final adopted = await _playback.adoptPlaybackCopyIfIdle();
+    return adopted && heard ? kPlaybackCopyAdoptedNotice : null;
+  }
+
+  /// 지금 곡이 **VBR 원본**으로 물려 있으면 안내 문구를 곡마다 한 번 준다. 아니면 null.
+  ///
+  /// 받으려는 사람에게만 뜻이 있는 안내라 녹음·고정을 거는 자리에서만 꺼낸다.
+  /// 위치 보정본을 쓰고 있으면(대부분의 경우) 아무것도 알리지 않는다.
+  String? _takeVbrNotice() {
+    final snapshot = _playback.snapshot;
+    if (!snapshot.audioReady) return null;
+    return _vbrNotice.take(
+      songId: snapshot.song?.id,
+      kind: snapshot.sourceKind,
+    );
+  }
+
+  /// 고정을 켠 채 다른 곡을 물렸는데 그 곡이 VBR 원본이면 알린다(곡마다 한 번).
+  /// 곡을 물린 직후라 아직 부르기 전이다 — 조각을 여는 스페이스에서 띄우면 가사를 가린다.
+  void _noticeVbrWhileArmed() {
+    if (!mounted || !_recordArmed) return;
+    // 고정을 켜는 중에는 그쪽 토스트(_arm)가 이 안내를 같이 싣는다 — 한 장뿐이라서.
+    if (_armToggleBusy) return;
+    final notice = _takeVbrNotice();
+    if (notice != null) _showSnack(notice);
+  }
+
+  /// 자동이 고른 입력 장치를 알리는 토스트 한 줄. 직접 고른 장치를 쓰면 null.
+  ///
+  /// 장치 이름은 걸 때마다 알린다(어느 마이크로 받는지는 매번 확인할 값이다).
+  /// 건너뛴 장치·사라진 저장 장치는 그 결과를 **처음 알릴 때만** 덧붙인다.
+  String? _takeAutoInputNotice() {
+    final selection = _recording.autoInputSelection;
+    final fresh =
+        !_autoInputAnnounced || !identical(selection, _announcedAutoSelection);
+    _autoInputAnnounced = true;
+    _announcedAutoSelection = selection;
+    return autoInputNotice(
+      device: _recording.autoInputDevice,
+      selection: selection,
+      missingExplicit: fresh ? _recording.missingExplicitDevice : null,
+      withSkipped: fresh,
+    );
+  }
+
   /// 「입력에 소리가 없다」 큰 경고 — R 녹음 전 점검과 고정 세션의 점검이 같이 쓴다.
+  /// 어느 장치를 확인했는지 **이름으로** 적는다(자동이면 재 본 후보 전부).
   void _showSilentInputAlert() {
     if (!mounted) return;
+    final checked = silentInputDeviceNote(
+      selection: _recording.autoInputSelection,
+      device: _recording.currentInputDevice,
+      auto: _recording.usesAutoInput,
+    );
     CenterAlert.show(
       context,
       title: '녹음 입력에 소리가 없습니다',
       detail:
-          '지금 녹음하면 무음만 저장됩니다.\n\n'
+          '지금 녹음하면 무음만 저장됩니다.\n'
+          '$checked\n\n'
           '· 설정 > 녹음에서 입력 장치를 확인해 주세요\n'
           '· FLOW 8이면 마스터 노브와 1번 마이크 슬라이더가 내려가 있는지 보세요 '
           '(헤드폰에는 들려도 PC로 가는 소리만 죽습니다)\n'
@@ -839,17 +1014,41 @@ class _SongListScreenState extends State<SongListScreen> {
   Future<void> _arm() async {
     _recordArmed = true;
     if (mounted) setState(() {});
+    // 곡을 연 뒤 그사이 위치 보정본이 구워졌으면, 조각을 받기 **전에** 갈아탄다(멈춰
+    // 있을 때만). 이 시점의 스페이스는 「마이크를 여는 중」으로 막혀 있어 재생과 안 겹친다.
+    final adoptNotice = await _adoptPlaybackCopyWithNotice();
     if (!await _openArmedSession()) return;
     if (!mounted || !_recordArmed) return;
+    // 자동이 어느 마이크를 골랐는지 글자로 알린다 — 토스트는 한 장뿐이라 같이 싣는다.
+    final autoNotice = _takeAutoInputNotice();
+    // 아직 VBR 원본이면(보정본이 덜 구워졌거나 못 구웠다) 같은 토스트 끝에 알린다.
+    // 갈아탔으면 sourceKind가 사본이라 VBR 안내는 null — 둘 중 하나만 실린다.
+    final vbrNotice = _takeVbrNotice() ?? adoptNotice;
     // 고정 중에는 반주 장치(2채널)를 열지 않는다 — 세션은 보컬 하나만 받는다.
     // 설정에 반주 장치가 있으면 2채널을 기대할 테니 한 번은 알려 준다.
     final wantsDual = (_settings.recordingBackingDevice ?? '').isNotEmpty;
     if (wantsDual && !_armedMonoNoticeShown) {
       _armedMonoNoticeShown = true;
-      _showSnack('녹음 고정 중에는 보컬 1채널로 받습니다 — 조각은 원본 반주에 얹습니다');
+      _showSnack(
+        withPlaybackCopyNotice(
+          withAutoInputNotice(
+            autoNotice,
+            '녹음 고정 중에는 보컬 1채널로 받습니다 — 조각은 원본 반주에 얹습니다',
+          ),
+          vbrNotice,
+        ),
+      );
       return;
     }
-    _showSnack('녹음 고정 — 스페이스로 재생과 녹음이 함께 시작되고 함께 멈춥니다.');
+    _showSnack(
+      withPlaybackCopyNotice(
+        withAutoInputNotice(
+          autoNotice,
+          '녹음 고정 — 스페이스로 재생과 녹음이 함께 시작되고 함께 멈춥니다.',
+        ),
+        vbrNotice,
+      ),
+    );
   }
 
   /// 고정 세션을 열고 입력 점검(0.9초)까지 기다린다. 통과하면 true.
@@ -858,12 +1057,19 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 점검을 세션 자신의 레벨 줄로 하므로 별도 프로브가 없다 — 예전에는 프로브를
   /// 띄웠다 닫고 다시 녹음을 여느라 장치를 두 번 열었다.
   Future<bool> _openArmedSession() async {
-    if (_settings.recordingDevice != null) {
-      _recording.deviceName = _settings.recordingDevice;
-    }
+    // 입력 장치는 R 녹음과 **같은 길**로 정해진다(컨트롤러의 _resolveInputDevice) —
+    // 자동이면 세션을 열기 전에 소리가 들어오는 후보를 고른다.
+    _applyInputDeviceSetting();
     final live = await _recording.openSession(gain: _settings.recordingGain);
     // 기다리는 사이 세션이 끊겨 고정이 풀렸으면 그쪽(_handleSessionLost)이 이미 알렸다.
     if (!_recordArmed) return false;
+    if (!live && _recording.sessionBlockedBySilentInput) {
+      // 자동 후보가 전부 무음이라 열지 않았다 — 「못 열었다」가 아니라 「소리가 없다」다.
+      await _abortArming();
+      _inputVerified = false;
+      _showSilentInputAlert();
+      return false;
+    }
     if (!live) {
       final reason = _recording.sessionError ?? '입력 장치를 열지 못했습니다.';
       await _abortArming();
@@ -887,6 +1093,8 @@ class _SongListScreenState extends State<SongListScreen> {
     if (isSilentTake(peak)) {
       await _abortArming();
       _showSilentInputAlert();
+      // 자동이 앞서 고른 장치가 그사이 죽었을 수 있다 — 다음에는 처음부터 다시 고른다.
+      _forgetSilentInput();
       return false;
     }
     _inputVerified = true;
@@ -1004,6 +1212,8 @@ class _SongListScreenState extends State<SongListScreen> {
         next.recordingDevice != _settings.recordingDevice ||
         next.recordingGain != _settings.recordingGain;
     await _app.updateSettings(next);
+    // 컨트롤러도 곧바로 따라가게 한다 — 설정의 「자동 — 지금은 …」 줄이 바로 바뀐다.
+    _applyInputDeviceSetting();
     if (captureChanged && _recordArmed) _scheduleArmedRestart();
     // 동기화 토글은 바인딩 주소를 바꾼다 — 재기동하지 않으면 다음 실행에야
     // 반영된다(껐는데 LAN에 열려 있는 상태가 더 위험하다).
@@ -1263,7 +1473,10 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack('듀엣 합성 완료 — 녹음 보관함 맨 위에 있습니다.');
   }
 
-  Future<void> _mixTake(RecordingTake take, {bool silent = false}) async {
+  Future<void> _mixTake(RecordingTake picked, {bool silent = false}) async {
+    // 🔴 넘겨받은 사본이 아니라 목록의 **지금** 테이크로 합친다 — 방금 붙은 반주 조각과
+    // 바꾼 믹스 설정은 거기에만 있다. 목록에 없으면(물려 둔 조각) 받은 것을 그대로 쓴다.
+    final take = _recordingLibrary.byId(picked.id) ?? picked;
     // 반주 소스 우선순위: 잘라 둔 반주 조각(정렬 0, 키 일치 보장) →
     // 녹음 당시 재생 파일 → 원본 슬롯 파일(구 테이크 폴백).
     String? backingPath;
@@ -1309,8 +1522,15 @@ class _SongListScreenState extends State<SongListScreen> {
       _showSnack(result.message ?? '합치기에 실패했습니다.');
       return;
     }
-    await _recordingLibrary.update(take.copyWith(mixedFileName: mixedName));
+    // 합치는 수 초 사이에 준 별점·코멘트를 되돌리지 않게, 지금 테이크에 이름만 얹는다.
+    final attached = await _recordingLibrary.attachFile(
+      take.id,
+      mixedName,
+      (current) => current.copyWith(mixedFileName: mixedName),
+    );
     if (!mounted) return;
+    // 그사이 지웠거나 Ctrl+R로 물린 녹음이다 — 알릴 것이 없다(파일은 정리됐다).
+    if (attached == null) return;
     setState(() {});
     _showSnack(silent ? '합친 곡이 준비됐습니다. "듣기"로 바로 들어보세요.' : '합쳤습니다. "합친 곡 듣기"로 확인해 보세요.');
   }
@@ -1323,13 +1543,28 @@ class _SongListScreenState extends State<SongListScreen> {
       localAiEnabled: _settings.localAiActive,
     );
     if (result == null || !mounted) return;
-    await _recordingLibrary.update(result.take);
+    // 🔴 다이얼로그가 돌려준 테이크는 **열 때의 사본**에 설정을 얹은 것이다. 통째로
+    // 저장하면 열려 있는 동안 끝난 반주 컷·믹스의 파일 이름이 되돌아간다 — 고른
+    // 설정만 지금 테이크에 얹고, 다음 단계에도 그 최신본을 넘긴다.
+    final settings = result.take;
+    final saved = await _recordingLibrary.patch(
+      take.id,
+      (current) => current.copyWith(
+        mixBalance: settings.mixBalance,
+        reverbPreset: settings.reverbPreset,
+        noiseReduction: settings.noiseReduction,
+      ),
+    );
     if (!mounted) return;
+    if (saved == null) {
+      _showSnack('이 녹음이 목록에 없어 믹스 설정을 저장하지 못했습니다.');
+      return;
+    }
     setState(() {});
     if (result.separate) {
-      await _separateTakeVocal(result.take);
+      await _separateTakeVocal(saved);
     } else if (result.remix) {
-      await _mixTake(result.take);
+      await _mixTake(saved);
     } else {
       _showSnack('믹스 설정을 저장했습니다. "다시 합치기"에 반영됩니다.');
     }
@@ -1354,8 +1589,15 @@ class _SongListScreenState extends State<SongListScreen> {
       final sepName = '${take.id}_sep.wav';
       final destPath = '${(await _recordingLibrary.directory()).path}/$sepName';
       await File(result.vocalsPath!).copy(destPath);
-      await _recordingLibrary.update(take.copyWith(separatedFileName: sepName));
+      // 분리는 수십 초가 걸린다 — 그사이의 변경을 되돌리지 않게 이름만 얹는다.
+      final attached = await _recordingLibrary.attachFile(
+        take.id,
+        sepName,
+        (current) => current.copyWith(separatedFileName: sepName),
+      );
       if (!mounted) return;
+      // 그사이 지운 녹음이다 — 정리본도 함께 치워졌다.
+      if (attached == null) return;
       setState(() {});
       _showSnack('보컬을 정리했습니다. 다시 합치면 정리본이 쓰입니다.');
     } catch (e) {
@@ -1393,11 +1635,12 @@ class _SongListScreenState extends State<SongListScreen> {
       await _recording.stopLevelProbe();
       return;
     }
-    if (_settings.recordingDevice != null) {
-      _recording.deviceName = _settings.recordingDevice;
-    }
+    _applyInputDeviceSetting();
     // 2채널이면 반주 채널도 같이 연다 — 실제 녹음과 같은 조건으로 확인한다.
     _recording.backingDeviceName = _settings.recordingBackingDevice;
+    if (_recording.autoInputNeedsProbe) {
+      _showSnack('소리가 들어오는 마이크를 찾는 중입니다 — 잠시만 기다려 주세요.');
+    }
     final ok = await _recording.startLevelProbe(
       gain: _settings.recordingGain,
       includeBacking: true,
@@ -1405,7 +1648,20 @@ class _SongListScreenState extends State<SongListScreen> {
     if (!mounted) return;
     if (!ok) {
       _showSnack('마이크 테스트를 시작하지 못했습니다. 입력 장치를 확인해 주세요.');
+      return;
     }
+    final selection = _recording.autoInputSelection;
+    if (_recording.usesAutoInput && selection != null && selection.allSilent) {
+      // 전부 무음이어도 테스트는 첫 후보로 연다 — 믹서를 만지며 막대를 볼 수 있게.
+      _showSnack(
+        '소리가 들어오는 마이크를 찾지 못했습니다 — '
+        '${_recording.currentInputDevice ?? '첫 장치'}의 입력을 보여 드립니다.\n'
+        '${silentInputDeviceNote(selection: selection, device: null, auto: true)}',
+      );
+      return;
+    }
+    final autoNotice = _takeAutoInputNotice();
+    if (autoNotice != null) _showSnack(autoNotice);
   }
 
   Future<void> _playTakeAccompaniment(RecordingTake take) async {
@@ -1568,7 +1824,11 @@ class _SongListScreenState extends State<SongListScreen> {
   }
 
   Future<void> _renameComposition(Composition item, String newTitle) async {
-    await _app.composeLibrary.update(item.copyWith(title: newTitle));
+    // 목록에서 집어 온 사본을 통째로 저장하면 그사이 곡으로 등록된 표시가 되돌아간다.
+    await _app.composeLibrary.patch(
+      item.id,
+      (current) => current.copyWith(title: newTitle),
+    );
     if (!mounted) return;
     setState(() {});
   }
@@ -1734,12 +1994,35 @@ class _SongListScreenState extends State<SongListScreen> {
   // ── 라이브러리 정리 ─────────────────────────────────────
 
   Future<void> _runMaintenance() async {
+    // 🔴 곡 목록을 정본에서 온전히 읽지 못한 실행이면 고아 판정의 근거가 없다 — 빈 목록
+    // (또는 한 박자 낡은 .bak·못 푼 항목)과 대조하면 실제 곡의 반주·싱크 가사가 전부
+    // 고아로 잡혀 지워진다. songs.json은 보호돼 다음 부팅에 곡은 되살아나는데 파일이
+    // 없다. sweepPlaybackCopies가 songs.isEmpty에서 물러나는 것과 같은 이유.
+    if (!_repo.songsListTrusted) {
+      CenterAlert.show(
+        context,
+        title: '라이브러리 정리를 할 수 없습니다',
+        detail:
+            '이번 실행은 곡 목록을 정본에서 온전히 읽지 못했습니다 — 이 상태로 정리하면 '
+            '실제 곡의 반주와 싱크 가사가 「사용하지 않는 파일」로 지워집니다.\n\n'
+            '· 앱을 다시 켜서 곡 목록이 정상으로 읽힌 뒤 정리해 주세요',
+      );
+      return;
+    }
     final maintenance = LibraryMaintenanceService(_repo);
     final audit = await maintenance.audit(_songs);
+    // 위치 보정본은 파생물이라 묻지 않고 치운다 — 원본이 사라졌거나 갈린 것, 굽다 만
+    // 찌꺼기만 지운다(쓸 수 있는 사본은 남긴다 — 지우면 그 곡의 다음 재생이 다시 VBR
+    // 원본으로 돌아간다). data/mp3 밖(앱 캐시 폴더)에 있어 위 고아 점검에는 안 잡힌다.
+    final staleCopies = await _app.sweepPlaybackCopies();
     if (!mounted) return;
 
     if (audit.isClean) {
-      _showSnack('정리할 항목이 없습니다.');
+      _showSnack(
+        staleCopies > 0
+            ? '쓰지 않는 위치 보정본 $staleCopies개를 정리했습니다.'
+            : '정리할 항목이 없습니다.',
+      );
       return;
     }
 
@@ -1788,7 +2071,8 @@ class _SongListScreenState extends State<SongListScreen> {
     final temp = await maintenance.clearTempFiles();
     final cache = await maintenance.clearPitchCache();
     if (!mounted) return;
-    _showSnack('파일 $deleted개, 임시 항목 $temp개, 변환 캐시 $cache개를 정리했습니다.');
+    final copiesNote = staleCopies > 0 ? ', 위치 보정본 $staleCopies개' : '';
+    _showSnack('파일 $deleted개, 임시 항목 $temp개, 변환 캐시 $cache개$copiesNote를 정리했습니다.');
   }
 
   // ── 트레이닝 ────────────────────────────────────────────
@@ -2019,13 +2303,27 @@ class _SongListScreenState extends State<SongListScreen> {
       _showSnack('녹음 장치를 찾지 못했습니다. 마이크 연결과 ffmpeg 설치를 확인해 주세요.');
       return;
     }
+    // 자동 입력 선택이 소리를 재는 동안의 두 번째 R은 버린다(_recordStartBusy 참고).
+    if (_recordStartBusy) return;
+    _recordStartBusy = true;
+    try {
+      await _startRecording(song);
+    } finally {
+      _recordStartBusy = false;
+    }
+  }
+
+  /// R 녹음을 건다 — 입력 점검(자동이면 장치 고르기) → 캡처 시작 → 안내.
+  Future<void> _startRecording(Song song) async {
+    // 그사이 위치 보정본이 구워졌으면 받기 전에 갈아탄다(멈춰 있을 때만 — 재생 중이면
+    // 손대지 않는다). 테이크의 sourceAudioPath는 아래에서 **갈아탄 뒤의** 파일을 적는다.
+    final adoptNotice = await _adoptPlaybackCopyWithNotice();
     // 이번 세션 첫 녹음이면 입력을 한 번 재고 시작한다.
     if (!await _verifyInputOrBlock()) return;
 
-    // 설정에서 고른 입력 장치·볼륨을 적용한다.
-    if (_settings.recordingDevice != null) {
-      _recording.deviceName = _settings.recordingDevice;
-    }
+    // 설정에서 고른 입력 장치(자동 포함)·볼륨·지연 보정을 적용한다.
+    _applyInputDeviceSetting();
+    _applyRecordingLatencySetting();
     // 반주(PC 재생) 장치가 설정돼 있으면 독립 2채널로 녹음한다.
     _recording.backingDeviceName = _settings.recordingBackingDevice;
     final wantsDual = (_settings.recordingBackingDevice ?? '').isNotEmpty;
@@ -2047,17 +2345,29 @@ class _SongListScreenState extends State<SongListScreen> {
     _recordingPitch = _settings.pitchForSong(song.id, _selectedTrackSlot);
     // 반주와 합칠 때 쓸 정렬점 — 녹음 시작 순간의 재생 위치.
     _recordingAlignMs = _playback.position.value.inMilliseconds;
-    // 실제 재생 중인 파일(키/템포 변형본 포함) — 종료 직후 반주 조각을 자른다.
+    // 실제 재생 중인 파일(키/템포 변형본·위치 보정본 포함) — 종료 직후 반주 조각을
+    // 자른다. 보정본이 나중에 축출돼 없으면 자르기·믹스는 원본 슬롯 파일로 물러난다
+    // (ffmpeg 시간축에서는 둘이 같다).
     _recordingSourcePath = _playback.snapshot.activeAudioPath;
     _recordingTempo = _playback.snapshot.tempoScale;
     if (!mounted) return;
+    // 자동이 어느 마이크를 골랐는지 글자로 알린다 — 토스트는 한 장뿐이라 같이 싣는다.
+    final autoNotice = _takeAutoInputNotice();
+    final String message;
     if (dual) {
-      _showSnack('2채널 녹음을 시작했습니다 — 보컬과 반주를 따로 받습니다.');
+      message = '2채널 녹음을 시작했습니다 — 보컬과 반주를 따로 받습니다.';
     } else if (wantsDual) {
-      _showSnack('반주 입력 장치를 찾지 못해 보컬 1채널로 녹음합니다. 설정에서 장치를 확인해 주세요.');
+      message = '반주 입력 장치를 찾지 못해 보컬 1채널로 녹음합니다. 설정에서 장치를 확인해 주세요.';
     } else {
-      _showSnack('녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.');
+      message = '녹음을 시작했습니다. 스피커로 들으면 반주가 섞이니 헤드폰을 권장합니다.';
     }
+    // 갈아탔으면 sourceKind가 사본이라 VBR 안내는 null — 둘 중 하나만 실린다.
+    _showSnack(
+      withPlaybackCopyNotice(
+        withAutoInputNotice(autoNotice, message),
+        _takeVbrNotice() ?? adoptNotice,
+      ),
+    );
   }
 
   Future<void> _finishRecording() async {
@@ -2065,10 +2375,15 @@ class _SongListScreenState extends State<SongListScreen> {
     final song = _recordingSong;
     _recordingSong = null;
     if (result == null || song == null) return;
-    // 프레임 줄로 역산한 좌표가 있으면 그게 정본이다. 없으면(멈춘 채 녹음)
-    // 녹음을 건 순간의 위치를 그대로 쓴다.
-    final anchor = result.songAnchorMs;
-    if (anchor != null) _recordingAlignMs = anchor < 0 ? 0 : anchor;
+    // 프레임 줄로 역산한 좌표가 있으면 그게 정본이다(거기서 「녹음 지연 보정」을 뺀다).
+    // 없으면(멈춘 채 녹음) 녹음을 건 순간의 위치를 그대로 쓴다 — 곡과의 시간 관계가
+    // 없으니 보정도 걸지 않는다. 식과 부호는 utils/recording_latency.dart 한 곳에 있다.
+    var timing = planRecordedTakeTiming(
+      anchorMs: result.songAnchorMs,
+      fallbackPositionMs: _recordingAlignMs,
+      durationMs: result.duration.inMilliseconds,
+      latencyMs: result.latencyCompensationMs,
+    );
 
     // 실수로 누른 R만 걸러낸다.
     //
@@ -2107,14 +2422,37 @@ class _SongListScreenState extends State<SongListScreen> {
       }
     }
 
+    // 보정을 뺀 좌표가 곡 0 밑으로 내려갔으면(곡 첫머리에서 받은 녹음) 0에 눕히지 않고
+    // 그만큼 머리를 잘라 파일 t=0을 곡 0에 맞춘다 — 눕히면 이 테이크만 그만큼 어긋난다.
+    // 2채널은 반주 채널도 똑같이 자른다(위에서 시작점을 맞춘 **뒤**라 둘이 같은 축이다).
+    if (timing.headTrimMs > 0) {
+      final dir = (await _recordingLibrary.directory()).path;
+      final trimmed = await TakeMixService().trimHeads(
+        paths: ['$dir/${result.fileName}', if (dual) '$dir/$recordedBacking'],
+        trimMs: timing.headTrimMs,
+      );
+      if (!trimmed.success) {
+        // 파일은 그대로다 — 옛 방식대로 0에 눕히고, 실제로 옮겨진 만큼만 적용값으로 남긴다.
+        debugPrint('녹음 머리 자르기 실패: ${trimmed.message}');
+        timing = planRecordedTakeTiming(
+          anchorMs: result.songAnchorMs,
+          fallbackPositionMs: _recordingAlignMs,
+          durationMs: result.duration.inMilliseconds,
+          latencyMs: result.latencyCompensationMs,
+          canTrimHead: false,
+        );
+      }
+    }
+
     await _commitTake(
       songId: song.id,
       songTitle: song.title,
       fileName: result.fileName,
-      durationMs: result.duration.inMilliseconds,
+      durationMs: timing.durationMs,
       trackSlot: _recordingSlot,
       pitchSemitones: _recordingPitch,
-      songPositionMs: _recordingAlignMs,
+      songPositionMs: timing.songPositionMs,
+      latencyAppliedMs: timing.latencyAppliedMs,
       sourceAudioPath: _recordingSourcePath,
       tempoScale: _recordingTempo,
       peakDbfs: result.peakDbfs,
@@ -2131,10 +2469,14 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 같은 구간 자르기). [songPositionMs]는 파일 t=0의 곡 좌표다 — 1채널에서는
   /// 그대로 반주 정렬점(alignOffsetMs)이 된다.
   /// [leadInMs]는 고정 조각만 준다(파일 머리에 담긴 리드인).
+  /// [latencyAppliedMs]는 [songPositionMs]에 **이미 구워진** 「녹음 지연 보정」이다 —
+  /// 여기서 다시 빼지 않는다(좌표를 만드는 쪽이 뺀다: computeTakeSlice·planRecordedTakeTiming).
+  /// 테이크에 그대로 적어, 설정을 나중에 바꿔도 이 테이크가 몇 ms로 받은 것인지 남긴다.
   /// [savedMessage]가 null이면 저장 안내를 띄우지 않는다(부팅 복구는 한 번에 모아 알린다).
   /// [onIndexed]는 목록(recordings.json)이 **디스크에 닿았을 때만** 불린다 — 고정 조각과
   /// 부팅 복구가 그제야 세션 쪽 기록을 지운다(먼저 지우면 그사이 앱이 끝났을 때
   /// 조각이 목록에도 없고 복구도 안 된다).
+  /// [recordedAt]은 부팅 복구만 준다(마크를 찍은 시각). 없으면 지금이다.
   Future<RecordingTake> _commitTake({
     required String songId,
     required String songTitle,
@@ -2148,9 +2490,11 @@ class _SongListScreenState extends State<SongListScreen> {
     required double? peakDbfs,
     String? recordedBacking,
     int? leadInMs,
+    int latencyAppliedMs = 0,
     String comment = '',
     String? savedMessage,
     bool warnIfSilent = true,
+    DateTime? recordedAt,
     Future<void> Function()? onIndexed,
   }) async {
     // 2채널로 받았으면 반주 채널이 곧 테이크의 반주다 — 정렬 보정이 0이다.
@@ -2160,7 +2504,7 @@ class _SongListScreenState extends State<SongListScreen> {
       songId: songId,
       songTitle: songTitle,
       fileName: fileName,
-      recordedAt: DateTime.now(),
+      recordedAt: recordedAt ?? DateTime.now(),
       durationMs: durationMs,
       backingTrackSlot: trackSlot,
       pitchSemitones: pitchSemitones,
@@ -2175,6 +2519,7 @@ class _SongListScreenState extends State<SongListScreen> {
       leadInMs: leadInMs,
       // 이어붙이기가 무음 조각을 가려내는 근거 — 파일을 다시 열지 않아도 된다.
       peakDbfs: peakDbfs,
+      latencyAppliedMs: latencyAppliedMs,
     );
     final indexed = await _recordingLibrary.add(take);
     // 새 테이크가 목록의 맨 앞에 올라왔다 — Ctrl+R이 물릴 「직전 녹음」이 다시 맞다.
@@ -2188,13 +2533,21 @@ class _SongListScreenState extends State<SongListScreen> {
     // 디지털 무음이 저장됐는데, 저장까지 정상으로 끝나서 들어 보기 전에는
     // 알 수가 없었다. 조각을 여러 개 쌓은 뒤에 알면 전부 다시 불러야 한다.
     if (warnIfSilent && isSilentTake(peakDbfs)) {
+      final checked = silentInputDeviceNote(
+        selection: null,
+        device: _recording.currentInputDevice,
+        auto: _recording.usesAutoInput,
+      );
       SnackMessage.show(
         context,
-        '녹음에 소리가 없습니다 — 입력 장치를 확인해 주세요. '
+        '녹음에 소리가 없습니다 — $checked. '
         '설정 > 녹음에서 마이크를 직접 고르고 [마이크 테스트]로 막대가 '
         '움직이는지 본 뒤 다시 받으세요.',
         duration: const Duration(seconds: 12),
       );
+      // 고른 장치가 그사이 죽었다 — 다음 녹음·고정에서 입력을 처음부터 다시 확인한다.
+      // (지금 열려 있는 고정 세션은 건드리지 않는다. 다음에 열 때부터 먹는다.)
+      _forgetSilentInput();
       return take;
     }
 
@@ -2216,6 +2569,9 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 받을 때 쓰는 키라, 여기서 재생을 걸거나 멈추면 스페이스와 뜻이 겹친다.
   /// 이미 재생 중에 찍은 마크는 「재생 시작 지연」을 빼지 않는다(playbackAlreadyRunning).
   void _armedRecordKey() {
+    // 스페이스가 위치 보정본으로 갈아타는 수십 ms 사이의 R이 조각을 먼저 열면, 스페이스의
+    // 마크가 「마이크를 여는 중」으로 무산된다 — 그 틈에는 R을 버린다.
+    if (_armedTransportBusy) return;
     if (_recording.isTakeOpen) {
       _endArmedTake();
       if (mounted) setState(() {});
@@ -2261,6 +2617,12 @@ class _SongListScreenState extends State<SongListScreen> {
             tempoScale: context.tempoScale,
             peakDbfs: slice.peakDbfs,
             leadInMs: slice.leadInMs,
+            // 마크를 찍을 때 굳힌 값 — 지금 설정이 아니다.
+            latencyAppliedMs: slice.latencyAppliedMs,
+            // 🔴 복구 시각이 아니라 마크를 찍은 시각 — 이어붙이기 dedupe가 늦게 받은
+            // 쪽을 고르므로, 지금 시각을 찍으면 저장이 실패해 마크만 남은 옛 조각이
+            // 「다시 받은 정상 조각」을 밀어낸다(토스트는 최신 것만 썼다고 말한다).
+            recordedAt: slice.recordedAt,
             comment: '복구됨',
             // 조각마다 토스트를 띄우면 서로 지운다 — 끝에 한 번만 알린다.
             warnIfSilent: false,
@@ -2312,10 +2674,16 @@ class _SongListScreenState extends State<SongListScreen> {
       }
       return;
     }
-    await _recordingLibrary.update(
-      take.copyWith(accompanimentFileName: accName),
+    // 🔴 저장 직후 기다리지 않고 도는 길이다 — 그사이에 별점·코멘트를 주거나 Ctrl+R로
+    // 물릴 수 있다. 받은 사본을 통째로 저장하면 그 변경이 되돌아가고, 물린 조각이면
+    // 반주 파일이 고아가 된다. 지금 테이크(또는 물려 둔 사본)에 이름만 얹는다.
+    final attached = await _recordingLibrary.attachFile(
+      take.id,
+      accName,
+      (current) => current.copyWith(accompanimentFileName: accName),
     );
     if (!mounted) return;
+    if (attached == null) return;
     setState(() {});
     if (!silent) _showSnack('반주를 만들었습니다. "반주 듣기"로 확인해 보세요.');
   }
@@ -2376,19 +2744,30 @@ class _SongListScreenState extends State<SongListScreen> {
     );
     controller.dispose();
     if (saved == null) return;
-    await _recordingLibrary.update(take.copyWith(comment: saved));
+    // 다이얼로그가 열려 있는 동안 반주 컷·믹스가 끝났을 수 있다 — 코멘트만 얹는다.
+    await _recordingLibrary.patch(
+      take.id,
+      (current) => current.copyWith(comment: saved),
+    );
     if (!mounted) return;
     setState(() {});
   }
 
   Future<void> _rateTake(RecordingTake take, int rating) async {
-    await _recordingLibrary.update(take.copyWith(rating: rating));
+    await _recordingLibrary.patch(
+      take.id,
+      (current) => current.copyWith(rating: rating),
+    );
     if (!mounted) return;
     setState(() {});
   }
 
   Future<void> _toggleTakeKeep(RecordingTake take) async {
-    await _recordingLibrary.update(take.copyWith(isKeep: !take.isKeep));
+    // 뒤집는 기준도 지금 값이다 — 받은 사본의 값으로 뒤집으면 낡은 쪽으로 되돌아간다.
+    await _recordingLibrary.patch(
+      take.id,
+      (current) => current.copyWith(isKeep: !current.isKeep),
+    );
     if (!mounted) return;
     setState(() {});
   }
@@ -2399,15 +2778,9 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 재생 위치가 남아 있어 이어붙이기는 귀로 맞추는 일이 아니라 계산이다.
   Future<void> _stitchTakes(RecordingTake take) async {
     // 템포가 다른 조각은 시간축 자체가 다르다(같은 곡 시각이 다른 ms에 놓인다) —
-    // 한 타임라인에 올릴 수 없으니 고른 테이크와 같은 템포만 모은다.
-    final siblings = _recordingLibrary.takes
-        .where(
-          (t) =>
-              t.songId == take.songId &&
-              t.hasSongPosition &&
-              isSameStitchTimeline(t.tempoScale, take.tempoScale),
-        )
-        .toList();
+    // 한 타임라인에 올릴 수 없으니 고른 테이크와 같은 템포만 모은다. 이어붙인
+    // **결과물**도 재료가 아니다 — 고르는 규칙은 stitchSiblings 한 곳에 있다.
+    final siblings = stitchSiblings(_recordingLibrary.takes, take);
     if (siblings.length < 2) {
       _showSnack('이어붙이려면 같은 곡 조각이 둘 이상 필요합니다.');
       return;
@@ -2426,6 +2799,8 @@ class _SongListScreenState extends State<SongListScreen> {
           // 곡 앞머리에서 찍은 조각은 더 짧다.
           leadInMs: t.leadInMs ?? 0,
           peakDbfs: t.peakDbfs,
+          // 같은 줄을 다시 받았으면 나중에 받은 것이 이긴다.
+          recordedAt: t.recordedAt,
         ),
     ];
 
@@ -2436,9 +2811,12 @@ class _SongListScreenState extends State<SongListScreen> {
     // 여기서 빠진다 — 끼워 두면 앞 조각의 꼬리만 잘라 놓고 자기는 무음이다.
     final measured = await stitcher.withDetectedOffsets(segments);
     final silentCount = segments.length - measured.length;
-    final silentNote = silentCount > 0 ? ' (무음 조각 $silentCount개 제외)' : '';
     if (measured.length < 2) {
-      if (mounted) _showSnack('소리가 있는 조각이 둘 이상 필요합니다$silentNote.');
+      final note = stitchExclusionNote(
+        silentCount: silentCount,
+        retakeCount: 0,
+      );
+      if (mounted) _showSnack('소리가 있는 조각이 둘 이상 필요합니다$note.');
       return;
     }
 
@@ -2464,12 +2842,28 @@ class _SongListScreenState extends State<SongListScreen> {
       }
     }
 
+    // 같은 줄을 다시 받은 조각은 최신 것만 쓰인다 — 몇 개가 빠졌는지 알려야 한다.
+    // computeStitchSpans·stitchVocals도 같은 입력으로 같은 조각을 거른다.
+    final retakeCount = dedupeSameLineSegments(
+      segments: measured,
+      lineStartsMs: lineStarts,
+    ).droppedCount;
+    final excludedNote = stitchExclusionNote(
+      silentCount: silentCount,
+      retakeCount: retakeCount,
+    );
     final spans = computeStitchSpans(
       segments: measured,
       lineStartsMs: lineStarts,
     );
     if (spans.length < 2) {
-      if (mounted) _showSnack('조각들이 서로 겹쳐서 이을 구간이 없습니다.');
+      if (mounted) {
+        _showSnack(
+          retakeCount > 0
+              ? '같은 줄을 다시 받은 조각뿐이라 이을 구간이 없습니다$excludedNote.'
+              : '조각들이 서로 겹쳐서 이을 구간이 없습니다.',
+        );
+      }
       return;
     }
 
@@ -2501,6 +2895,8 @@ class _SongListScreenState extends State<SongListScreen> {
       sourceAudioPath: take.sourceAudioPath,
       tempoScale: take.tempoScale,
       songPositionMs: 0,
+      // 결과물 표식 — 다음 이어붙이기의 재료에서 빠지고, 목록에 「0:00 조각」으로 안 뜬다.
+      stitched: true,
       comment: '조각 ${spans.length}개 이어붙임',
     );
     await _recordingLibrary.add(stitched);
@@ -2508,7 +2904,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _lastTakeGuard.noteCommitted();
     if (!mounted) return;
     setState(() {});
-    _showSnack('조각 ${spans.length}개를 이었습니다$silentNote. 반주와 합치는 중...');
+    _showSnack('조각 ${spans.length}개를 이었습니다$excludedNote. 반주와 합치는 중...');
     await _mixTake(stitched, silent: true);
   }
 
@@ -2577,7 +2973,9 @@ class _SongListScreenState extends State<SongListScreen> {
     _discardPurgeTimer?.cancel();
     _discardPurgeTimer = null;
     _discardedTake = null;
-    await _recordingLibrary.add(take);
+    // 여기 들고 있던 사본이 아니라 보관함이 물려 둔 **최신 사본**을 되살린다 — 물린 뒤에
+    // 끝난 반주 컷이 붙인 파일 이름이 거기에만 있다.
+    await _recordingLibrary.restoreParked(take.id);
     if (!mounted) return;
     setState(() {});
     _showSnack('녹음을 되살렸습니다.');
@@ -2590,7 +2988,7 @@ class _SongListScreenState extends State<SongListScreen> {
     _discardPurgeTimer = null;
     _discardedTake = null;
     if (take == null) return;
-    await _recordingLibrary.purgeFiles(take);
+    await _recordingLibrary.purgeParked(take.id);
   }
 
   Future<void> _deleteTake(RecordingTake take) async {
@@ -3577,6 +3975,12 @@ class _SongListScreenState extends State<SongListScreen> {
         onExportTake: _exportTake,
         onStitchTakes: _stitchTakes,
         recordingDevices: _recording.devices,
+        recordingDeviceStatus: inputDeviceStatusLabel(
+          explicitDevice: _settings.recordingDevice,
+          devices: _recording.devices,
+          autoDevice: _recording.autoInputDevice,
+          selection: _recording.autoInputSelection,
+        ),
         onRefreshRecordingDevices: _refreshRecordingDevices,
         micTesting: _recording.isProbing,
         micLevel: _recording.level,

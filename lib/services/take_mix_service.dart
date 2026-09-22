@@ -152,6 +152,27 @@ List<String> buildHeadPadArgs({
   ];
 }
 
+/// 녹음 파일 머리를 [trimMs]만큼 잘라 내는 인자. (순수 함수)
+///
+/// 「녹음 지연 보정」을 뺀 좌표가 곡 0 밑으로 내려간 R 녹음에 쓴다 — 0에 눕히는 대신
+/// 그만큼 머리를 잘라 파일 t=0을 곡 0에 맞춘다.
+/// `-ss`를 **입력 뒤에** 둔다: 디코드한 뒤 버리므로 표본 단위로 정확하다(입력 앞에
+/// 두면 패킷 경계로 뛴다). 녹음 원본이라 무손실로 다시 쓴다.
+List<String> buildHeadTrimArgs({
+  required String sourcePath,
+  required String outputPath,
+  required int trimMs,
+}) {
+  return [
+    '-y',
+    '-i', sourcePath,
+    '-vn',
+    '-ss', ffmpegSeconds(trimMs < 0 ? 0 : trimMs),
+    '-c:a', 'pcm_s16le',
+    outputPath,
+  ];
+}
+
 class TakeMixResult {
   final bool success;
   final String? outputPath;
@@ -297,6 +318,79 @@ class TakeMixService {
       return const TakeMixResult.failure('정렬한 반주를 저장하지 못했습니다.');
     }
     return TakeMixResult.success(path);
+  }
+
+  /// 녹음 파일들의 머리를 **똑같이** [trimMs]만큼 잘라 낸다(제자리).
+  ///
+  /// 2채널 녹음은 보컬과 반주 채널을 함께 넘긴다 — 한쪽만 잘리면 둘이 그만큼 어긋난다.
+  /// 그래서 **전부 아니면 전무**다: 임시 파일을 모두 만든 뒤에만 갈아 끼우고, 갈아
+  /// 끼우다 막히면 원본을 되돌린다. 실패하면 원본은 그대로 남는다(호출부가 옛 방식대로
+  /// 좌표를 0에 눕힌다).
+  Future<TakeMixResult> trimHeads({
+    required List<String> paths,
+    required int trimMs,
+  }) async {
+    if (paths.isEmpty) {
+      return const TakeMixResult.failure('자를 녹음 파일이 없습니다.');
+    }
+    if (trimMs <= 0) return TakeMixResult.success(paths.first);
+    final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
+    if (!ffmpeg.found) {
+      return const TakeMixResult.failure('머리를 자르려면 ffmpeg가 필요합니다.');
+    }
+    for (final path in paths) {
+      if (!await File(path).exists()) {
+        return const TakeMixResult.failure('녹음 파일을 찾을 수 없습니다.');
+      }
+    }
+
+    String tempOf(String path) => '$path.trim.wav';
+    String backupOf(String path) => '$path.orig';
+    Future<TakeMixResult> giveUp(String message) async {
+      for (final path in paths) {
+        await _deleteIfExists(tempOf(path));
+      }
+      return TakeMixResult.failure(message);
+    }
+
+    // 1) 잘라 낸 사본을 전부 만든다 — 하나라도 실패하면 원본은 손대지 않았다.
+    for (final path in paths) {
+      final result = await _runner.run(
+        ffmpeg.path!,
+        buildHeadTrimArgs(
+          sourcePath: path,
+          outputPath: tempOf(path),
+          trimMs: trimMs,
+        ),
+      );
+      if (!result.ok || !await File(tempOf(path)).exists()) {
+        return giveUp('녹음 머리를 자르지 못했습니다.');
+      }
+    }
+
+    // 2) 원본을 옆으로 치우고 사본을 끼운다. 도중에 막히면 치운 원본을 되돌린다.
+    final swapped = <String>[];
+    try {
+      for (final path in paths) {
+        await File(path).rename(backupOf(path));
+        swapped.add(path);
+        await File(tempOf(path)).rename(path);
+      }
+    } catch (e) {
+      for (final path in swapped) {
+        try {
+          await _deleteIfExists(path);
+          await File(backupOf(path)).rename(path);
+        } catch (_) {
+          // 되돌리지 못한 원본은 `.orig`로 남는다 — 지우지 않는다(소리가 거기 있다).
+        }
+      }
+      return giveUp('머리를 자른 녹음을 저장하지 못했습니다.');
+    }
+    for (final path in paths) {
+      await _deleteIfExists(backupOf(path));
+    }
+    return TakeMixResult.success(paths.first);
   }
 
   /// 남·여 파트 두 테이크를 (있으면) 반주와 함께 한 곡으로 합친다.

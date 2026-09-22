@@ -18,6 +18,9 @@ class SongListScreenView extends StatelessWidget {
   final Song? selectedSong;
   final int? selectedTrackSlot;
   final bool playing;
+
+  /// Now Playing 줄에 덧붙일 재생 파일 글자(「재생: 위치 보정본」). 없으면 null.
+  final String? playbackNote;
   final int queueLength;
   final bool queueSidebarOpen;
   final ValueChanged<bool> onQueueSidebarChanged;
@@ -47,6 +50,7 @@ class SongListScreenView extends StatelessWidget {
     required this.selectedSong,
     required this.selectedTrackSlot,
     required this.playing,
+    this.playbackNote,
     required this.queueLength,
     required this.queueSidebarOpen,
     required this.onQueueSidebarChanged,
@@ -127,6 +131,7 @@ class SongListScreenView extends StatelessWidget {
       song: selectedSong,
       selectedTrackSlot: selectedTrackSlot,
       playing: playing,
+      playbackNote: playbackNote,
     );
 
     if (wide) {

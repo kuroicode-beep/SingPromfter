@@ -7,6 +7,10 @@
 // 받는 폭은 창 폭의 일부뿐이다 — 그래서 실제 폭으로 재는 테스트가 필요하다.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:singpromfter_app/controllers/armed_capture_session.dart'
+    show ArmedSessionState, armedSessionStatusLabel;
+import 'package:singpromfter_app/controllers/capture_session.dart'
+    show InputLevelBucket, InputLevelBucketLabel;
 import 'package:singpromfter_app/models/prompter_settings.dart';
 import 'package:singpromfter_app/widgets/prompter_bottom_bar.dart';
 import 'package:singpromfter_app/widgets/prompter_drawer.dart';
@@ -456,7 +460,7 @@ void main() {
       fake.dispose();
     });
 
-    testWidgets('상태는 고정 버튼의 스크린리더 라벨에 덧붙는다(●는 뗀다)', (tester) async {
+    testWidgets('상태는 고정 버튼의 스크린리더 라벨에 덧붙는다(●와 입력 레벨은 뗀다)', (tester) async {
       final fake = await pumpBar(
         tester,
         width: 720,
@@ -464,16 +468,78 @@ void main() {
         armedStatusLabel: ready,
       );
       expect(
-        find.bySemanticsLabel('녹음 고정 끄기 (Alt+R) — 고정 ON · 마이크 열림 · 입력 좋음'),
+        find.bySemanticsLabel('녹음 고정 끄기 (Alt+R) — 고정 ON · 마이크 열림'),
         findsOneWidget,
       );
+      // 입력 레벨은 라벨 어디에도 없다 — 글자에만 있다.
+      expect(find.bySemanticsLabel(RegExp('입력 좋음')), findsNothing);
+      expect(find.text(ready), findsOneWidget);
       fake.dispose();
+    });
+
+    testWidgets('🔴 입력 레벨이 좋음→작음→없음으로 뒤집혀도 라벨·노드 수는 그대로, 글자만 바뀐다', (
+      tester,
+    ) async {
+      // 레벨 버킷은 최근 2초의 최대값이라 소절 사이마다 뒤집힌다. 그때마다 라벨이
+      // 바뀌면 접근성 브리지로 갱신이 나간다 — 크래시가 난 길이다.
+      final handle = tester.ensureSemantics();
+      const spoken = '녹음 고정 끄기 (Alt+R) — 고정 ON · 마이크 열림';
+      FakePlayback? fake;
+      int? nodes;
+      for (final bucket in InputLevelBucket.values.reversed) {
+        final label = armedSessionStatusLabel(
+          state: ArmedSessionState.live,
+          checked: true,
+          bucket: bucket,
+        );
+        fake = await pumpBar(
+          tester,
+          width: 720,
+          recordArmed: true,
+          armedStatusLabel: label,
+          reuse: fake,
+        );
+        // 보이는 글자는 레벨까지 그대로 말한다.
+        expect(find.text(label), findsOneWidget);
+        expect(label, contains(bucket.label));
+        // 스크린리더 라벨은 한 글자도 안 바뀐다.
+        expect(find.bySemanticsLabel(spoken), findsOneWidget);
+        nodes ??= countSemanticsNodes(tester);
+        expect(countSemanticsNodes(tester), nodes, reason: bucket.label);
+      }
+      handle.dispose();
+      fake!.dispose();
     });
 
     test('armedButtonSemanticsLabel — 문구가 없으면 기본 라벨', () {
       expect(armedButtonSemanticsLabel(null), '녹음 고정 끄기 (Alt+R)');
       expect(armedButtonSemanticsLabel(''), '녹음 고정 끄기 (Alt+R)');
       expect(armedButtonSemanticsLabel(lost), '녹음 고정 끄기 (Alt+R) — 고정 — 마이크 끊김');
+    });
+
+    test('armedButtonSemanticsLabel — 세션이 만드는 모든 문구에서 라벨은 세 가지뿐이다', () {
+      // 세션의 실제 문구(armedSessionStatusLabel)로 돌린다 — 문구가 바뀌면 여기서 걸린다.
+      final labels = <String>{
+        for (final state in ArmedSessionState.values)
+          if (state != ArmedSessionState.off)
+            for (final checked in [false, true])
+              for (final bucket in InputLevelBucket.values)
+                armedButtonSemanticsLabel(
+                  armedSessionStatusLabel(
+                    state: state,
+                    checked: checked,
+                    bucket: bucket,
+                  ),
+                ),
+      };
+      expect(labels, {
+        '녹음 고정 끄기 (Alt+R) — 고정 — 마이크 여는 중',
+        '녹음 고정 끄기 (Alt+R) — 고정 ON · 마이크 열림',
+        '녹음 고정 끄기 (Alt+R) — 고정 — 마이크 끊김',
+      });
+      for (final label in labels) {
+        expect(label, isNot(contains('입력')));
+      }
     });
 
     for (final width in [560.0, 640.0]) {

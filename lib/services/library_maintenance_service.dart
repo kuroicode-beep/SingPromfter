@@ -96,9 +96,11 @@ class LibraryMaintenanceService {
       if (!await dir.exists()) return const [];
       final names = <String>[];
       await for (final entity in dir.list()) {
-        if (entity is File) {
-          names.add(entity.uri.pathSegments.last);
-        }
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        // 원자 쓰기가 잠깐 두는 임시 파일은 고아가 아니다 — 지우면 그 저장이 실패한다.
+        if (name.endsWith('.tmp')) continue;
+        names.add(name);
       }
       return names;
     } catch (e) {

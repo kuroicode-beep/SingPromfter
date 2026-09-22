@@ -195,6 +195,142 @@ void main() {
     });
   });
 
+  group('latencyAppliedMs — 테이크에 구워진 녹음 지연 보정 (v5.17.0)', () {
+    RecordingTake make({int applied = 0}) => RecordingTake(
+      id: 'r1',
+      songId: 's1',
+      songTitle: '곡',
+      fileName: 'r1.wav',
+      recordedAt: DateTime(2026, 9, 22),
+      durationMs: 1800,
+      alignOffsetMs: 59565,
+      songPositionMs: 59565,
+      leadInMs: 300,
+      latencyAppliedMs: applied,
+    );
+
+    test('옛 기록에는 키가 없어서 0(보정 없이 받은 테이크) — 그래도 읽힌다(additive)', () {
+      final old = RecordingTake.fromJson({
+        'id': 'old',
+        'songId': 's1',
+        'songTitle': '봄날',
+        'fileName': 'old.wav',
+        'recordedAt': '2026-09-21T10:00:00',
+        'durationMs': 1800,
+        'alignOffsetMs': 126161,
+        'songPositionMs': 126161,
+        'leadInMs': 300,
+      });
+      expect(old.latencyAppliedMs, 0);
+      // 다른 필드는 그대로 읽혀야 한다 — 옛 테이크의 좌표를 소급해 고치지 않는다.
+      expect(old.songPositionMs, 126161);
+      expect(old.alignOffsetMs, 126161);
+      expect(old.leadInMs, 300);
+    });
+
+    test('JSON 왕복에 살아남는다(음수 보정 포함)', () {
+      for (final applied in [120, -40, 0]) {
+        final back = RecordingTake.fromJson(
+          jsonDecode(jsonEncode(make(applied: applied).toJson()))
+              as Map<String, dynamic>,
+        );
+        expect(back.latencyAppliedMs, applied);
+        expect(back.songPositionMs, 59565);
+      }
+    });
+
+    test('소수·문자로 저장돼 있어도 목록 읽기를 깨지 않는다', () {
+      expect(
+        RecordingTake.fromJson({'latencyAppliedMs': 120.0}).latencyAppliedMs,
+        120,
+      );
+      expect(
+        () => RecordingTake.fromJson({'latencyAppliedMs': null}),
+        returnsNormally,
+      );
+    });
+
+    test('보정 전 좌표 = 저장된 좌표 + 적용값 — 설정을 나중에 바꿔도 해석할 수 있다', () {
+      final t = make(applied: 120);
+      expect(t.songPositionMs! + t.latencyAppliedMs, 59685);
+    });
+
+    test('copyWith — 주면 바뀌고, 다른 필드만 바꿀 때는 유지된다', () {
+      final t = make(applied: 120);
+      expect(t.copyWith(latencyAppliedMs: 0).latencyAppliedMs, 0);
+      expect(t.copyWith(comment: '메모').latencyAppliedMs, 120);
+      expect(t.copyWith(mixedFileName: 'r1_mix.m4a').latencyAppliedMs, 120);
+    });
+  });
+
+  group('stitched — 이어붙인 결과물 표식 (v5.17.0)', () {
+    RecordingTake make({bool stitched = false, int? songPositionMs = 0}) =>
+        RecordingTake(
+          id: 'r1',
+          songId: 's1',
+          songTitle: '곡',
+          fileName: 'r1.wav',
+          recordedAt: DateTime(2026, 9, 22),
+          durationMs: 40000,
+          songPositionMs: songPositionMs,
+          stitched: stitched,
+        );
+
+    test('옛 기록에는 키가 없어서 false — 그래도 읽힌다(additive)', () {
+      final old = RecordingTake.fromJson({
+        'id': 'old',
+        'songId': 's1',
+        'songTitle': '봄날',
+        'fileName': 'old.wav',
+        'recordedAt': '2026-09-21T10:00:00',
+        'durationMs': 1800,
+        'songPositionMs': 126161,
+        'leadInMs': 300,
+      });
+      expect(old.stitched, isFalse);
+      expect(old.isStitchable, isTrue);
+      // 다른 필드는 그대로 읽혀야 한다.
+      expect(old.songPositionMs, 126161);
+      expect(old.leadInMs, 300);
+    });
+
+    test('JSON 왕복에 살아남는다', () {
+      final t = make(stitched: true);
+      expect(t.toJson()['stitched'], isTrue);
+      expect(RecordingTake.fromJson(t.toJson()).stitched, isTrue);
+      expect(RecordingTake.fromJson(make().toJson()).stitched, isFalse);
+      // 파일에서도 그대로다(목록은 jsonEncode를 거친다).
+      final viaText =
+          jsonDecode(jsonEncode(t.toJson())) as Map<String, dynamic>;
+      expect(RecordingTake.fromJson(viaText).stitched, isTrue);
+    });
+
+    test('bool이 아닌 값이 들어 있어도 목록 읽기를 깨지 않는다', () {
+      expect(RecordingTake.fromJson({'stitched': null}).stitched, isFalse);
+    });
+
+    test('🔴 결과물은 곡 좌표가 있어도 이어붙이기의 재료가 아니다', () {
+      // 결과물은 곡 좌표 0이다 — 좌표만 보면 「0:00에서 받은 조각」과 구분이 안 된다.
+      expect(make(stitched: true).hasSongPosition, isTrue);
+      expect(make(stitched: true).isStitchable, isFalse);
+      expect(make().isStitchable, isTrue);
+      // 좌표가 없는 옛 테이크는 원래 재료가 아니다.
+      expect(make(songPositionMs: null).isStitchable, isFalse);
+    });
+
+    test('결과물은 「0:00 조각」이라고 말하지 않는다', () {
+      expect(make(stitched: true).displayPositionMs, isNull);
+      expect(make().displayPositionMs, 0);
+    });
+
+    test('copyWith — 주면 바뀌고, 다른 필드만 바꿀 때는 유지된다', () {
+      final t = make(stitched: true);
+      expect(t.copyWith(mixedFileName: 'r1_mix.m4a').stitched, isTrue);
+      expect(t.copyWith(rating: 5).stitched, isTrue);
+      expect(make().copyWith(stitched: true).stitched, isTrue);
+    });
+  });
+
   group('displayPositionMs — 사용자에게 말하는 조각 위치 (v5.16.0)', () {
     RecordingTake make({int? songPositionMs, int? leadInMs}) => RecordingTake(
       id: 't1',

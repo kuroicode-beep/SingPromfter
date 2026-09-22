@@ -17,6 +17,7 @@ import '../controllers/app_controller.dart';
 import '../repository/lrc_store.dart';
 import '../repository/practice_log_store.dart';
 import '../repository/song_repository.dart';
+import 'atomic_json_file.dart';
 import 'sync_protocol.dart';
 
 class SyncServerHandler {
@@ -107,23 +108,53 @@ class SyncServerHandler {
     return await file.exists() ? file : null;
   }
 
-  /// 폰이 올린 변경분을 반영하고 저장한다.
-  Future<SyncMergeResult> applyPush(SyncPushPayload payload) async {
+  /// PC가 곡 목록을 정본에서 읽지 못한 채 떠 있는가(잠김·오프라인·상위 버전 거부).
+  ///
+  /// 🔴 그 빈 목록을 매니페스트로 내주면 폰이 「PC를 그대로 따라」 자기 목록을 통째로
+  /// 비운다(폰의 songs.json은 멀쩡히 읽히므로 빈 값 보호가 걸리지 않는다). `.bak`에서
+  /// 되살린 목록은 실제 목록이라 막지 않는다 — 기껏해야 한 저장 전 상태이고 다음
+  /// 동기화에서 되돌아온다.
+  bool get songsUnavailable =>
+      _repo.schemaLoadError != null ||
+      _repo.songsLoadState == AtomicLoadState.unreadable;
+
+  /// [songsUnavailable]일 때 폰에 돌려줄 오류 본문(503).
+  static const Map<String, dynamic> songsUnavailableError = {
+    'code': 'songs_unreadable',
+    'message':
+        'PC가 곡 목록을 읽지 못한 상태라 동기화할 수 없습니다. '
+        'PC 앱을 다시 시작한 뒤 다시 시도해 주세요.',
+  };
+
+  /// 폰이 올린 변경분을 반영하고 저장한다. 디스크에 닿지 못했으면 saved=false.
+  ///
+  /// 🔴 저장이 성공한 뒤에만 app.songs를 바꾼다 — 먼저 바꿔 두면 폰이 같은 값을
+  /// 다시 보내도 SyncMerger가 「같은 값」으로 보고(favoritesApplied=0) 저장을 다시
+  /// 시도하지 않아, 앱을 끄는 순간 별이 양쪽 어디에도 남지 않는다.
+  Future<({SyncMergeResult result, bool saved})> applyPush(
+    SyncPushPayload payload,
+  ) async {
     final sessions = await _practiceStore.load();
     final result = SyncMerger.merge(
       songs: app.songs,
       sessions: sessions,
       payload: payload,
     );
+    var saved = true;
     // 바뀐 게 없으면 파일을 다시 쓰지 않는다 — songs.json은 핫 파일이다.
     if (result.favoritesApplied > 0) {
-      app.songs = result.songs;
-      await _repo.saveSongs(result.songs);
+      if (await _repo.saveSongs(result.songs)) {
+        app.songs = result.songs;
+      } else {
+        saved = false;
+      }
     }
     if (result.sessionsAdded > 0) {
-      await _practiceStore.save(result.sessions);
+      // 위에서 읽은 목록을 통째로 쓰지 않는다 — 그사이 화면이 기록한 세션을 덮는다.
+      // 저장소가 지금 디스크의 기록에 id로 합친다(아는 id는 건드리지 않는다).
+      if (await _practiceStore.merge(result.sessions) == null) saved = false;
     }
-    return result;
+    return (result: result, saved: saved);
   }
 
   /// 요청 하나를 처리한다. 처리했으면 true.
@@ -152,6 +183,15 @@ class SyncServerHandler {
 
     switch (path) {
       case '${pathPrefix}manifest':
+        // 🔴 곡 목록을 못 읽은 채 뜬 PC의 빈 목록을 폰에 그대로 넘기면 폰 목록이
+        // 통째로 비워진다. 503으로 막고 폰이 사유를 그대로 보여 준다.
+        if (songsUnavailable) {
+          await _json(request, 503, {
+            'ok': false,
+            'error': songsUnavailableError,
+          });
+          return true;
+        }
         final manifest = await buildManifest();
         await _json(request, 200, {'ok': true, ...manifest.toJson()});
         return true;
@@ -196,11 +236,23 @@ class SyncServerHandler {
           });
           return true;
         }
-        final result = await applyPush(SyncPushPayload.fromJson(json));
+        final applied = await applyPush(SyncPushPayload.fromJson(json));
+        if (!applied.saved) {
+          // 200을 주면 폰이 pendingFavorites를 비운다 — 저장 못 했으면 실패로 답해
+          // 다음 동기화에서 다시 보내게 한다(sync_client.push는 200만 성공으로 본다).
+          await _json(request, 507, {
+            'ok': false,
+            'error': {
+              'code': 'save_failed',
+              'message': 'PC가 변경분을 저장하지 못했습니다. 다음 동기화에서 다시 보냅니다.',
+            },
+          });
+          return true;
+        }
         await _json(request, 200, {
           'ok': true,
-          'favoritesApplied': result.favoritesApplied,
-          'sessionsAdded': result.sessionsAdded,
+          'favoritesApplied': applied.result.favoritesApplied,
+          'sessionsAdded': applied.result.sessionsAdded,
         });
         return true;
 

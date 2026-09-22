@@ -201,4 +201,68 @@ void main() {
       expect(PrompterSettings.fromJson(const {}).recordingBackingDevice, isNull);
     });
   });
+
+  group('녹음 지연 보정 (v5.17.0)', () {
+    test('기본값은 0 — 보정 없음(예전 동작 그대로)', () {
+      expect(const PrompterSettings().recordingLatencyMs, 0);
+    });
+
+    test('옛 설정 파일에는 키가 없어 0이다', () {
+      expect(PrompterSettings.fromJson(const {}).recordingLatencyMs, 0);
+    });
+
+    test('저장·복원된다(음수 포함)', () {
+      for (final ms in [35, -20, 0, 300, -300]) {
+        final s = const PrompterSettings().copyWith(recordingLatencyMs: ms);
+        expect(s.toJson()['recordingLatencyMs'], ms);
+        final restored = PrompterSettings.decode(PrompterSettings.encode(s));
+        expect(restored.recordingLatencyMs, ms);
+      }
+    });
+
+    test('−300…+300으로 묶는다 — 파일에서도 copyWith에서도', () {
+      expect(
+        PrompterSettings.fromJson(const {
+          'recordingLatencyMs': 9999,
+        }).recordingLatencyMs,
+        300,
+      );
+      expect(
+        PrompterSettings.fromJson(const {
+          'recordingLatencyMs': -9999,
+        }).recordingLatencyMs,
+        -300,
+      );
+      expect(
+        const PrompterSettings()
+            .copyWith(recordingLatencyMs: 5000)
+            .recordingLatencyMs,
+        300,
+      );
+    });
+
+    test('숫자가 아닌 값·소수는 던지지 않고 흡수한다', () {
+      expect(
+        PrompterSettings.fromJson(const {
+          'recordingLatencyMs': '120',
+        }).recordingLatencyMs,
+        0,
+      );
+      expect(
+        PrompterSettings.fromJson(const {
+          'recordingLatencyMs': 34.6,
+        }).recordingLatencyMs,
+        35,
+      );
+    });
+
+    test('다른 설정을 바꿀 때 값이 유지된다', () {
+      final s = const PrompterSettings().copyWith(recordingLatencyMs: 45);
+      expect(s.copyWith(recordingGain: 1.5).recordingLatencyMs, 45);
+      expect(s.copyWith(clearRecordingDevice: true).recordingLatencyMs, 45);
+      // 다른 녹음 설정은 건드리지 않는다.
+      expect(s.recordingGain, 1.0);
+      expect(s.recordingDevice, isNull);
+    });
+  });
 }

@@ -26,7 +26,13 @@ class SyncLockBadge extends StatelessWidget {
           container: true,
           label: value ? '싱크 잠금 중 — L로 해제' : '',
           child: !value
-              ? const SizedBox.shrink()
+              // 🔴 크기 0(SizedBox.shrink)이면 안 된다. 빈 사각형의 시맨틱스 노드는
+              // 「안 보임」으로 트리에서 빠진다 — 그러면 위의 Semantics를 상시로 둬도
+              // L로 잠그고 풀 때마다 노드가 생겼다 사라진다(테스트로 확인: 4↔5개).
+              // 녹음 배지(recording_badge.dart)와 같은 결함·같은 처방이다 — 1px짜리
+              // 빈 상자로 노드를 붙들어 둔다. 눈에는 안 보이고, 배지는 Positioned
+              // 안이라 레이아웃도 밀지 않는다.
+              ? const SizedBox(width: 1, height: 1)
               : Tooltip(
                   message: '싱크 잠금 중 — L로 해제',
                   // 툴팁도 자체 노드를 만들지 않게 한다(라벨은 위에서 준다).

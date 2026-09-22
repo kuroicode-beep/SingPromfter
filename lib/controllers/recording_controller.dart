@@ -14,7 +14,9 @@ import 'package:flutter/foundation.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/process_runner.dart';
 import '../services/process/tool_progress_parsers.dart';
+import '../utils/recording_latency.dart';
 import 'armed_capture_session.dart';
+import 'auto_input_selection.dart';
 import 'capture_session.dart';
 
 /// 녹음 중 자동 다음곡 진행 여부. (순수 함수 — 테스트 대상)
@@ -152,32 +154,39 @@ int dualCaptureSkewMs({
 ///
 /// 그래서 이름으로 **실제 마이크를 먼저** 고른다. 믹서·루프백·스테레오 믹스는
 /// 사용자가 직접 고르지 않는 한 자동 선택 대상이 아니다.
+///
+/// 이름만으로는 **꺼진 마이크**(무선 동글)를 못 가린다 — 마이크 같은 장치가 둘
+/// 이상이면 소리를 재서 고르는 단계가 이 위에 얹힌다(auto_input_selection.dart).
+/// 이 함수는 그 단계의 첫 후보이자, 잴 수 없을 때의 폴백이다.
 String? preferredInputDevice(List<String> devices) {
   if (devices.isEmpty) return null;
-  bool looksLikeMic(String d) {
-    final lower = d.toLowerCase();
-    return d.contains('마이크') ||
-        lower.contains('microphone') ||
-        lower.startsWith('mic');
-  }
-
-  bool looksLikeLoopback(String d) {
-    final lower = d.toLowerCase();
-    return lower.contains('stereo mix') ||
-        d.contains('스테레오 믹스') ||
-        lower.contains('loopback') ||
-        lower.contains('what u hear') ||
-        // 믹서의 메인 아웃 — 이게 1번으로 올라오는 게 이번 사고의 원인이었다.
-        lower.contains('main l/r');
-  }
-
   for (final d in devices) {
-    if (looksLikeMic(d) && !looksLikeLoopback(d)) return d;
+    if (looksLikeMicDevice(d) && !looksLikeLoopbackDevice(d)) return d;
   }
   for (final d in devices) {
-    if (!looksLikeLoopback(d)) return d;
+    if (!looksLikeLoopbackDevice(d)) return d;
   }
   return devices.first;
+}
+
+/// 장치 이름이 마이크 같은가. (순수 함수)
+/// [preferredInputDevice]와 자동 선택의 후보 고르기가 **같은 잣대**를 쓴다.
+bool looksLikeMicDevice(String device) {
+  final lower = device.toLowerCase();
+  return device.contains('마이크') ||
+      lower.contains('microphone') ||
+      lower.startsWith('mic');
+}
+
+/// 장치 이름이 PC 재생음을 되받는 루프백 같은가. (순수 함수)
+bool looksLikeLoopbackDevice(String device) {
+  final lower = device.toLowerCase();
+  return lower.contains('stereo mix') ||
+      device.contains('스테레오 믹스') ||
+      lower.contains('loopback') ||
+      lower.contains('what u hear') ||
+      // 믹서의 메인 아웃 — 이게 1번으로 올라오는 게 2026-09-21 사고의 원인이었다.
+      lower.contains('main l/r');
 }
 
 /// 캡처 오디오 필터 체인. 게인은 astats **앞**에 두어 미터가 게인 반영
@@ -405,13 +414,43 @@ class RecordingController extends ChangeNotifier {
   String? _currentFileName;
   String? _currentBackingFileName;
   final Map<int, double> _inputStarts = {};
-  String? _deviceName;
+
+  /// 설정의 「녹음 지연 보정」(ms). 값의 주인은 여기 한 곳이다 — 고정 마크·R 녹음이
+  /// 모두 **시작하는 순간의 이 값**을 굳혀서 들고 간다.
+  int _latencyCompensationMs = 0;
+
+  /// 지금 도는 R 녹음이 시작할 때 굳힌 보정값.
+  int _recordingLatencyMs = 0;
+
+  /// 설정에서 **직접 고른** 입력 장치. null이면 자동이다.
+  String? _explicitDevice;
+
+  /// 자동이 지금 쓰는(쓸) 장치. 소리를 재기 전에는 첫 후보다.
+  String? _autoDevice;
+
+  /// 이번 실행에서 마지막으로 자동이 고른 결과. 고른 장치가 목록에 있는 동안은
+  /// 다시 재지 않는다 — 조각을 받을 때마다 1초씩 재면 흐름이 끊긴다.
+  AutoInputSelection? _autoSelection;
+
+  /// 직전에 소리가 확인됐던 장치. 장치 목록이 달라져 다시 고를 때 먼저 잰다.
+  String? _lastLiveDevice;
+
+  /// 다음에 고르기 전에 장치 목록부터 다시 읽을지(고른 장치가 무음이었을 때 선다).
+  bool _autoStale = false;
+
+  /// 자동 선택을 무효로 할 때마다 오른다 — 그사이 끝난 옛 확인을 기억하지 않게 한다.
+  int _autoGeneration = 0;
+  Future<AutoInputSelection>? _autoResolving;
+  JobHandle? _autoProbeJob;
+  final AutoProbeTiming _autoProbeTiming;
+
   String? _backingDeviceName;
   List<String> _devices = const [];
 
   /// [nowUs]는 고정 세션이 줄 도착과 마크를 찍는 단조 시계(µs, 기본 Stopwatch),
   /// [sessionDirBuilder]는 세션 파일을 둘 폴더다(기본 앱 지원 폴더/capture_sessions).
   /// 둘 다 테스트가 시간을 고정하고 임시 폴더를 쓰려고 주입한다.
+  /// [autoProbeTiming]은 자동 선택이 후보 하나의 소리를 재는 시간 규칙이다.
   RecordingController({
     required this.pathBuilder,
     ProcessRunner runner = const SystemProcessRunner(),
@@ -420,7 +459,9 @@ class RecordingController extends ChangeNotifier {
     Future<Directory> Function()? sessionDirBuilder,
     Duration? sessionWatchdogInterval = kSessionWatchdogInterval,
     Duration sessionLiveTimeout = kSessionLiveTimeout,
+    AutoProbeTiming autoProbeTiming = const AutoProbeTiming(),
   }) : _runner = runner,
+       _autoProbeTiming = autoProbeTiming,
        _locator = locator ?? ExternalToolLocator(runner: runner) {
     _armed = ArmedCaptureSession(
       runner: runner,
@@ -452,10 +493,97 @@ class RecordingController extends ChangeNotifier {
   String get levelLabel => inputLevelLabel(dbfs);
   double get level => normalizedLevel(dbfs);
   List<String> get devices => List.unmodifiable(_devices);
-  String? get deviceName => _deviceName;
 
+  /// 직접 고른 장치, 없으면 자동이 지금 쓰는(쓸) 장치.
+  String? get deviceName => _explicitDevice ?? _autoDevice;
+
+  /// 설정의 입력 장치를 넣는다. **null·빈 값은 「자동」이다** — 그대로 넣어야 한다.
+  ///
+  /// 🔴 예전에는 화면이 null일 때 대입을 건너뛰었고 여기도 「직접/자동」을 구분하지
+  /// 않아서, 설정을 「직접 고름 → 자동」으로 되돌려도 앱을 다시 켤 때까지 예전
+  /// 장치로 녹음했다. 직접↔자동이 바뀌면 자동 확인도 처음부터 다시 한다.
   set deviceName(String? value) {
-    _deviceName = value;
+    final next = (value ?? '').isEmpty ? null : value;
+    if (next == _explicitDevice) return;
+    _explicitDevice = next;
+    _resetAutoInput();
+    notifyListeners();
+  }
+
+  /// 새로 받는 테이크의 곡 좌표에 구울 「녹음 지연 보정」(ms, −300…+300).
+  ///
+  /// ffmpeg 인자가 아니라서 바꿔도 세션을 다시 열 필요가 없다. 이미 찍힌 마크·돌고
+  /// 있는 녹음은 시작할 때의 값을 그대로 쓴다(도중에 바꿔도 그 테이크는 안 흔들린다).
+  int get latencyCompensationMs => _latencyCompensationMs;
+
+  set latencyCompensationMs(int value) =>
+      _latencyCompensationMs = clampRecordingLatencyMs(value);
+
+  /// 직접 고른 장치를 실제로 쓰는 중인가. 저장해 둔 장치가 목록에서 사라졌으면
+  /// (뽑힘) 거짓 — 그때는 자동으로 물러난다.
+  bool get _explicitInUse {
+    final explicit = _explicitDevice;
+    if (explicit == null) return false;
+    return _devices.isEmpty || _devices.contains(explicit);
+  }
+
+  /// 입력 장치를 자동으로 고르는 중인가(저장해 둔 장치가 사라져 물러난 경우 포함).
+  bool get usesAutoInput => !_explicitInUse;
+
+  /// 자동이 지금 쓰는(쓸) 입력 장치. 직접 고른 장치를 쓰는 중이면 null.
+  String? get autoInputDevice =>
+      _explicitInUse ? null : (_autoSelection?.picked ?? _autoDevice);
+
+  /// 이번 실행에서 마지막으로 자동이 고른 결과. 아직 고른 적이 없으면 null.
+  AutoInputSelection? get autoInputSelection => _autoSelection;
+
+  /// 저장해 둔 직접 장치가 목록에 없어 자동으로 물러났으면 그 이름, 아니면 null.
+  String? get missingExplicitDevice =>
+      _explicitDevice != null && !_explicitInUse ? _explicitDevice : null;
+
+  /// 이번에 실제로 열(연) 입력 장치 — 2채널 판정·경고 문구처럼 **동기**로 알아야 할
+  /// 때 쓴다. 자동 후보가 전부 무음이어도 첫 후보를 돌려준다(null은 장치 없음뿐이다).
+  String? get currentInputDevice => _explicitInUse
+      ? _explicitDevice
+      : (_autoSelection?.picked ??
+            _autoDevice ??
+            preferredInputDevice(_devices));
+
+  /// 다음 [resolveAutoInput]이 **실제로 장치를 열어** 소리를 잴 것인가.
+  /// 길면 몇 초가 걸려서, 화면이 먼저 「찾는 중」을 띄우려고 본다.
+  bool get autoInputNeedsProbe {
+    if (_explicitInUse || _isRecording || _armed.holdsDevice) return false;
+    final cached = _autoSelection;
+    final valid =
+        !_autoStale &&
+        cached != null &&
+        cached.picked != null &&
+        _devices.contains(cached.picked);
+    if (valid) return false;
+    return inputDeviceCandidates(_devices).length > 1;
+  }
+
+  /// 자동 선택을 처음 상태로 되돌린다 — 다음에 고를 때 소리를 다시 잰다.
+  void _resetAutoInput() {
+    _autoGeneration++;
+    _autoSelection = null;
+    _autoDevice =
+        inputDeviceCandidates(_devices, tryFirst: _lastLiveDevice).firstOrNull ??
+        preferredInputDevice(_devices);
+  }
+
+  /// 자동이 고른 장치가 **무음이었다** — 기억을 버리고 다음에 처음부터 다시 고른다.
+  ///
+  /// 무선 동글은 앱을 켜 둔 사이에 켜지거나 꺼진다. 한 번 확인했다고 끝까지 믿으면
+  /// 같은 무음 녹음이 반복된다. 장치 목록도 다시 읽는다(그사이 꽂았을 수 있다).
+  ///
+  /// 「지금 쓰는 장치」([_autoDevice])는 그대로 둔다 — 고정 세션이 그 장치로 열려
+  /// 있을 수 있어서, 여기서 첫 후보로 되돌리면 설정 화면이 다른 장치를 가리킨다.
+  void invalidateAutoInput() {
+    _lastLiveDevice = null;
+    _autoStale = true;
+    _autoGeneration++;
+    _autoSelection = null;
     notifyListeners();
   }
 
@@ -478,7 +606,7 @@ class RecordingController extends ChangeNotifier {
     if (_devices.isEmpty) return false;
     if (!_devices.contains(backing)) return false;
     // 같은 장치를 두 번 열 수는 없다.
-    return backing != (_deviceName ?? preferredInputDevice(_devices));
+    return backing != currentInputDevice;
   }
 
   /// 입력 장치 목록을 새로 읽는다.
@@ -503,8 +631,23 @@ class RecordingController extends ChangeNotifier {
     final sub = job.lines.listen(lines.add);
     await job.exitCode;
     await sub.cancel();
-    _devices = parseDshowAudioDevices(lines.join('\n'));
-    _deviceName ??= preferredInputDevice(_devices);
+    final next = parseDshowAudioDevices(lines.join('\n'));
+    // 목록이 달라졌으면 자동 선택은 무효다 — 새 마이크가 꽂혔거나 고른 장치가 뽑혔다.
+    // 순서만 바뀐 것은 변화가 아니다(dshow 열거 순서는 원래 들쭉날쭉하다).
+    final changed = !setEquals(next.toSet(), _devices.toSet());
+    _devices = next;
+    if (changed || _autoDevice == null) {
+      // 캡처가 장치를 쥐고 있으면 「지금 쓰는 장치」는 그대로 둔다 — 세션은 그 장치로
+      // 계속 받는데 첫 후보로 되돌리면 설정 상태 줄·무음 경고·자동 선택 토스트가 다른
+      // 장치(방금 꽂은 웹캠 마이크)를 가리킨다(invalidateAutoInput과 같은 이유).
+      // 기억만 버려 캡처가 끝나면 다시 고른다.
+      if ((_isRecording || _armed.holdsDevice) && _autoDevice != null) {
+        _autoGeneration++;
+        _autoSelection = null;
+      } else {
+        _resetAutoInput();
+      }
+    }
     notifyListeners();
     return _devices;
   }
@@ -516,15 +659,85 @@ class RecordingController extends ChangeNotifier {
     return _devices.isNotEmpty;
   }
 
-  /// 이번에 열 입력 장치를 정한다. 없으면 null.
-  /// 저장된 장치가 뽑혔을 수 있으니 목록에 없으면 자동 선택으로 폴백한다.
+  /// 이번에 열 입력 장치를 정한다. 없으면(또는 자동 후보가 **전부 무음**이면) null.
+  ///
+  /// R 녹음·녹음 고정·마이크 테스트가 전부 이 한 곳을 지난다.
+  /// 직접 고른 장치는 그대로 돌려준다 — **소리를 재지 않아 지연이 없다.** 저장된
+  /// 장치가 뽑혔으면(목록에 없음) 자동 선택으로 물러난다.
   Future<String?> _resolveInputDevice() async {
     if (_devices.isEmpty) await refreshDevices();
-    var device = _deviceName ?? preferredInputDevice(_devices);
-    if (device != null && _devices.isNotEmpty && !_devices.contains(device)) {
-      device = preferredInputDevice(_devices);
+    if (_explicitInUse) return _explicitDevice;
+    return (await resolveAutoInput()).picked;
+  }
+
+  /// 자동일 때 쓸 입력 장치를 정한다 — 필요하면 후보의 소리를 재서 고른다.
+  ///
+  /// 이미 고른 장치가 목록에 있으면 그대로 돌려준다(재지 않는다). 재는 중에 또
+  /// 불리면 같은 결과를 함께 기다린다 — R을 두 번 눌러도 장치를 두 번 열지 않는다.
+  Future<AutoInputSelection> resolveAutoInput() {
+    return _autoResolving ??= _resolveAutoInput().whenComplete(
+      () => _autoResolving = null,
+    );
+  }
+
+  /// [resolveAutoInput]의 본체.
+  Future<AutoInputSelection> _resolveAutoInput() async {
+    if (_devices.isEmpty || _autoStale) {
+      _autoStale = false;
+      await refreshDevices();
     }
-    return device;
+    final cached = _autoSelection;
+    if (cached != null &&
+        cached.picked != null &&
+        _devices.contains(cached.picked)) {
+      return cached;
+    }
+    final candidates = inputDeviceCandidates(
+      _devices,
+      tryFirst: _lastLiveDevice,
+    );
+    // 마이크도 일반 입력도 없으면(루프백뿐) 예전처럼 첫 장치로 물러난다.
+    final fallback = preferredInputDevice(_devices);
+    final pool = candidates.isNotEmpty ? candidates : [?fallback];
+    // 우리 캡처가 장치를 쥐고 있으면 재지 않는다 — 같은 장치를 또 열어 흔들지 않는다.
+    // (isOpen이 아니라 holdsDevice다: 고정을 켜는 길은 「여는 중」 상태로 여기를 지난다.)
+    if (_isRecording || _armed.holdsDevice) {
+      return AutoInputSelection(picked: _autoDevice ?? pool.firstOrNull);
+    }
+    final ffmpeg = pool.length > 1
+        ? await _locator.locate(ExternalTool.ffmpeg)
+        : null;
+    // 마이크 테스트가 돌고 있으면 장치를 놓아준다.
+    if (ffmpeg != null && ffmpeg.found) await stopLevelProbe();
+    final generation = _autoGeneration;
+    final selection = await selectLiveInputDevice(
+      // 잴 도구가 없으면 고르기만 한다(후보 하나로 줄이면 재지 않는다).
+      candidates: ffmpeg != null && ffmpeg.found ? pool : pool.take(1).toList(),
+      probePeakDbfs: (device) async {
+        // 재는 도중에 화면이 닫혔으면 남은 후보는 열지 않는다.
+        if (_disposed) return null;
+        return probeInputPeakDbfs(
+          runner: _runner,
+          ffmpegPath: ffmpeg!.path!,
+          deviceName: device,
+          timing: _autoProbeTiming,
+          onJob: (job) => _autoProbeJob = job,
+        );
+      },
+    );
+    // 재는 사이에 목록·설정이 바뀌었으면 이 결과는 옛것이다 — 돌려만 주고 기억하지 않는다.
+    if (_disposed || generation != _autoGeneration) return selection;
+    _autoSelection = selection;
+    // 전부 무음이면 다음에는 장치 목록부터 다시 읽는다 — 그사이 꽂은 마이크는 옛 목록에
+    // 없어서, 같은 후보만 되풀이 재고 같은 경고를 띄운다(invalidateAutoInput과 같은 뜻).
+    // _autoSelection은 남겨 둔다: 화면이 경고 문구에 「확인한 장치」 이름을 이걸로 적는다.
+    if (selection.allSilent) _autoStale = true;
+    if (selection.picked != null) {
+      _autoDevice = selection.picked;
+      if (selection.probed) _lastLiveDevice = selection.picked;
+    }
+    notifyListeners();
+    return selection;
   }
 
   // ── 녹음 고정(상시 캡처 세션) ──────────────────────────────────────────
@@ -538,6 +751,11 @@ class RecordingController extends ChangeNotifier {
   void Function(String message, {TakeStartMark? openTake})? onSessionLost;
 
   Future<bool>? _sessionOpening;
+
+  /// 마지막 [openSession]이 「자동 후보가 전부 무음」이라 장치를 열지 않고 끝났는가.
+  /// 화면이 「마이크를 못 열었다」가 아니라 「소리가 없다」 경고를 띄우는 근거다.
+  bool get sessionBlockedBySilentInput => _sessionSilentBlock;
+  bool _sessionSilentBlock = false;
 
   /// 고정 세션의 상태(off·opening·live·failed).
   ArmedSessionState get sessionState => _armed.state;
@@ -601,6 +819,7 @@ class RecordingController extends ChangeNotifier {
       return false;
     }
     if (_armed.isOpen) return _armed.waitLive();
+    _sessionSilentBlock = false;
     // 찾는 동안에도 화면이 「여는 중」을 보여 주게 먼저 알린다.
     final generation = _armed.markOpening();
     try {
@@ -616,8 +835,14 @@ class RecordingController extends ChangeNotifier {
       }
       final device = await _resolveInputDevice();
       if (device == null) {
+        // 자동 후보가 전부 무음이었으면 그 사실과 확인한 장치를 그대로 적는다.
+        final auto = _autoSelection;
+        _sessionSilentBlock = !_explicitInUse && auto != null && auto.allSilent;
         _armed.failBeforeOpen(
-          '녹음 입력 장치를 찾지 못했습니다.',
+          _sessionSilentBlock
+              ? '소리가 들어오는 입력 장치가 없습니다 — '
+                    '${silentInputDeviceNote(selection: auto, device: null, auto: true)}'
+              : '녹음 입력 장치를 찾지 못했습니다.',
           generation: generation,
         );
         return false;
@@ -640,6 +865,7 @@ class RecordingController extends ChangeNotifier {
 
   /// 조각 시작을 찍는다. **동기** — 같은 스택에서 곧바로 재생을 걸 수 있다.
   /// [isSessionReady]가 아니거나 이미 조각이 열려 있으면 null.
+  /// 지금의 [latencyCompensationMs]를 마크에 굳힌다(사이드카에도 실려 복구가 같은 값을 쓴다).
   TakeStartMark? markTakeStart({
     required int songPositionMs,
     bool playbackAlreadyRunning = false,
@@ -647,6 +873,7 @@ class RecordingController extends ChangeNotifier {
   }) => _armed.markTakeStart(
     songPositionMs: songPositionMs,
     playbackAlreadyRunning: playbackAlreadyRunning,
+    latencyCompensationMs: _latencyCompensationMs,
     context: context,
   );
 
@@ -729,6 +956,8 @@ class RecordingController extends ChangeNotifier {
     if (!ffmpeg.found) return null;
     final device = await _resolveInputDevice();
     if (device == null) return null;
+    // 자동 선택이 소리를 재는 동안(길면 몇 초) 다른 시작이 끼어들었을 수 있다.
+    if (_isRecording || _armed.isOpen) return null;
 
     // 반주 채널은 **장치가 목록에 있을 때만** 연다. 없는 장치를 넘기면
     // ffmpeg가 통째로 죽어 보컬까지 잃는다.
@@ -760,6 +989,7 @@ class RecordingController extends ChangeNotifier {
       _anchor = CaptureAnchorEstimator();
       _lastFramePtsMs = null;
       _framedLengthMs = 0;
+      _recordingLatencyMs = _latencyCompensationMs;
 
       final errorLines = <String>[];
       _sub = job.lines.listen(
@@ -833,6 +1063,10 @@ class RecordingController extends ChangeNotifier {
 
   /// 녹음을 끝내고 파일명과 길이를 돌려준다.
   /// 2채널이면 [backingFileName]에 반주 채널 파일명이 함께 온다.
+  ///
+  /// `songAnchorMs`는 **보정 전** 좌표다(음수일 수 있다). `latencyCompensationMs`는
+  /// 녹음을 시작할 때 굳힌 보정값 — 호출부가 [planRecordedTakeTiming]에 둘을 함께 넣어
+  /// 좌표와 (필요하면) 머리 자르기를 정한다.
   Future<
     ({
       String fileName,
@@ -841,6 +1075,7 @@ class RecordingController extends ChangeNotifier {
       Duration duration,
       double? peakDbfs,
       int? songAnchorMs,
+      int latencyCompensationMs,
     })?
   >
   stop() async {
@@ -881,6 +1116,7 @@ class RecordingController extends ChangeNotifier {
       duration: duration,
       peakDbfs: peak,
       songAnchorMs: anchorMs,
+      latencyCompensationMs: _recordingLatencyMs,
     );
   }
 
@@ -913,8 +1149,12 @@ class RecordingController extends ChangeNotifier {
 
     final ffmpeg = await _locator.locate(ExternalTool.ffmpeg);
     if (!ffmpeg.found) return false;
-    final device = await _resolveInputDevice();
+    // 자동 후보가 전부 무음이어도 테스트는 첫 후보로 연다 — 믹서를 만지며 막대가
+    // 살아나는지 보려고 누르는 버튼이라, 여기서 막으면 확인할 길이 없다.
+    final device = await _resolveInputDevice() ?? currentInputDevice;
     if (device == null) return false;
+    // 자동 선택이 소리를 재는 동안 테스트 버튼을 또 눌렀거나 녹음이 시작됐을 수 있다.
+    if (_isRecording || _isProbing || _armed.isOpen) return false;
 
     try {
       final job = _runner.start(
@@ -1075,6 +1315,8 @@ class RecordingController extends ChangeNotifier {
     _job?.cancel();
     _probeSub?.cancel();
     _probeJob?.cancel();
+    // 자동 선택이 열어 둔 프로브도 우리 핸들로 끊는다.
+    _autoProbeJob?.cancel();
     _backingProbeSub?.cancel();
     _backingProbeJob?.cancel();
     super.dispose();

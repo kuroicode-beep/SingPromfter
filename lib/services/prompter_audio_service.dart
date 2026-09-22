@@ -48,7 +48,8 @@ class PrompterAudioService {
     required double volume,
     required double playbackRate,
     int? startMs,
-    /// 키를 바꾼 변형본 경로. 주면 원본 대신 이 파일을 재생한다.
+    /// 원본 대신 재생할 파일 — 키·템포 변형본(m4a) 또는 VBR MP3의 위치 보정본(WAV).
+    /// 어느 쪽인지는 PlaybackController가 정한다(playback_copy_service.dart 머리말).
     String? overridePath,
   }) async {
     if (song == null || selectedTrackSlot == null) {

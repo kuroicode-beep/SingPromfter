@@ -186,5 +186,41 @@ void main() {
       expect(find.text('조각 잇기'), findsNothing);
       expect(find.textContaining('조각'), findsNothing);
     });
+
+    testWidgets('🔴 이어붙인 결과물은 조각으로 세지 않고 「이어붙인 곡」으로 표시된다', (tester) async {
+      // 결과물은 곡 좌표 0이다. 표식 없이 세면 「결과물 + 조각 1개」로 잇기 버튼이 뜨고
+      // 목록에는 「0:00 조각」으로 보였다.
+      await tester.pumpWidget(
+        _panel(
+          takes: [
+            _take(id: 'r1', songPositionMs: 0).copyWith(stitched: true),
+            _take(id: 't1', songPositionMs: 120000),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('조각 잇기'), findsNothing);
+      expect(find.textContaining('이어붙인 곡'), findsOneWidget);
+      expect(find.textContaining('0:00 조각'), findsNothing);
+      expect(find.textContaining('2:00 조각'), findsOneWidget);
+    });
+
+    testWidgets('결과물이 있어도 조각이 둘 이상이면 잇기 버튼은 그대로 보인다', (tester) async {
+      await tester.pumpWidget(
+        _panel(
+          takes: [
+            _take(id: 'r1', songPositionMs: 0).copyWith(stitched: true),
+            _take(id: 't1', songPositionMs: 120000),
+            _take(id: 't2', songPositionMs: 123050),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // 버튼은 같은 곡의 줄마다 뜬다(결과물 줄에서 눌러도 조각들만 이어진다).
+      // 목록은 보이는 줄만 짓는다 — 개수가 아니라 「있다」만 본다.
+      expect(find.text('조각 잇기'), findsWidgets);
+    });
   });
 }

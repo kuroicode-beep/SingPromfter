@@ -1,6 +1,48 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:singpromfter_app/models/recording_take.dart';
+import 'package:singpromfter_app/services/process/process_runner.dart';
 import 'package:singpromfter_app/services/take_mix_service.dart';
+
+/// ffmpeg 흉내 — `-i`가 있는 호출이면 출력 파일(마지막 인자)에 표식을 써 준다.
+/// 그 밖의 호출(where·-version)은 도구 찾기용이라 'ffmpeg'만 돌려준다.
+class _TrimFakeRunner implements ProcessRunner {
+  _TrimFakeRunner({this.failOn});
+
+  /// 이 입력 파일을 만나면 실패(종료 코드 1)한다.
+  final String? failOn;
+
+  /// 머리 자르기로 띄운 호출의 인자(띄운 순서대로).
+  final List<List<String>> trims = [];
+
+  @override
+  JobHandle start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) => throw UnimplementedError('이 테스트는 run()만 쓴다');
+
+  @override
+  Future<ProcessOutput> run(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+  }) async {
+    if (!arguments.contains('-i')) {
+      return const ProcessOutput(exitCode: 0, stdout: 'ffmpeg', stderr: '');
+    }
+    trims.add(arguments);
+    final source = arguments[arguments.indexOf('-i') + 1];
+    if (failOn != null && source.endsWith(failOn!)) {
+      return const ProcessOutput(exitCode: 1, stdout: '', stderr: 'boom');
+    }
+    final trim = arguments[arguments.indexOf('-ss') + 1];
+    File(arguments.last).writeAsStringSync('trimmed $trim');
+    return const ProcessOutput(exitCode: 0, stdout: '', stderr: '');
+  }
+}
 
 void main() {
   group('mixGains — 밸런스→게인', () {
@@ -196,6 +238,109 @@ void main() {
       expect(args.last, 'acc.tmp.wav');
       // 녹음 원본이라 무손실로 다시 쓴다.
       expect(args[args.indexOf('-c:a') + 1], 'pcm_s16le');
+    });
+  });
+
+  group('buildHeadTrimArgs — 녹음 지연 보정의 머리 자르기 (v5.17.0)', () {
+    test('-ss를 입력 **뒤에** 둔다 — 표본 단위로 정확하게 버린다', () {
+      final args = buildHeadTrimArgs(
+        sourcePath: 'take.wav',
+        outputPath: 'take.wav.trim.wav',
+        trimMs: 40,
+      );
+      expect(args[args.indexOf('-ss') + 1], '0.040');
+      expect(args.indexOf('-ss'), greaterThan(args.indexOf('-i')));
+      expect(args[args.indexOf('-i') + 1], 'take.wav');
+      expect(args.last, 'take.wav.trim.wav');
+      // 녹음 원본이라 무손실로 다시 쓴다.
+      expect(args[args.indexOf('-c:a') + 1], 'pcm_s16le');
+    });
+
+    test('음수는 0으로 막는다', () {
+      final args = buildHeadTrimArgs(
+        sourcePath: 's',
+        outputPath: 'o',
+        trimMs: -5,
+      );
+      expect(args[args.indexOf('-ss') + 1], '0.000');
+    });
+  });
+
+  // 🔴 plain test() — 실제 파일 IO를 기다린다(testWidgets의 가짜 시계에서는 안 끝난다).
+  group('trimHeads — 전부 아니면 전무 (가짜 러너)', () {
+    late Directory tmp;
+    String pathOf(String name) => '${tmp.path}${Platform.pathSeparator}$name';
+    List<String> names() =>
+        tmp.listSync().map((e) => e.uri.pathSegments.last).toList()..sort();
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      tmp = Directory.systemTemp.createTempSync('sp_trim_heads_');
+      File(pathOf('v.wav')).writeAsStringSync('vocal');
+      File(pathOf('v_acc.wav')).writeAsStringSync('backing');
+    });
+
+    tearDown(() {
+      if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+    });
+
+    test('보컬 하나 — 제자리에서 갈아 끼우고 임시·백업 파일을 남기지 않는다', () async {
+      final runner = _TrimFakeRunner();
+      final result = await TakeMixService(
+        runner: runner,
+      ).trimHeads(paths: [pathOf('v.wav')], trimMs: 40);
+
+      expect(result.success, isTrue);
+      expect(File(pathOf('v.wav')).readAsStringSync(), 'trimmed 0.040');
+      expect(File(pathOf('v_acc.wav')).readAsStringSync(), 'backing');
+      expect(names(), ['v.wav', 'v_acc.wav']);
+      expect(runner.trims, hasLength(1));
+    });
+
+    test('2채널 — 보컬과 반주 채널을 **같은 길이**로 자른다', () async {
+      final runner = _TrimFakeRunner();
+      final result = await TakeMixService(
+        runner: runner,
+      ).trimHeads(paths: [pathOf('v.wav'), pathOf('v_acc.wav')], trimMs: 125);
+
+      expect(result.success, isTrue);
+      expect(File(pathOf('v.wav')).readAsStringSync(), 'trimmed 0.125');
+      expect(File(pathOf('v_acc.wav')).readAsStringSync(), 'trimmed 0.125');
+      expect(names(), ['v.wav', 'v_acc.wav']);
+    });
+
+    test('🔴 한쪽이라도 실패하면 둘 다 원본 그대로다 — 한쪽만 잘리면 둘이 어긋난다', () async {
+      final runner = _TrimFakeRunner(failOn: 'v_acc.wav');
+      final result = await TakeMixService(
+        runner: runner,
+      ).trimHeads(paths: [pathOf('v.wav'), pathOf('v_acc.wav')], trimMs: 125);
+
+      expect(result.success, isFalse);
+      expect(File(pathOf('v.wav')).readAsStringSync(), 'vocal');
+      expect(File(pathOf('v_acc.wav')).readAsStringSync(), 'backing');
+      // 먼저 만들어 둔 보컬 사본도 치운다.
+      expect(names(), ['v.wav', 'v_acc.wav']);
+    });
+
+    test('파일이 없으면 ffmpeg를 띄우지 않고 실패로 알린다', () async {
+      final runner = _TrimFakeRunner();
+      final result = await TakeMixService(
+        runner: runner,
+      ).trimHeads(paths: [pathOf('v.wav'), pathOf('missing.wav')], trimMs: 40);
+      expect(result.success, isFalse);
+      expect(runner.trims, isEmpty);
+      expect(File(pathOf('v.wav')).readAsStringSync(), 'vocal');
+    });
+
+    test('자를 길이가 0이면 아무것도 하지 않는다', () async {
+      final runner = _TrimFakeRunner();
+      final result = await TakeMixService(
+        runner: runner,
+      ).trimHeads(paths: [pathOf('v.wav')], trimMs: 0);
+      expect(result.success, isTrue);
+      expect(runner.trims, isEmpty);
+      expect(File(pathOf('v.wav')).readAsStringSync(), 'vocal');
     });
   });
 }

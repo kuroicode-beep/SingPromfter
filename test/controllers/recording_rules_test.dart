@@ -6,6 +6,7 @@ import 'package:singpromfter_app/controllers/recording_controller.dart';
 import 'package:singpromfter_app/models/recording_take.dart';
 import 'package:singpromfter_app/services/process/process_runner.dart';
 import 'package:singpromfter_app/services/recording_library_service.dart';
+import 'package:singpromfter_app/utils/recording_latency.dart';
 
 RecordingTake take({
   String id = 't1',
@@ -661,6 +662,68 @@ void _ffmpegRecordingTests() {
       // 마지막 프레임(pts 150) + 프레임 길이 50 = 200ms.
       expect(result.duration, const Duration(milliseconds: 200));
       expect(result.peakDbfs, -21.0);
+    });
+
+    test('녹음 지연 보정 — 좌표는 보정 전 그대로 주고, 시작할 때 굳힌 보정값을 함께 준다', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      var position = 20050;
+      final recording = RecordingController(
+        pathBuilder: (name) async => name,
+        runner: _CaptureFakeRunner(
+          onStart: [
+            for (var k = 0; k < 4; k++) ...[
+              'frame:$k    pts:${k * 2400}    pts_time:${k * 0.05}',
+              'lavfi.astats.Overall.RMS_level=-21.0',
+            ],
+          ],
+        ),
+      );
+      addTearDown(recording.dispose);
+      recording.songPositionProbe = () {
+        final now = position;
+        position += 50;
+        return now;
+      };
+
+      recording.latencyCompensationMs = 120;
+      await recording.start('t.wav');
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      // 🔴 녹음 도중에 설정을 바꿔도 이 테이크는 시작할 때의 값으로 받는다.
+      recording.latencyCompensationMs = 0;
+      final result = await recording.stop();
+
+      expect(result!.songAnchorMs, 20000);
+      expect(result.latencyCompensationMs, 120);
+      // 호출부(화면)가 두 값을 한 곳(planRecordedTakeTiming)에 넣어 좌표를 정한다.
+      final timing = planRecordedTakeTiming(
+        anchorMs: result.songAnchorMs,
+        fallbackPositionMs: 0,
+        durationMs: result.duration.inMilliseconds,
+        latencyMs: result.latencyCompensationMs,
+      );
+      expect(timing.songPositionMs, 19880);
+      expect(timing.latencyAppliedMs, 120);
+      expect(timing.headTrimMs, 0);
+    });
+
+    test('녹음 지연 보정 — 기본값은 0이고 −300…+300으로 묶인다', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      SharedPreferences.setMockInitialValues({});
+      final recording = RecordingController(
+        pathBuilder: (name) async => name,
+        runner: _CaptureFakeRunner(),
+      );
+      addTearDown(recording.dispose);
+      expect(recording.latencyCompensationMs, 0);
+      recording.latencyCompensationMs = 9999;
+      expect(recording.latencyCompensationMs, 300);
+      recording.latencyCompensationMs = -9999;
+      expect(recording.latencyCompensationMs, -300);
+
+      await recording.start('t.wav');
+      final result = await recording.stop();
+      expect(result!.latencyCompensationMs, -300);
     });
 
     test("레벨 줄이 'q' 뒤에 몰려 와도 최대 레벨을 놓치지 않는다", () async {

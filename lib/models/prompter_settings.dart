@@ -4,6 +4,7 @@ import '../models/prompter_display_mode.dart';
 import '../services/song_sort_service.dart';
 import '../utils/pitch_math.dart';
 import '../utils/platform_capabilities.dart';
+import '../utils/recording_latency.dart';
 import '../theme/prompter_levels.dart';
 
 class PrompterSettings {
@@ -78,6 +79,14 @@ class PrompterSettings {
   /// 녹음 입력 볼륨(0.0~2.0). 캡처 시점에 파일에 구워진다.
   final double recordingGain;
 
+  /// 녹음 지연 보정(ms, −300…+300). 기본 0 = 보정 없음.
+  ///
+  /// 출력 지연+입력 지연만큼 목소리는 곡보다 늦게 담긴다 — 양수면 새로 받는 테이크의
+  /// 곡 좌표(songPositionMs·alignOffsetMs)를 그만큼 **앞당겨** 굽는다. 이미 저장된
+  /// 테이크는 건드리지 않는다(테이크마다 적용값을 따로 남긴다 — latencyAppliedMs).
+  /// 부호와 범위는 utils/recording_latency.dart가 정본이다.
+  final int recordingLatencyMs;
+
   /// AI 기능 전체 마스터 스위치. 끄면 로컬·클라우드 구분 없이 AI가 전부 멈추고
   /// AI 없이 쓸 수 있는 기능만 화면에 남는다. 하위 두 스위치는 이것이 켜져
   /// 있을 때만 의미가 있다 — 호출부는 raw 필드가 아니라 아래 파생 게터를 읽는다.
@@ -136,6 +145,7 @@ class PrompterSettings {
     this.showSyllableSweep = true,
     this.controlsDrawerOpen = false,
     this.recordingGain = 1.0,
+    this.recordingLatencyMs = 0,
     this.aiEnabled = false,
     this.localAiEnabled = false,
     this.cloudAiEnabled = false,
@@ -190,6 +200,7 @@ class PrompterSettings {
     bool? showSyllableSweep,
     bool? controlsDrawerOpen,
     double? recordingGain,
+    int? recordingLatencyMs,
     bool? aiEnabled,
     bool? localAiEnabled,
     bool? cloudAiEnabled,
@@ -239,6 +250,10 @@ class PrompterSettings {
       showSyllableSweep: showSyllableSweep ?? this.showSyllableSweep,
       controlsDrawerOpen: controlsDrawerOpen ?? this.controlsDrawerOpen,
       recordingGain: recordingGain ?? this.recordingGain,
+      // 범위 밖 값이 어디서 들어와도 모델 안에서는 늘 −300…+300이다.
+      recordingLatencyMs: clampRecordingLatencyMs(
+        recordingLatencyMs ?? this.recordingLatencyMs,
+      ),
       aiEnabled: aiEnabled ?? this.aiEnabled,
       localAiEnabled: localAiEnabled ?? this.localAiEnabled,
       cloudAiEnabled: cloudAiEnabled ?? this.cloudAiEnabled,
@@ -322,6 +337,7 @@ class PrompterSettings {
     'showSyllableSweep': showSyllableSweep,
     'controlsDrawerOpen': controlsDrawerOpen,
     'recordingGain': recordingGain,
+    'recordingLatencyMs': recordingLatencyMs,
     'aiEnabled': aiEnabled,
     'localAiEnabled': localAiEnabled,
     'cloudAiEnabled': cloudAiEnabled,
@@ -411,6 +427,9 @@ class PrompterSettings {
         0.0,
         2.0,
       ),
+      // v5.17.0 신설 — 옛 설정에는 키가 없다(0 = 보정 없음 = 예전 동작 그대로).
+      // 숫자가 아니거나 범위 밖이어도 던지지 않고 흡수한다.
+      recordingLatencyMs: clampRecordingLatencyMs(json['recordingLatencyMs']),
       // 마스터 스위치는 v5.6.0 신설. 옛 설정에는 키가 없으므로 하위 둘 중
       // 하나라도 켜져 있었으면 켜진 것으로 승계한다 — 업데이트했더니 AI가
       // 통째로 사라지는 사고를 막는 지점이다.

@@ -7,7 +7,9 @@
 // 표시에는 songTitle 스냅샷을 쓴다.
 //
 // v2(스키마): 반주 조각·믹스 설정·분리 보컬·AI 보정(correctedFrom) 필드 추가 —
-// 전부 additive라 v1 파일은 기본값으로 자연 흡수된다.
+// 전부 additive라 v1 파일은 기본값으로 자연 흡수된다. 그 뒤로 붙은 필드
+// (songPositionMs·leadInMs·peakDbfs·stitched·latencyAppliedMs)도 같은 규칙이다 —
+// 버전을 올리면 구버전 앱이 목록을 「못 읽음」으로 처리해 빈 채로 뜬다.
 
 /// 믹스 시 보컬에 거는 리버브 프리셋.
 enum ReverbPreset { none, karaoke, hall, studio }
@@ -113,6 +115,23 @@ class RecordingTake {
   /// null이면 재지 못했거나 기록 이전의 테이크다(그때는 파일을 직접 재서 가린다).
   final double? peakDbfs;
 
+  /// 조각들을 **이어붙여 만든 결과물**인가.
+  ///
+  /// 결과물은 곡 타임라인 0에서 시작하는 한 벌이라 [songPositionMs]가 0이다 — 그것만
+  /// 보면 「0:00에서 받은 조각」과 구분이 안 된다. 표식이 없던 때에는 결과물이 다음
+  /// 이어붙이기에 조각으로 다시 끼어들어, 첫 조각을 밀어내고 **지운 조각의 소리를
+  /// 되살렸다.** 옛 파일에는 키가 없어 false로 읽힌다(additive).
+  final bool stitched;
+
+  /// 이 테이크의 곡 좌표([songPositionMs]·1채널의 [alignOffsetMs])에 **이미 구워진**
+  /// 「녹음 지연 보정」(ms). 보정 전 좌표 = 저장된 좌표 + 이 값.
+  ///
+  /// 설정값을 나중에 바꿔도 저장된 테이크는 그대로다 — 이 값이 있어야 「이 조각은 몇 ms
+  /// 보정으로 받았는지」를 알 수 있고, 같은 보정을 두 번 거는 일도 막을 수 있다.
+  /// 옛 파일(v5.16.0 이하)에는 키가 없어 0으로 읽힌다 = 보정 없이 받은 테이크(additive).
+  /// 이어붙인 결과물·AI 보정본은 재료의 좌표를 물려받지 않으므로 0이다.
+  final int latencyAppliedMs;
+
   const RecordingTake({
     required this.id,
     required this.songId,
@@ -139,6 +158,8 @@ class RecordingTake {
     this.songPositionMs,
     this.leadInMs,
     this.peakDbfs,
+    this.stitched = false,
+    this.latencyAppliedMs = 0,
   });
 
   Duration get duration => Duration(milliseconds: durationMs);
@@ -155,8 +176,11 @@ class RecordingTake {
 
   bool get hasSeparatedVocal => (separatedFileName ?? '').isNotEmpty;
 
-  /// 곡 타임라인 위 조각으로 쓸 수 있는가(이어붙이기 대상).
+  /// 곡 타임라인 위의 좌표가 있는가. 이어붙이기 대상인지는 [isStitchable]로 본다.
   bool get hasSongPosition => songPositionMs != null;
+
+  /// 이어붙이기의 **재료**로 쓸 수 있는가 — 곡 좌표가 있고, 이어붙인 결과물이 아니다.
+  bool get isStitchable => hasSongPosition && !stitched;
 
   /// 사용자에게 **말하는** 조각 위치(ms) — 스페이스를 누른 자리.
   ///
@@ -164,9 +188,11 @@ class RecordingTake {
   /// 그대로 보여 주면 저장 토스트(「1:23부터」)와 목록·취소 토스트(「1:22 조각」)가
   /// 1초 어긋나, 글자로 조각을 가리는 사용자가 다른 조각으로 읽는다. 리드인은 저장
   /// 사정이라 표시에서는 더해 되돌린다. 좌표가 없는 옛 테이크는 null 그대로다.
+  /// 이어붙인 결과물도 null이다 — 조각이 아니라서 「0:00 조각」이라고 말하면 틀린다.
   int? get displayPositionMs {
     final at = songPositionMs;
-    return at == null ? null : at + (leadInMs ?? 0);
+    if (at == null || stitched) return null;
+    return at + (leadInMs ?? 0);
   }
 
   RecordingTake copyWith({
@@ -189,6 +215,8 @@ class RecordingTake {
     int? songPositionMs,
     int? leadInMs,
     double? peakDbfs,
+    bool? stitched,
+    int? latencyAppliedMs,
   }) {
     return RecordingTake(
       id: id,
@@ -217,6 +245,8 @@ class RecordingTake {
       songPositionMs: songPositionMs ?? this.songPositionMs,
       leadInMs: leadInMs ?? this.leadInMs,
       peakDbfs: peakDbfs ?? this.peakDbfs,
+      stitched: stitched ?? this.stitched,
+      latencyAppliedMs: latencyAppliedMs ?? this.latencyAppliedMs,
     );
   }
 
@@ -248,6 +278,8 @@ class RecordingTake {
     // 🔴 NaN·무한대는 jsonEncode가 예외를 던진다 — 테이크 하나 때문에 목록
     // 저장이 통째로 막히면 안 된다.
     'peakDbfs': _jsonSafeDbfs(peakDbfs),
+    'stitched': stitched,
+    'latencyAppliedMs': latencyAppliedMs,
   };
 
   factory RecordingTake.fromJson(Map<String, dynamic> json) {
@@ -283,6 +315,10 @@ class RecordingTake {
       // 없는 키(옛 파일)는 null로 흡수된다 — additive.
       leadInMs: (json['leadInMs'] as num?)?.toInt(),
       peakDbfs: _jsonSafeDbfs((json['peakDbfs'] as num?)?.toDouble()),
+      // 없는 키(옛 파일)는 false — 그때의 결과물은 실데이터에 없었다(0개 확인).
+      stitched: json['stitched'] as bool? ?? false,
+      // 없는 키(옛 파일)는 0 — 보정 없이 받은 테이크다.
+      latencyAppliedMs: (json['latencyAppliedMs'] as num?)?.toInt() ?? 0,
     );
   }
 }

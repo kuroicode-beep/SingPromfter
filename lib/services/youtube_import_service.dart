@@ -144,6 +144,32 @@ String? youtubeVideoId(String raw) {
 /// 너무 긴 영상(라이브 등)을 걸러내기 위한 상한.
 const Duration maxImportDuration = Duration(minutes: 30);
 
+/// yt-dlp 오디오 내려받기 인자. (순수 함수 — 테스트 대상)
+///
+/// 🔴 `--audio-quality 0`(VBR V0)을 **일부러 그대로 둔다.** VBR MP3는 Windows
+/// Media Foundation에서 seek 위치가 −217~+742ms 어긋나지만, 가져오기를 CBR로 바꿔도
+/// +12~+48ms의 상수 오차와 ±20ms의 프레임 경계 물림이 남는다(2026-09-22 실측).
+/// 어긋남이 0인 것은 WAV뿐이라, 재생은 「위치 보정본」(playback_copy_service)이 맡고
+/// 원본은 음질 대비 크기가 가장 좋은 V0로 보존한다 — 분리 서버·키 변형본·조성 추정이
+/// 전부 이 원본을 읽는다. 새 곡은 등록 직후에 보정본을 미리 구우므로
+/// (AppController.prewarmPlaybackCopy) 첫 재생부터 seek가 정확하다.
+List<String> buildYoutubeAudioArgs({
+  required String url,
+  required String outputTemplate,
+  String? ffmpegPath,
+  List<String> jsRuntimeArgs = const [],
+}) => [
+  '-x',
+  '--audio-format', 'mp3',
+  '--audio-quality', '0',
+  '--no-playlist',
+  '--newline',
+  if (ffmpegPath != null) ...['--ffmpeg-location', ffmpegPath],
+  ...jsRuntimeArgs,
+  '-o', outputTemplate,
+  url,
+];
+
 class YoutubeImportService {
   final ProcessRunner _runner;
   final ExternalToolLocator _locator;
@@ -270,17 +296,12 @@ class YoutubeImportService {
     if (!await workDir.exists()) await workDir.create(recursive: true);
 
     final jsRuntime = await _jsRuntimeArgs();
-    final args = <String>[
-      '-x',
-      '--audio-format', 'mp3',
-      '--audio-quality', '0',
-      '--no-playlist',
-      '--newline',
-      if (ffmpeg.found) ...['--ffmpeg-location', ffmpeg.path!],
-      ...jsRuntime,
-      '-o', '${workDir.path}${Platform.pathSeparator}audio.%(ext)s',
-      url,
-    ];
+    final args = buildYoutubeAudioArgs(
+      url: url,
+      outputTemplate: '${workDir.path}${Platform.pathSeparator}audio.%(ext)s',
+      ffmpegPath: ffmpeg.found ? ffmpeg.path : null,
+      jsRuntimeArgs: jsRuntime,
+    );
 
     final job = _runner.start(ytDlp.path!, args, workingDirectory: workDir.path);
     onCancel?.call(job.cancel);

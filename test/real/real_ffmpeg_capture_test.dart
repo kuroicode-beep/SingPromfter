@@ -15,12 +15,16 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:singpromfter_app/controllers/auto_input_selection.dart';
 import 'package:singpromfter_app/controllers/capture_session.dart';
 import 'package:singpromfter_app/controllers/recording_controller.dart';
+import 'package:singpromfter_app/services/process/external_tool_locator.dart';
 import 'package:singpromfter_app/services/process/process_runner.dart';
 
-/// 실기 테스트는 장치를 **이름으로** 고른다. 자동 선택은 꺼진 Razer 동글(디지털
-/// 무음)을 먼저 잡아서, 멀쩡한 코드가 「입력 없음」으로 떨어진다.
+/// 시간·길이를 재는 실기 테스트는 장치를 **이름으로** 고른다. 자동 선택은 후보의
+/// 소리를 재느라(꺼진 Razer 동글이 먼저 열거되면 1초 넘게) 시간이 들쭉날쭉해져서,
+/// 「0.9초 안에 열린다」 같은 단언이 장치 사정에 흔들린다. 자동 선택 자체는 맨 아래
+/// 테스트가 따로 확인한다.
 Future<void> _selectRode(RecordingController recording) async {
   final devices = await recording.refreshDevices();
   final rode = devices.where((d) => d.contains('RØDE')).firstOrNull;
@@ -275,4 +279,114 @@ void main() {
     expect(lost, isEmpty);
     expect(recording.sessionState.name, 'off');
   }, skip: skip, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('입력 장치 자동 — 이 PC에서는 소리가 들어오는 RØDE를 고른다', () async {
+    // 이 PC의 마이크는 둘이다: RØDE NT-USB Mini(살아 있음)와 Razer Barracuda X 2.4
+    // 동글(헤드셋이 꺼져 있어도 목록에 남아 디지털 무음을 보낸다). 열거 순서가 어느
+    // 쪽이 먼저든 자동은 RØDE로 끝나야 한다.
+    final runner = _TrackingRunner();
+    final recording = RecordingController(
+      pathBuilder: (name) async => '${tmp.path}${Platform.pathSeparator}$name',
+      runner: runner,
+    );
+    addTearDown(recording.dispose);
+    // 자동 — 장치 이름을 넣지 않는다.
+    final devices = await recording.refreshDevices();
+    final candidates = inputDeviceCandidates(devices);
+    final listJobs = runner.started.length;
+
+    final watch = Stopwatch()..start();
+    final selection = await recording.resolveAutoInput();
+    final tookMs = watch.elapsedMilliseconds;
+    final probes = runner.started.length - listJobs;
+    // ignore: avoid_print
+    print(
+      'auto: candidates=${candidates.length} first-is-rode='
+      '${candidates.isNotEmpty && candidates.first.contains('RØDE')} '
+      'picked-rode=${selection.picked?.contains('RØDE')} '
+      'skipped=${selection.silent.length} probed=${selection.probed} '
+      'peak=${selection.pickedPeakDbfs?.toStringAsFixed(1)} '
+      'confirmed=${selection.inputConfirmed} probes=$probes took=${tookMs}ms',
+    );
+    expect(selection.allSilent, isFalse, reason: '후보가 전부 무음이다 — 마이크를 확인');
+    expect(selection.picked, isNotNull);
+    expect(selection.picked, contains('RØDE'));
+    expect(recording.autoInputDevice, contains('RØDE'));
+    if (candidates.length > 1) expect(selection.probed, isTrue);
+    expect(probes, lessThanOrEqualTo(kAutoInputMaxProbes));
+    // 후보마다 최대 1.7초(첫 줄 상한 1.2 + 무음 창 0.5) + 핸들 종료(실측 0.01초).
+    expect(tookMs, lessThan(probes * 1800 + 400));
+
+    // 두 번째는 기억한 값이다 — 장치를 다시 열지 않는다.
+    final again = Stopwatch()..start();
+    expect((await recording.resolveAutoInput()).picked, selection.picked);
+    expect(again.elapsedMilliseconds, lessThan(100));
+    expect(runner.started.length, listJobs + probes);
+
+    // 프로브를 핸들로 끊은 직후에도 그 장치가 곧바로 녹음으로 열린다(장치가 물려
+    // 있으면 레벨 줄이 안 오거나 「Could not」으로 즉사한다).
+    final errors = <String>[];
+    recording.onError = errors.add;
+    expect(await recording.start('auto.wav'), 'auto.wav');
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    final levelWhileRecording = recording.dbfs;
+    final result = await recording.stop();
+    // ignore: avoid_print
+    print(
+      'auto-record: level=${levelWhileRecording?.toStringAsFixed(1)} '
+      'duration=${result?.duration.inMilliseconds}ms '
+      'peak=${result?.peakDbfs?.toStringAsFixed(1)} errors=${errors.length}',
+    );
+    expect(errors, isEmpty);
+    expect(levelWhileRecording, isNotNull, reason: '녹음 중 레벨 줄이 안 왔다');
+    expect(result, isNotNull);
+    expect(isDeadInput(result!.peakDbfs), isFalse);
+    // 녹음을 걸 때도 다시 재지 않았다: 프로브 뒤에 뜬 것은 녹음 하나뿐이다.
+    expect(runner.started.length, listJobs + probes + 1);
+
+    // 남은 자식 프로세스 — 우리가 띄운 핸들이 전부 종료 코드를 냈는가.
+    var running = 0;
+    for (final job in runner.started) {
+      final code = await job.exitCode
+          .then<int?>((value) => value)
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+      if (code == null) running++;
+    }
+    expect(running, 0);
+  }, skip: skip, timeout: const Timeout(Duration(seconds: 30)));
+
+  test('후보 하나를 재는 비용 — 무음 장치도 1.7초(+종료) 안에 판정한다', () async {
+    final runner = _TrackingRunner();
+    final located = await ExternalToolLocator(
+      runner: runner,
+    ).locate(ExternalTool.ffmpeg);
+    expect(located.found, isTrue);
+    final recording = RecordingController(
+      pathBuilder: (name) async => '${tmp.path}${Platform.pathSeparator}$name',
+      runner: runner,
+    );
+    addTearDown(recording.dispose);
+    final candidates = inputDeviceCandidates(await recording.refreshDevices());
+    expect(candidates, isNotEmpty);
+
+    for (final device in candidates) {
+      final watch = Stopwatch()..start();
+      final peak = await probeInputPeakDbfs(
+        runner: runner,
+        ffmpegPath: located.path!,
+        deviceName: device,
+      );
+      final tookMs = watch.elapsedMilliseconds;
+      final isRode = device.contains('RØDE');
+      // ignore: avoid_print
+      print(
+        'probe-one: rode=$isRode peak=${peak?.toStringAsFixed(1)} '
+        'live=${!isSilentTake(peak)} took=${tookMs}ms',
+      );
+      // 첫 줄 상한 1.2초 + 무음 창 0.5초 + 핸들 종료(실측 0.01초).
+      expect(tookMs, lessThan(1200 + 500 + 300));
+      // 조용한 방의 RØDE는 줄마다 −62~−78dBFS다 — 죽은 장치(−96.7)와는 확실히 갈린다.
+      if (isRode) expect(isDeadInput(peak), isFalse, reason: 'RØDE가 죽어 있다');
+    }
+  }, skip: skip, timeout: const Timeout(Duration(seconds: 30)));
 }

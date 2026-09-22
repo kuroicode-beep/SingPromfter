@@ -11,6 +11,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../services/atomic_json_file.dart';
+
 class LrcStore {
   Future<Directory> get _lrcDir async {
     final base = await getApplicationDocumentsDirectory();
@@ -40,10 +42,15 @@ class LrcStore {
     }
   }
 
+  /// 싱크 가사를 쓴다. 성공하면 파일 이름, 못 쓰면 null.
+  ///
+  /// 쓰다 죽어도 반쪽짜리 .lrc가 남지 않게 원자적으로 쓴다(`.tmp`→rename).
+  /// 🔴 여기서 `.bak`은 만들지 않는다 — 이 폴더의 `.lrc.bak`은 「재타이밍 전 원본」
+  /// ([backup])이라는 다른 뜻이라, 저장 때마다 갈면 G 복구가 엉뚱한 판본을 되살린다.
   Future<String?> write(String songId, String content) async {
     try {
       final file = await fileFor(songId);
-      await file.writeAsString(content);
+      if (!await writeTextAtomically(file, content)) return null;
       return fileNameFor(songId);
     } catch (e) {
       debugPrint('lrc 저장 실패($songId): $e');

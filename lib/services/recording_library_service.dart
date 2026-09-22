@@ -21,6 +21,9 @@
 //     적이 없어 백업도 사본도 뜰 수 없다. 메모리 목록은 정본의 후손이 아니므로, 다음
 //     저장 전에 정본을 다시 읽어 id로 합친다(RecordingLibraryService).
 //   · 저장 실패는 삼키지 않는다 — 반환값(bool)과 onSaveFailed로 올린다.
+//
+// v5.17.0: 위 규칙의 구현은 공용 헬퍼(atomic_json_file.dart)로 옮겼다 — 곡 목록·
+// 생성곡·연습 기록도 같은 규칙을 쓴다. 여기 남은 것은 본문 형식과 id 합치기다.
 import 'dart:convert';
 import 'dart:io';
 
@@ -29,6 +32,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/recording_take.dart';
 import '../utils/korean_text.dart';
+import 'atomic_json_file.dart';
 
 /// 목록 필터 — 순수 함수라 파일 없이 테스트한다.
 class RecordingFilter {
@@ -69,16 +73,12 @@ class RecordingFilter {
   }
 }
 
-/// 파일을 못 열었을 때(읽기·정본 교체) 다시 해 보는 횟수.
-///
-/// Windows에서는 누가 그 파일을 쥐고 있는 순간에 열기·rename이 거절된다(errno 32).
-/// 백신·동기화·제어 API의 목록 조회가 그렇고, **우리 자신의 정본 교체 순간**에
-/// 다른 핸들이 읽어도 그렇다(테스트에서 실측). 길어야 수십 ms라 **조건 루프**로
-/// 잠깐 다시 해 본다 — 이걸 「파일이 깨졌다」로 읽으면 안 된다.
-const int kIndexIoAttempts = 8;
+/// 파일 열기·정본 교체를 다시 해 보는 횟수와 간격 — 공용 헬퍼의 값을 그대로 쓴다.
+/// (Windows의 순간 잠금 errno 32 때문에 둔다. 자세한 까닭은 atomic_json_file.dart.)
+const int kIndexIoAttempts = kAtomicIoAttempts;
 
 /// 다시 해 보는 간격.
-const Duration kIndexIoRetryDelay = Duration(milliseconds: 40);
+const Duration kIndexIoRetryDelay = kAtomicIoRetryDelay;
 
 /// 저장 실패를 화면에 알릴 때 쓰는 문구.
 const String kRecordingSaveFailedMessage =
@@ -86,16 +86,8 @@ const String kRecordingSaveFailedMessage =
     '목록에서 빠질 수 있습니다. 디스크 공간과 문서 폴더 쓰기 권한을 확인해 주세요.';
 
 /// 녹음 목록을 어디서 읽었는가. 화면이 「되살림」·「읽지 못함」을 알릴 때 쓴다.
-enum RecordingIndexState {
-  /// 정본을 그대로 읽었다(파일이 아직 없는 첫 실행 포함).
-  ok,
-
-  /// 정본을 읽지 못해 직전 백업(`.bak`)에서 되살렸다.
-  recoveredFromBackup,
-
-  /// 정본도 백업도 읽지 못했다. 깨진 파일은 지우지 않고 옆에 남긴다.
-  unreadable,
-}
+/// (ok / recoveredFromBackup / unreadable — 공용 헬퍼의 상태와 같은 것이다.)
+typedef RecordingIndexState = AtomicLoadState;
 
 /// recordings.json 본문을 만든다. (순수 함수)
 String encodeRecordingIndex(List<RecordingTake> takes) {
@@ -119,8 +111,12 @@ List<RecordingTake>? decodeRecordingIndex(String raw) {
     if (decoded is! Map<String, dynamic>) return null;
     final version = (decoded['schemaVersion'] as num?)?.toInt() ?? 1;
     if (version > RecordingStore.schemaVersion) {
-      debugPrint('recordings.json 버전($version)이 높아 읽지 않는다.');
-      return null;
+      // 🔴 null(깨짐)이 아니라 예외(읽기 거부)다 — null이면 헬퍼가 첫 저장에서
+      // `.corrupt-`로 옮기고 구버전 봉투로 갈아 끼운다(더 새 빌드의 목록이 빠진다).
+      throw AtomicSchemaException(
+        'recordings.json 버전($version)이 이 앱 버전(최대 '
+        '${RecordingStore.schemaVersion})보다 높아 읽지 않습니다. 앱을 업데이트해 주세요.',
+      );
     }
     final takes = decoded['takes'];
     if (takes is! List) return null;
@@ -128,6 +124,8 @@ List<RecordingTake>? decodeRecordingIndex(String raw) {
         .whereType<Map<dynamic, dynamic>>()
         .map((e) => RecordingTake.fromJson(e.cast<String, dynamic>()))
         .toList();
+  } on AtomicSchemaException {
+    rethrow;
   } catch (e) {
     debugPrint('recordings.json 해석 실패: $e');
     return null;
@@ -141,27 +139,28 @@ class RecordingStore {
   /// 데이터 폴더의 뿌리(기본: 문서 폴더). 테스트는 임시 폴더를 준다.
   final Future<Directory> Function() _baseDirBuilder;
 
-  /// 파일 열기·정본 교체 재시도 간격. 테스트는 짧게 준다.
-  final Duration _ioRetryDelay;
-
-  /// 쓰기를 한 줄로 세우는 사슬. 끝 값은 「마지막 쓰기가 성공했는가」.
-  Future<bool> _writeChain = Future<bool>.value(true);
-
-  /// 아직 디스크에 안 닿은 최신 목록. 줄에 선 쓰기가 여럿이면 **가장 새 것만** 쓴다 —
-  /// 목록은 통째로 쓰므로 옛 스냅샷을 거쳐 갈 이유가 없다.
-  List<RecordingTake>? _pending;
-
-  bool _lastWriteOk = true;
-  RecordingIndexState _lastLoadState = RecordingIndexState.ok;
+  /// recordings.json의 읽기·쓰기 규칙(직렬·원자 교체·`.bak`·못 읽은 정본 보호).
+  ///
+  /// 🔴 못 열고 시작한 정본을 살리는 일(rescue)은 여기서 맡기지 않는다 — 그동안
+  /// **지운** 테이크를 되살리면 안 되므로 [RecordingLibraryService]가 직접 합친다.
+  late final AtomicJsonFile<List<RecordingTake>> _index;
 
   RecordingStore({
     Future<Directory> Function()? baseDirBuilder,
     Duration ioRetryDelay = kIndexIoRetryDelay,
-  }) : _baseDirBuilder = baseDirBuilder ?? getApplicationDocumentsDirectory,
-       _ioRetryDelay = ioRetryDelay;
+  }) : _baseDirBuilder = baseDirBuilder ?? getApplicationDocumentsDirectory {
+    _index = AtomicJsonFile<List<RecordingTake>>(
+      fileBuilder: () => _indexFile,
+      encode: encodeRecordingIndex,
+      decode: decodeRecordingIndex,
+      isEmpty: (takes) => takes.isEmpty,
+      label: 'recordings.json',
+      ioRetryDelay: ioRetryDelay,
+    );
+  }
 
   /// 마지막 [load]가 목록을 어디서 읽었는지.
-  RecordingIndexState get lastLoadState => _lastLoadState;
+  RecordingIndexState get lastLoadState => _index.lastLoadState;
 
   Future<Directory> get recordingsDir async {
     final base = await _baseDirBuilder();
@@ -180,33 +179,13 @@ class RecordingStore {
   /// 목록을 읽는다. 정본을 못 읽으면 `.bak`에서 되살린다.
   ///
   /// 둘 다 못 읽으면 []를 주지만 [lastLoadState]가 unreadable로 선다 — 그 상태의
-  /// 저장은 깨진 정본을 옆에 남긴 뒤에만 덮는다([_writeAtomically]).
+  /// 저장은 깨진 정본을 옆에 남긴 뒤에만 덮는다(빈 목록으로는 아예 덮지 않는다).
+  /// 상위 버전 파일도 []이지만 「읽기 거부」라 어떤 저장으로도 덮지 않는다(save는 false).
   Future<List<RecordingTake>> load() async {
-    // 줄에 선 쓰기가 있으면 끝난 뒤에 읽는다(rename 순간과 겹치지 않게).
-    await _writeChain;
     try {
-      final file = await _indexFile;
-      final main = await _readIndex(file);
-      final mainTakes = main.takes;
-      if (mainTakes != null) {
-        _lastLoadState = RecordingIndexState.ok;
-        return mainTakes;
-      }
-      final backup = await _readIndex(File('${file.path}.bak'));
-      final backupTakes = backup.takes;
-      if (backupTakes != null) {
-        debugPrint('recordings.json을 읽지 못해 .bak에서 되살린다.');
-        _lastLoadState = RecordingIndexState.recoveredFromBackup;
-        return backupTakes;
-      }
-      // 둘 다 없으면 첫 실행이다. 있는데 못 읽었으면 알린다.
-      _lastLoadState = (main.exists || backup.exists)
-          ? RecordingIndexState.unreadable
-          : RecordingIndexState.ok;
-      return [];
-    } catch (e, stack) {
-      debugPrint('recordings.json 로드 실패: $e\n$stack');
-      _lastLoadState = RecordingIndexState.unreadable;
+      return await _index.load() ?? [];
+    } on AtomicSchemaException catch (e) {
+      debugPrint('$e');
       return [];
     }
   }
@@ -215,138 +194,7 @@ class RecordingStore {
   ///
   /// 호출 순서대로 한 줄에 서고, 자기 차례에는 **그때의 최신 목록**을 쓴다. 그래서
   /// 동시에 불린 add()/update()/remove()가 한 파일에서 섞이지 않는다.
-  Future<bool> save(List<RecordingTake> takes) {
-    _pending = takes;
-    final step = _writeChain.then((_) async {
-      final latest = _pending;
-      // 앞 차례가 내 목록까지 이미 썼다 — 그 결과가 곧 내 결과다.
-      if (latest == null) return _lastWriteOk;
-      _pending = null;
-      final ok = await _writeAtomically(latest);
-      // 실패했으면 다음 차례가 다시 해 보도록 되돌려 둔다(더 새 목록이 있으면 그쪽).
-      if (!ok) _pending ??= latest;
-      return _lastWriteOk = ok;
-    });
-    _writeChain = step;
-    return step;
-  }
-
-  /// 파일 하나를 목록으로 읽는다. 세 가지를 가른다:
-  /// 없음(exists=false) / 읽었는데 내용이 깨짐(corrupt=true) / 지금 열 수 없음.
-  ///
-  /// 열기 거절은 조건 루프로 다시 해 본 뒤에야 포기한다. 포기해도 「깨짐」은 아니다 —
-  /// 내용을 본 적이 없으므로 옆으로 치우거나 백업을 갈지 않는다.
-  Future<({bool exists, bool corrupt, List<RecordingTake>? takes})> _readIndex(
-    File file,
-  ) async {
-    for (var attempt = 1; ; attempt++) {
-      try {
-        if (!await file.exists()) {
-          return (exists: false, corrupt: false, takes: null);
-        }
-        // 깨진 UTF-8에서 예외가 나지 않게 바이트로 읽어 너그럽게 푼다 —
-        // 그러면 남는 예외는 전부 「못 엶」이다.
-        final text = utf8.decode(
-          await file.readAsBytes(),
-          allowMalformed: true,
-        );
-        final takes = decodeRecordingIndex(text);
-        return (exists: true, corrupt: takes == null, takes: takes);
-      } on FileSystemException catch (e) {
-        if (attempt >= kIndexIoAttempts) {
-          debugPrint('${file.path} 열기 실패: $e');
-          return (exists: true, corrupt: false, takes: null);
-        }
-        await Future<void>.delayed(_ioRetryDelay);
-      }
-    }
-  }
-
-  /// `.tmp` → flush → (직전 정본을 `.bak`으로) → rename. 성공하면 true.
-  Future<bool> _writeAtomically(List<RecordingTake> takes) async {
-    File? tmp;
-    try {
-      final file = await _indexFile;
-      final current = await _readIndex(file);
-      final unreadable = current.exists && current.takes == null;
-
-      // 🔴 못 읽은 정본을 빈 목록으로 덮지 않는다. 손으로 되살릴 마지막 단서다.
-      // (깨졌든 지금 못 열든 같다 — 안에 무엇이 있는지 모른다.)
-      if (unreadable && takes.isEmpty) {
-        debugPrint('recordings.json을 읽지 못한 상태라 빈 목록으로 덮지 않는다.');
-        return false;
-      }
-      // 🔴 「지금 못 연」 정본은 목록이 있어도 덮지 않는다. 깨진 파일은 옆에 사본을
-      // 남기고 덮지만, 못 연 파일은 사본도 백업도 뜰 수 없다 — 읽기만 막힌 파일
-      // (오프라인 OneDrive 자리표시자 등)이 흔적 없이 교체된다. 저장은 실패로 올리고,
-      // 메모리 목록은 다음 저장에 함께 실린다.
-      if (unreadable && !current.corrupt) {
-        debugPrint('recordings.json을 지금 열 수 없어 덮지 않는다.');
-        return false;
-      }
-
-      final bytes = utf8.encode(encodeRecordingIndex(takes));
-      tmp = File('${file.path}.tmp');
-      await tmp.writeAsBytes(bytes, flush: true);
-      if (await tmp.length() != bytes.length) {
-        throw FileSystemException('임시 파일 크기가 맞지 않는다', tmp.path);
-      }
-
-      if (current.corrupt) {
-        // 깨진 정본은 옆에 남긴다. 못 남기면 덮지도 않는다(예외 → false).
-        await file.copy('${file.path}.corrupt-${_stamp(DateTime.now())}');
-      } else if (current.takes != null) {
-        // 읽히는 정본만 백업으로 보낸다. 못 연 정본은 백업도 복사도 하지 않는다 —
-        // 멀쩡한 .bak을 내용 모를 파일로 덮을 수 없다.
-        await _backupQuietly(file);
-      }
-
-      await _replace(tmp, file.path);
-      return true;
-    } catch (e, stack) {
-      debugPrint('recordings.json 저장 실패: $e\n$stack');
-      await _deleteQuietly(tmp);
-      return false;
-    }
-  }
-
-  /// 읽히는 직전 정본을 `.bak`에 둔다. 실패해도 저장은 계속한다 —
-  /// 백업을 못 떴다고 새 녹음을 목록에서 빼는 쪽이 더 큰 손해다.
-  Future<void> _backupQuietly(File file) async {
-    try {
-      await file.copy('${file.path}.bak');
-    } catch (e) {
-      debugPrint('recordings.json 백업 실패: $e');
-    }
-  }
-
-  /// 임시 파일을 정본 자리로 옮긴다. 거절되면 조건 루프로 잠깐 다시 해 본다.
-  Future<void> _replace(File tmp, String targetPath) async {
-    for (var attempt = 1; ; attempt++) {
-      try {
-        await tmp.rename(targetPath);
-        return;
-      } on FileSystemException {
-        if (attempt >= kIndexIoAttempts) rethrow;
-        await Future<void>.delayed(_ioRetryDelay);
-      }
-    }
-  }
-
-  /// 있으면 지운다. 실패는 넘어간다(다음 저장이 같은 이름을 덮어쓴다).
-  Future<void> _deleteQuietly(File? file) async {
-    if (file == null) return;
-    try {
-      if (await file.exists()) await file.delete();
-    } catch (_) {}
-  }
-
-  /// 파일 이름에 쓸 시각 도장(yyyyMMdd_HHmmss).
-  static String _stamp(DateTime t) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${t.year}${two(t.month)}${two(t.day)}_'
-        '${two(t.hour)}${two(t.minute)}${two(t.second)}';
-  }
+  Future<bool> save(List<RecordingTake> takes) => _index.save(takes);
 
   Future<String> pathFor(String fileName) async =>
       '${(await recordingsDir).path}/$fileName';
@@ -441,30 +289,115 @@ class RecordingLibraryService {
     return _persist();
   }
 
-  /// 같은 id의 테이크를 바꿔 끼운다. 디스크에 닿았으면 true.
+  /// 같은 id의 테이크를 **통째로** 바꿔 끼운다. 디스크에 닿았으면 true.
+  ///
+  /// 🔴 예전에 집어 둔 사본을 고쳐서 넘기면 안 된다 — 그사이의 다른 변경이 되돌아간다.
+  /// 필드 몇 개만 바꾸는 일은 [patch]를, 만든 파일을 붙이는 일은 [attachFile]을 쓴다.
   Future<bool> update(RecordingTake take) {
     _takes = _takes.map((t) => t.id == take.id ? take : t).toList();
     return _persist();
   }
 
+  /// 같은 id의 **지금** 테이크. 목록에 없으면 null.
+  RecordingTake? byId(String id) {
+    for (final take in _takes) {
+      if (take.id == id) return take;
+    }
+    return null;
+  }
+
+  /// 같은 id의 **지금** 테이크에 [change]를 얹는다. 바뀐 테이크를 돌려주고, 목록에
+  /// 없으면 아무것도 하지 않고 null(저장도 돌지 않는다).
+  ///
+  /// 🔴 왜 [update]가 아닌가: 반주 컷·믹스·보컬 분리는 수 초~수십 초가 걸린다. 시작할 때
+  /// 집어 둔 사본에 결과를 얹어 통째로 저장하면 **그사이에 준 별점·코멘트가 되돌아가고**,
+  /// 거꾸로 코멘트 저장은 방금 붙은 반주 파일 이름을 null로 되돌려 파일을 고아로 만든다.
+  /// 여기서는 읽기~교체 사이에 await가 없어 다른 변경이 끼어들 틈이 없고, 디스크 쓰기는
+  /// 다른 add/update/remove와 같은 줄에 선다.
+  Future<RecordingTake?> patch(
+    String id,
+    RecordingTake Function(RecordingTake current) change,
+  ) async {
+    final index = _takes.indexWhere((t) => t.id == id);
+    // 그사이 지워졌거나 Ctrl+R로 물렸다 — 되살리지 않는다.
+    if (index < 0) return null;
+    final next = change(_takes[index]);
+    assert(next.id == id, 'patch는 같은 테이크를 돌려줘야 한다');
+    _takes = [..._takes]..[index] = next;
+    await _persist();
+    return next;
+  }
+
+  /// 오래 걸린 작업이 만든 부속 파일([fileName] — 반주 조각·믹스·분리 보컬)을 **지금**
+  /// 테이크에 붙인다. 목록의 테이크에 붙였으면 그 테이크, 아니면 null.
+  ///
+  /// 목록에 없을 때는 파일이 갈 곳을 여기서 정한다 — 이름을 적어 둘 테이크가 없는 파일은
+  /// [purgeFiles]가 못 지워 영영 고아로 남는다.
+  /// · Ctrl+R로 물려 둔 조각이면 물린 사본에 얹는다. 되살리면 따라오고, 확정되면 함께 지워진다.
+  /// · 아예 지워졌으면 그 파일을 지운다.
+  Future<RecordingTake?> attachFile(
+    String id,
+    String fileName,
+    RecordingTake Function(RecordingTake current) change,
+  ) async {
+    final patched = await patch(id, change);
+    if (patched != null) return patched;
+    final parked = _parked[id];
+    if (parked != null) {
+      _parked[id] = change(parked);
+      return null;
+    }
+    await _store.deleteFile(fileName);
+    return null;
+  }
+
   /// 테이크와 그 파일들을 지운다. 목록이 디스크에 닿았으면 true.
   Future<bool> remove(RecordingTake take) async {
-    // 보컬 원본과 함께 부속 파일(반주 조각·믹스·분리 보컬)도 지운다.
-    await purgeFiles(take);
+    // 넘겨받은 사본이 아니라 목록의 지금 것으로 지운다 — 그사이 붙은 파일 이름은 거기에만 있다.
+    final current = byId(take.id) ?? take;
+    // 🔴 목록에서 **먼저** 뺀다. 파일을 지우는 동안 끝난 반주 컷·믹스가 아직 목록에 있는
+    // 이 테이크에 파일을 붙이면 그 파일은 지울 길이 없다. 빠진 뒤라면 [attachFile]이
+    // 붙일 곳이 없음을 알고 그 파일을 직접 지운다.
     _takes = _takes.where((t) => t.id != take.id).toList();
     _noteRemoved(take.id);
+    // 보컬 원본과 함께 부속 파일(반주 조각·믹스·분리 보컬)도 지운다.
+    await purgeFiles(current);
     return _persist();
   }
+
+  /// [removeRecordOnly]로 물려 둔 테이크 — 목록에는 없지만 파일은 남아 있고 되살릴 수 있다.
+  ///
+  /// 🔴 화면이 들고 있는 사본만으로는 모자란다. 물린 뒤에 끝난 반주 컷·믹스가 붙인 파일
+  /// 이름이 그 사본에는 없어서, 되살리면 파일이 테이크에서 떨어지고 확정해도 안 지워졌다
+  /// (`<id>_acc.m4a` 고아). [attachFile]이 여기에 얹어 두고 [restoreParked]·[purgeParked]가
+  /// 그 최신 사본을 쓴다.
+  final Map<String, RecordingTake> _parked = {};
 
   /// 목록에서만 빼고 **파일은 남긴다.** 실행취소(Ctrl+R 직후)를 위한 경로다 —
-  /// 파일까지 지우면 되돌릴 수가 없다. 되살리지 않으면 [purgeFiles]로 치운다.
+  /// 파일까지 지우면 되돌릴 수가 없다. [restoreParked]로 되살리거나 [purgeParked]로 치운다.
   Future<bool> removeRecordOnly(RecordingTake take) {
+    // 넘겨받은 사본보다 목록의 지금 것이 새롭다(그사이 붙은 파일 이름이 들어 있다).
+    _parked[take.id] = byId(take.id) ?? take;
     _takes = _takes.where((t) => t.id != take.id).toList();
     _noteRemoved(take.id);
     return _persist();
   }
 
-  /// [removeRecordOnly]로 뺀 테이크의 파일들을 실제로 지운다.
+  /// 물려 둔 테이크를 목록에 되돌린다. 되돌린 테이크를 주고, 물려 둔 것이 없으면 null.
+  Future<RecordingTake?> restoreParked(String id) async {
+    final take = _parked.remove(id);
+    if (take == null) return null;
+    await add(take);
+    return take;
+  }
+
+  /// 물려 둔 테이크의 파일들을 실제로 지운다(되살릴 기회가 지났다).
+  Future<void> purgeParked(String id) async {
+    final take = _parked.remove(id);
+    if (take != null) await purgeFiles(take);
+  }
+
+  /// 테이크의 파일들(보컬 원본 + 테이크에 **적힌** 부속 파일)을 실제로 지운다.
   Future<void> purgeFiles(RecordingTake take) async {
     await _store.deleteFile(take.fileName);
     for (final attached in [

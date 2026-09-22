@@ -7,6 +7,7 @@ import '../models/backing_track.dart';
 import '../models/prompter_settings.dart';
 import '../models/queue_item.dart';
 import '../models/song.dart';
+import '../services/atomic_json_file.dart';
 import '../utils/file_name_sanitizer.dart';
 import 'song_meta_store.dart';
 
@@ -15,10 +16,42 @@ const _kSettingsKey = 'singpromfter_settings';
 const _kQueueKey = 'singpromfter_queue';
 const _kLastSongIdKey = 'singpromfter_last_song_id';
 
+/// 곡 목록 저장 실패를 화면에 알릴 때 쓰는 문구.
+const String kSongsSaveFailedMessage =
+    '곡 목록을 저장하지 못했습니다 — 곡 파일은 남아 있지만, 이대로 앱을 끄면 방금 바꾼 '
+    '내용이 사라질 수 있습니다. 디스크 공간과 문서 폴더 쓰기 권한을 확인해 주세요.';
+
 class SongRepository {
-  SongRepository._();
+  SongRepository._({SongMetaStore? metaStore})
+    : _metaStore = metaStore ?? SongMetaStore();
   static final SongRepository instance = SongRepository._();
-  final SongMetaStore _metaStore = SongMetaStore();
+
+  /// 테스트용 — 싱글턴은 줄에 선 쓰기·읽기 상태를 테스트 사이에 끌고 다닌다.
+  @visibleForTesting
+  factory SongRepository.forTest({SongMetaStore? metaStore}) =>
+      SongRepository._(metaStore: metaStore);
+
+  final SongMetaStore _metaStore;
+
+  /// 곡 목록 저장이 실패하면 불린다. 조용히 넘기면 다음 실행에서 방금 바꾼 내용이
+  /// 없다 — 화면이 큰 경고로 알려야 한다. 연속 실패는 첫 번째만 알린다(곡 목록은
+  /// 싱크 미세조정마다 저장돼서, 매번 알리면 노래하는 내내 가사가 가려진다).
+  void Function(String message)? onSaveFailed;
+
+  final SaveFailureGate _saveFailureGate = SaveFailureGate();
+
+  /// 마지막 [loadSongs]가 곡 목록을 어디서 읽었는지(정본·백업·읽지 못함).
+  AtomicLoadState get songsLoadState => _metaStore.lastLoadState;
+
+  /// 지금 메모리의 곡 목록이 정본을 **온전히** 읽은 것인가.
+  ///
+  /// 아니면(못 읽음·`.bak` 복구·상위 버전 거부·Song으로 못 푼 항목) 파일 고아 판정의
+  /// 근거로 쓸 수 없다 — 빈 목록(또는 한 박자 낡은 목록)과 대조하면 실제 곡의 반주·
+  /// 싱크 가사가 전부 「사용하지 않는 파일」로 잡혀 지워진다. 라이브러리 정리가 본다.
+  bool get songsListTrusted =>
+      _schemaError == null &&
+      _metaStore.lastLoadState == AtomicLoadState.ok &&
+      !_metaStore.hasUnparsedEntries;
 
   Future<Directory> get _dataDir async {
     final base = await getApplicationDocumentsDirectory();
@@ -110,8 +143,8 @@ class SongRepository {
         }),
       );
       if (changed) debugPrint('legacy songs 가사 텍스트 마이그레이션 완료');
-      await _metaStore.save(migrated);
-      await prefs.remove(_kSongsKey);
+      // 새 파일에 닿은 뒤에만 옛 저장소를 지운다 — 못 썼는데 지우면 둘 다 없다.
+      if (await _metaStore.save(migrated)) await prefs.remove(_kSongsKey);
       return migrated;
     } on SongMetaSchemaException catch (e) {
       // 상위 버전 데이터를 빈 목록으로 착각해 덮어쓰지 않도록
@@ -125,12 +158,20 @@ class SongRepository {
     }
   }
 
-  Future<void> saveSongs(List<Song> songs) async {
+  /// 곡 목록을 저장한다. 디스크에 닿았으면 true.
+  ///
+  /// 모든 호출자(컨트롤러 사슬·라이브러리 서비스·백업·동기화)가 이 한 곳을 지나고,
+  /// 저장소가 한 줄로 세워 원자적으로 쓴다. 실패는 [onSaveFailed]로 알린다.
+  Future<bool> saveSongs(List<Song> songs) async {
     if (_schemaError != null) {
       debugPrint('상위 버전 songs.json 보호를 위해 저장을 건너뛴다.');
-      return;
+      return false;
     }
-    await _metaStore.save(songs);
+    final ok = await _metaStore.save(songs);
+    if (_saveFailureGate.shouldNotify(saved: ok)) {
+      onSaveFailed?.call(kSongsSaveFailedMessage);
+    }
+    return ok;
   }
 
   Future<PrompterSettings> loadSettings() async {
@@ -275,9 +316,10 @@ class SongRepository {
   }) async {
     final nextTitle = title.trim().isEmpty ? song.title : title.trim();
     final nextLyrics = lyrics ?? song.lyricsText;
-    final nextLyricsPath = await writeLyricsFile(
-      title: nextTitle,
-      lyrics: nextLyrics,
+    final nextLyricsPath = await _placeLyricsFile(
+      song: song,
+      nextTitle: nextTitle,
+      lyrics: lyrics,
     );
 
     // 기존 반주를 유지하는 분기는 **bakedSemitones를 반드시 옮겨 담아야 한다.**
@@ -394,6 +436,39 @@ class SongRepository {
     );
   }
 
+  /// 곡 편집 때 가사 txt를 어디에 어떻게 둘지 정하고, 그 경로를 돌려준다.
+  ///
+  /// 🔴 가사를 실제로 바꾼 편집([lyrics]가 있고 지금 본문과 다름)만 메모리에서 txt를
+  /// 다시 쓴다. 제목·가수·라벨·트림·폴더·제어 API의 편집은 txt를 **바이트 그대로**
+  /// 둔다(제목이 바뀌면 옛 파일을 복사해 옮긴다) — 로드 때 못 읽었거나(잠김·오프라인
+  /// → '') 다른 코드페이지로 풀린 본문을 메모리에서 다시 쓰면 원본이 영구히 덮인다
+  /// (txt에는 .bak이 없고 songs.json에는 가사가 없어 txt가 유일본이다).
+  /// 파일이 아예 없을 때만 메모리 본문으로 만든다(복구).
+  Future<String> _placeLyricsFile({
+    required Song song,
+    required String nextTitle,
+    required String? lyrics,
+  }) async {
+    final nextLyricsPath =
+        '${(await _lyricsDir).path}/${buildLyricsFileName(nextTitle)}';
+    final lyricsChanged = lyrics != null && lyrics != song.lyricsText;
+    if (lyricsChanged) {
+      return writeLyricsFile(title: nextTitle, lyrics: lyrics);
+    }
+    final oldFile = File(song.lyricsPath);
+    if (song.lyricsPath.isNotEmpty &&
+        song.lyricsPath != nextLyricsPath &&
+        await oldFile.exists()) {
+      // 제목 변경 — 바이트 그대로 옮긴다(옛 파일은 호출자가 지워 이동이 된다).
+      await oldFile.copy(nextLyricsPath);
+      return nextLyricsPath;
+    }
+    if (!await File(nextLyricsPath).exists()) {
+      return writeLyricsFile(title: nextTitle, lyrics: song.lyricsText);
+    }
+    return nextLyricsPath;
+  }
+
   Future<String> writeLyricsFile({
     required String title,
     required String lyrics,
@@ -401,7 +476,10 @@ class SongRepository {
     final lyricsFile = File(
       '${(await _lyricsDir).path}/${buildLyricsFileName(title)}',
     );
-    await lyricsFile.writeAsString(lyrics);
+    // 쓰다 죽어도 반쪽짜리 가사가 남지 않게 원자적으로 쓴다. 실패는 예전처럼 예외로 올린다.
+    if (!await writeTextAtomically(lyricsFile, lyrics)) {
+      throw FileSystemException('가사 파일을 저장하지 못했습니다', lyricsFile.path);
+    }
     return lyricsFile.path;
   }
 

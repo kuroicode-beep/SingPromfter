@@ -1136,6 +1136,30 @@ void main() {
       expect(back.hasUnsaved, isTrue);
     });
 
+    test('🔴 markedAtMs(마크를 찍은 달력 시각)가 왕복·closedAt에 살아남고, 옛 사이드카는 null', () {
+      // 부팅 복구가 이 값을 테이크의 recordedAt으로 쓴다 — 복구 시각을 찍으면 같은
+      // 줄을 다시 받은 정상 조각이 이어붙이기 dedupe에서 옛 실패 조각에 밀린다.
+      const marked = SessionTakeMark(
+        startFileMs: 1000,
+        songPosAtStartMs: 20000,
+        markedAtMs: 1790000000000,
+      );
+      final json = marked.toJson();
+      expect(json['markedAtMs'], 1790000000000);
+      expect(SessionTakeMark.fromJson(json)!.markedAtMs, 1790000000000);
+      expect(marked.closedAt(2500).markedAtMs, 1790000000000);
+      expect(SessionTakeMark.fromJson(marked.closedAt(2500).toJson())!.markedAtMs, 1790000000000);
+      // 사이드카 왕복.
+      final back = SessionSidecar.tryDecode(
+        const SessionSidecar(sessionId: 'm', pending: [marked]).encode(),
+      )!;
+      expect(back.pending.single.markedAtMs, 1790000000000);
+      // 옛 사이드카(키 없음)는 null이고 키를 쓰지도 않는다.
+      expect(done.markedAtMs, isNull);
+      expect(done.toJson().containsKey('markedAtMs'), isFalse);
+      expect(SessionTakeMark.fromJson(done.toJson())!.markedAtMs, isNull);
+    });
+
     test('빠진 필드는 기본값으로 읽는다', () {
       final empty = SessionSidecar.fromJson(const {});
       expect(empty.sessionId, '');
@@ -1246,6 +1270,208 @@ void main() {
       expect(openJson.containsKey('endFileMs'), isFalse);
       expect(openJson['startFileMs'], 9000);
       expect(json['pending']! as List<Object?>, hasLength(1));
+    });
+  });
+
+  group('녹음 지연 보정 (v5.17.0)', () {
+    test('computeTakeSlice — 양수 보정은 좌표를 그만큼 앞당긴다(자르는 자리는 그대로)', () {
+      final base = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 60000,
+        playbackAlreadyRunning: false,
+      )!;
+      final shifted = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 60000,
+        playbackAlreadyRunning: false,
+        latencyCompensationMs: 120,
+      )!;
+      // P0=60000, 리드인 300, L=15 → 59685. 보정 120이면 59565.
+      expect(base.songPositionMs, 59685);
+      expect(shifted.songPositionMs, 59565);
+      expect(shifted.sliceStartMs, base.sliceStartMs);
+      expect(shifted.sliceEndMs, base.sliceEndMs);
+      expect(shifted.leadInMs, 300);
+      expect(shifted.guardFromMs, base.guardFromMs);
+      expect(shifted.guardToMs, base.guardToMs);
+    });
+
+    test('computeTakeSlice — 음수 보정은 좌표를 늦춘다', () {
+      final plan = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 60000,
+        playbackAlreadyRunning: true,
+        latencyCompensationMs: -50,
+      )!;
+      expect(plan.songPositionMs, 60000 + 50 - 300);
+      expect(plan.leadInMs, 300);
+    });
+
+    test('computeTakeSlice — 이미 재생 중이던 마크(R 키)에도 같은 부호로 걸린다', () {
+      final plan = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 20000,
+        playbackAlreadyRunning: true,
+        latencyCompensationMs: 80,
+      )!;
+      expect(plan.songPositionMs, 20000 - 80 - 300);
+    });
+
+    test('🔴 곡 앞머리 — 0에 눕히지 않고 리드인을 줄이거나 조각 머리를 마크 뒤로 옮긴다', () {
+      // P0=200: 곡 0까지 담을 수 있는 리드인은 200 − 15 − 120 = 65ms뿐이다.
+      final near = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 200,
+        playbackAlreadyRunning: false,
+        latencyCompensationMs: 120,
+      )!;
+      expect(near.leadInMs, 65);
+      expect(near.songPositionMs, 0);
+      expect(near.sliceStartMs, 4935);
+
+      // P0=0(곡 처음에서 스페이스 — 가장 흔한 조각): 마크 135ms 뒤가 곡 0이다.
+      final head = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 0,
+        playbackAlreadyRunning: false,
+        latencyCompensationMs: 120,
+      )!;
+      expect(head.leadInMs, 0);
+      expect(head.songPositionMs, 0);
+      expect(head.sliceStartMs, 5135);
+      // 시작 키 소리(마크 −40~+60ms)는 통째로 조각 밖이다.
+      expect(head.guardFromMs, 0);
+      expect(head.guardToMs, 0);
+      expect(head.durationMs, 8000 - kStopClickTrimMs - 5135);
+    });
+
+    test('곡 앞머리 — 보정이 최대(300)여도 남는 소리가 있으면 저장한다', () {
+      // 마크 구간 600ms − 끝 트림 60 = 540, 머리 옮김 315 → 225ms가 남는다.
+      final kept = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 5600,
+        songPosAtStartMs: 0,
+        playbackAlreadyRunning: false,
+        latencyCompensationMs: 300,
+      );
+      expect(kept, isNotNull);
+      expect(kept!.sliceStartMs, 5315);
+      expect(kept.songPositionMs, 0);
+    });
+
+    test('범위 밖 보정값은 −300…+300으로 묶어 쓴다', () {
+      final plan = computeTakeSlice(
+        startFileMs: 5000,
+        endFileMs: 8000,
+        songPosAtStartMs: 60000,
+        playbackAlreadyRunning: true,
+        latencyCompensationMs: 9999,
+      )!;
+      expect(plan.songPositionMs, 60000 - 300 - 300);
+    });
+
+    test('불변식 — 마크의 곡 좌표 + L + C == P0 (속성 테스트, 보정 포함)', () {
+      final rng = math.Random(517);
+      for (var i = 0; i < 3000; i++) {
+        final start = rng.nextInt(100000);
+        final end = start + 500 + rng.nextInt(20000);
+        final p0 = rng.nextBool() ? rng.nextInt(700) : rng.nextInt(300000);
+        final running = rng.nextBool();
+        final c = rng.nextInt(601) - 300;
+        final latency = (running ? 0 : kPlaybackStartLatencyMs) + c;
+        final plan = computeTakeSlice(
+          startFileMs: start,
+          endFileMs: end,
+          songPosAtStartMs: p0,
+          playbackAlreadyRunning: running,
+          latencyCompensationMs: c,
+        );
+        final why =
+            'start=$start end=$end p0=$p0 running=$running c=$c → $plan';
+        // 마크 구간이 0.5초 이상이면 머리를 최대(315ms)로 옮겨도 남는 소리가 있다.
+        expect(plan, isNotNull, reason: why);
+        if (plan == null) continue;
+        // 🔴 좌표는 절대 음수로 저장되지 않는다 — 소비처(믹스·반주 자르기·이어붙이기)가
+        // 음수를 조용히 0으로 눕혀서, 저장하는 순간 그 테이크만 어긋난다.
+        expect(plan.songPositionMs, greaterThanOrEqualTo(0), reason: why);
+        expect(plan.leadInMs, inInclusiveRange(0, kArmedLeadInMs), reason: why);
+        expect(plan.sliceStartMs, greaterThanOrEqualTo(0), reason: why);
+        expect(plan.sliceEndMs, end - kStopClickTrimMs, reason: why);
+        // 계약: 파일 시각 t ↔ 곡 시각 songPositionMs + t. 마크(조각 안 start −
+        // sliceStart)의 곡 좌표는 머리를 잘라 맞춘 경우까지 **언제나** P0 − L − C다.
+        expect(
+          plan.songPositionMs + (start - plan.sliceStartMs) + latency,
+          p0,
+          reason: why,
+        );
+        if (p0 >= latency) {
+          expect(
+            plan.songPositionMs + plan.leadInMs + latency,
+            p0,
+            reason: why,
+          );
+        }
+        expect(plan.guardFromMs, inInclusiveRange(0, plan.durationMs));
+        expect(
+          plan.guardToMs,
+          inInclusiveRange(plan.guardFromMs, plan.durationMs),
+        );
+      }
+    });
+
+    test('SessionTakeMark — 보정값이 사이드카를 왕복하고 closedAt에도 실린다', () {
+      const mark = SessionTakeMark(
+        startFileMs: 9000,
+        songPosAtStartMs: 61000,
+        latencyCompensationMs: 120,
+        context: {'songId': 'abc'},
+      );
+      final decoded = SessionTakeMark.fromJson(
+        jsonDecode(jsonEncode(mark.toJson())),
+      )!;
+      expect(decoded.latencyCompensationMs, 120);
+      expect(decoded.songPosAtStartMs, 61000);
+
+      // 🔴 closedAt은 필드를 손으로 복사한다 — 빠뜨리면 「앱이 죽은 열린 조각」의
+      // 복구에서만 보정이 0이 된다.
+      final closed = mark.closedAt(12000);
+      expect(closed.latencyCompensationMs, 120);
+      expect(closed.endFileMs, 12000);
+
+      const sidecar = SessionSidecar(sessionId: 's', openTake: mark);
+      final spans = SessionSidecar.tryDecode(
+        sidecar.encode(),
+      )!.spansToRecover(20000);
+      expect(spans.single.latencyCompensationMs, 120);
+    });
+
+    test('SessionTakeMark — 옛 사이드카(키 없음)·깨진 값은 0으로 읽는다', () {
+      final old = SessionTakeMark.fromJson(const {
+        'startFileMs': 1000,
+        'endFileMs': 2200,
+        'songPosAtStartMs': 20000,
+      })!;
+      expect(old.latencyCompensationMs, 0);
+
+      final broken = SessionTakeMark.fromJson(const {
+        'startFileMs': 1000,
+        'songPosAtStartMs': 20000,
+        'latencyCompensationMs': 'abc',
+      })!;
+      expect(broken.latencyCompensationMs, 0);
+
+      final wild = SessionTakeMark.fromJson(const {
+        'startFileMs': 1000,
+        'songPosAtStartMs': 20000,
+        'latencyCompensationMs': 5000,
+      })!;
+      expect(wild.latencyCompensationMs, 300);
     });
   });
 

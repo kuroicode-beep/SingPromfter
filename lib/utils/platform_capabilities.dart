@@ -24,10 +24,20 @@ class PlatformCapabilities {
   static bool get isMobile =>
       debugIsMobileOverride ?? (Platform.isAndroid || Platform.isIOS);
 
+  /// 테스트에서 Windows 여부를 흉내내기 위한 우회로. 프로덕션에서는 null이다.
+  @visibleForTesting
+  static bool? debugIsWindowsOverride;
+
   /// ffmpeg·yt-dlp 같은 외부 실행파일을 부를 수 있나.
   /// 믹스·듀엣·키 변주·조성 감지·EQ 분석·가사 자동 맞춤·유튜브 다운로드가
   /// 전부 여기에 걸린다(AI가 아니라 외부 도구 의존이다).
   static bool get hasExternalTools => !isMobile;
+
+  /// VBR MP3 반주의 「위치 보정본」(재생용 WAV 사본)을 쓰는 플랫폼인가.
+  /// seek가 어긋나는 것은 Windows의 Media Foundation이고, 굽는 데 ffmpeg가 필요하다 —
+  /// 폰(ExoPlayer)과 그 밖의 데스크탑은 해당이 없어 원본을 그대로 튼다.
+  static bool get usesSeekSafePlaybackCopy =>
+      hasExternalTools && (debugIsWindowsOverride ?? Platform.isWindows);
 
   /// 로컬 AI 서버(SAW)에 닿을 수 있나. 폰에서는 PC 원격 위임을 붙이기
   /// 전까지 불가능하다.

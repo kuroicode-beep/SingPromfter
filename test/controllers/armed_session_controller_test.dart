@@ -314,6 +314,14 @@ void main() {
       expect(closed.pending.single.startFileMs, 1000);
       expect(closed.pending.single.endFileMs, 2200);
       expect(start, isNotNull);
+      // 🔴 마크를 찍은 달력 시각이 사이드카에 실린다 — 부팅 복구의 recordedAt.
+      // (wallUs는 Stopwatch라 epoch가 아니다.)
+      final markedAt = closed.pending.single.markedAtMs!;
+      expect(markedAt, start!.markedAtMs);
+      expect(
+        (DateTime.now().millisecondsSinceEpoch - markedAt).abs(),
+        lessThan(60000),
+      );
     });
   });
 
@@ -525,6 +533,149 @@ void main() {
       expect(skewed.timelineSuspect, isTrue);
       // 표시만 한다 — 좌표는 개루프 식 그대로다.
       expect(skewed.songPositionMs, aligned.songPositionMs);
+    });
+  });
+
+  group('녹음 지연 보정 (v5.17.0)', () {
+    test('마크가 굳힌 값만큼 좌표가 앞당겨지고, 교차 검증은 조용하다', () async {
+      final h = make();
+      final job = await h.openReady();
+      _writePcm(job.outputPath, ms: 3000);
+      const p0 = 20000;
+      const w0 = _tRef + 1000000;
+      // 재생은 마크 L(15ms) 뒤에 P0에서 흐른다 — 표시 위치 축에서는 보정과 무관하다.
+      h.recording.songPositionProbe = () =>
+          p0 + (h.now - w0) ~/ 1000 - kPlaybackStartLatencyMs;
+      h.recording.latencyCompensationMs = 120;
+      final marks = h.markSpan(job, startMs: 1000, endMs: 2200, p0: p0);
+      expect(marks.start.latencyCompensationMs, 120);
+      // 마크의 P0는 보정 전 값 그대로다.
+      expect(marks.start.songPositionMs, p0);
+
+      // 🔴 마크를 찍은 뒤에 설정을 바꿔도 그 조각은 찍을 때의 값으로 잘린다.
+      h.recording.latencyCompensationMs = 0;
+      final sliced = await h.recording.sliceTake(
+        marks.start,
+        marks.end,
+        outputPath: h.outPath('lat.wav'),
+      );
+
+      expect(sliced!.ok, isTrue);
+      // P0 − L(15) − C(120) − 리드인(300). 자르는 자리·길이는 보정과 무관하다.
+      expect(sliced.songPositionMs, 20000 - 15 - 120 - 300);
+      expect(sliced.leadInMs, 300);
+      expect(sliced.durationMs, 1440);
+      expect(sliced.latencyAppliedMs, 120);
+      // 보정값이 40ms(kTimelineSuspectMs)를 넘어도 「좌표 의심」이 뜨면 안 된다.
+      expect(sliced.timelineErrorMs, 0);
+      expect(sliced.timelineSuspect, isFalse);
+    });
+
+    test('기본값(0)이면 v5.16.0과 같은 좌표다', () async {
+      final h = make();
+      final job = await h.openReady();
+      _writePcm(job.outputPath, ms: 3000);
+      expect(h.recording.latencyCompensationMs, 0);
+      final marks = h.markSpan(job, startMs: 1000, endMs: 2200, p0: 20000);
+      final sliced = await h.recording.sliceTake(
+        marks.start,
+        marks.end,
+        outputPath: h.outPath('zero.wav'),
+      );
+      expect(sliced!.songPositionMs, 20000 - 15 - 300);
+      expect(sliced.latencyAppliedMs, 0);
+    });
+
+    test('🔴 곡 앞머리 — 0에 눕히지 않고 조각 머리를 마크 뒤로 옮긴다', () async {
+      final h = make();
+      final job = await h.openReady();
+      _writePcm(job.outputPath, ms: 3000);
+      h.recording.latencyCompensationMs = 120;
+      final marks = h.markSpan(job, startMs: 1000, endMs: 2200, p0: 0);
+      final out = h.outPath('head.wav');
+      final sliced = await h.recording.sliceTake(
+        marks.start,
+        marks.end,
+        outputPath: out,
+      );
+
+      expect(sliced!.ok, isTrue);
+      expect(sliced.songPositionMs, 0);
+      expect(sliced.leadInMs, 0);
+      expect(sliced.latencyAppliedMs, 120);
+      // 조각은 마크(1000) + L(15) + C(120) = 세션 파일 1135ms에서 시작한다.
+      expect(sliced.durationMs, 2200 - kStopClickTrimMs - 1135);
+      final data = ByteData.sublistView(File(out).readAsBytesSync(), 44);
+      const n = 100 * 48;
+      expect(data.getInt16(n * 2, Endian.little), _pcmSample(1135 * 48 + n));
+    });
+
+    test('설정값은 −300…+300으로 묶인다', () {
+      final h = make();
+      h.recording.latencyCompensationMs = 9999;
+      expect(h.recording.latencyCompensationMs, 300);
+      h.recording.latencyCompensationMs = -9999;
+      expect(h.recording.latencyCompensationMs, -300);
+    });
+
+    test('사이드카에 실려 — 부팅 복구가 **마크를 찍을 때의 값**으로 자른다', () async {
+      final h = make();
+      final job = await h.openReady();
+      final sidecar = File(
+        job.outputPath.replaceAll(RegExp(r'\.pcm$'), '.json'),
+      );
+      h.recording.latencyCompensationMs = 80;
+      h.now = _tRef + 1000000;
+      h.recording.markTakeStart(songPositionMs: 20000);
+      await _waitFor(
+        () =>
+            SessionSidecar.tryDecode(sidecar.readAsStringSync())?.openTake !=
+            null,
+      );
+      expect(
+        SessionSidecar.tryDecode(
+          sidecar.readAsStringSync(),
+        )!.openTake!.latencyCompensationMs,
+        80,
+      );
+    });
+
+    test('recoverStaleSessions — 사이드카의 보정값을 쓰고 지금 설정은 보지 않는다', () async {
+      sessionDir.createSync(recursive: true);
+      final pcm = '${sessionDir.path}${Platform.pathSeparator}lat.pcm';
+      final json = '${sessionDir.path}${Platform.pathSeparator}lat.json';
+      _writePcm(pcm, ms: 3000);
+      File(json).writeAsStringSync(
+        const SessionSidecar(
+          sessionId: 'lat',
+          deviceName: 'mic',
+          pending: [
+            SessionTakeMark(
+              startFileMs: 1000,
+              endFileMs: 2200,
+              songPosAtStartMs: 20000,
+              latencyCompensationMs: 120,
+            ),
+            // 옛 사이드카의 구간(키 없음 = 0).
+            SessionTakeMark(
+              startFileMs: 2300,
+              endFileMs: 2900,
+              songPosAtStartMs: 40000,
+            ),
+          ],
+        ).encode(),
+      );
+
+      final h = make();
+      h.recording.latencyCompensationMs = 250;
+      final recovered = await h.recording.recoverStaleSessions();
+
+      expect(recovered, hasLength(2));
+      expect(recovered[0].songPositionMs, 20000 - 15 - 120 - 300);
+      expect(recovered[0].latencyAppliedMs, 120);
+      expect(recovered[0].durationMs, 1440);
+      expect(recovered[1].songPositionMs, 40000 - 15 - 300);
+      expect(recovered[1].latencyAppliedMs, 0);
     });
   });
 
@@ -1149,6 +1300,58 @@ void main() {
       expect(again, isEmpty);
       expect(registered, hasLength(2));
       expect(sessionDir.listSync(), isEmpty);
+    });
+
+    test('🔴 복구 조각의 recordedAt은 복구 시각이 아니라 마크를 찍은 시각이다', () async {
+      // 저장이 실패해 마크만 남은 조각 A를 사용자가 다시 받았다(조각 B, 정상 저장).
+      // 다음 부팅의 복구가 A에 지금 시각을 찍으면 이어붙이기 dedupe(늦게 받은 쪽이
+      // 이김)에서 A가 B를 밀어낸다 — 토스트는 「최신 것만 사용」이라 알 길이 없다.
+      sessionDir.createSync(recursive: true);
+      _writePcm(pcmOf('a'), ms: 6000);
+      // 지난 실행의 세션 — 지금보다 확실히 앞선 날짜로 둔다.
+      final started = DateTime(2026, 9, 20, 21, 0, 0);
+      final markedAt = DateTime(2026, 9, 20, 21, 0, 4, 250);
+      File(jsonOf('a')).writeAsStringSync(
+        SessionSidecar(
+          sessionId: 'a',
+          startedAtIso: started.toIso8601String(),
+          pending: [
+            SessionTakeMark(
+              startFileMs: 1000,
+              endFileMs: 2200,
+              songPosAtStartMs: 20000,
+              markedAtMs: markedAt.millisecondsSinceEpoch,
+            ),
+            // v5.16.0 사이드카 — markedAtMs가 없다.
+            const SessionTakeMark(
+              startFileMs: 3000,
+              endFileMs: 4500,
+              songPosAtStartMs: 40000,
+            ),
+          ],
+        ).encode(),
+      );
+      final before = DateTime.now();
+      final recovered = await recoverDirect();
+      expect(recovered, hasLength(2));
+      expect(recovered[0].recordedAt, markedAt);
+      // 옛 사이드카는 세션 시작 + 파일 오프셋으로 어림한다.
+      expect(
+        recovered[1].recordedAt,
+        started.add(const Duration(milliseconds: 3000)),
+      );
+      for (final slice in recovered) {
+        expect(slice.recordedAt!.isBefore(before), isTrue, reason: '복구 시각이 아니다');
+      }
+
+      // 세션 시작 시각조차 없으면(손상) null — 호출부가 지금 시각으로 물러난다.
+      expect(
+        recoveredSliceRecordedAt(
+          const SessionTakeMark(startFileMs: 10, songPosAtStartMs: 0),
+          const SessionSidecar(sessionId: 'x'),
+        ),
+        isNull,
+      );
     });
 
     test('🔴 다른 인스턴스가 잠금을 쥐고 있는 세션은 건드리지 않는다', () async {

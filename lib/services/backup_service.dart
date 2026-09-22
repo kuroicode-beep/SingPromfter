@@ -194,7 +194,13 @@ class BackupService {
         );
       }
 
-      await _repo.saveSongs(nextSongs);
+      // 저장 실패는 예외가 아니라 false로 온다(v5.17.0) — 「가져왔다」고 말하지 않는다.
+      if (!await _repo.saveSongs(nextSongs)) {
+        return const ImportResult.failure(
+          '백업의 파일은 풀었지만 곡 목록을 저장하지 못했습니다. '
+          '디스크 공간과 문서 폴더 쓰기 권한을 확인한 뒤 다시 가져와 주세요.',
+        );
+      }
       await _mergePracticeLog(archive);
       return ImportResult.success(
         songs: nextSongs,
@@ -221,15 +227,9 @@ class BackupService {
           .whereType<Map<dynamic, dynamic>>()
           .map((s) => PracticeSession.fromJson(s.cast<String, dynamic>()))
           .toList();
-      final current = await _practiceStore.load();
-      final knownIds = current.map((s) => s.id).toSet();
-      final merged = [
-        ...current,
-        ...incoming.where((s) => s.id.isNotEmpty && !knownIds.contains(s.id)),
-      ];
-      if (merged.length != current.length) {
-        await _practiceStore.save(merged);
-      }
+      // 읽고-합치고-쓰기를 저장소가 한 임계 구역에서 한다. 여기서 load→save로 나누면
+      // 그사이 화면이 기록한 연습 세션을 덮는다. 아는 id는 건드리지 않는다.
+      await _practiceStore.merge(incoming);
     } catch (_) {
       // 연습 기록 병합 실패가 백업 복원 전체를 막지 않게 한다.
     }

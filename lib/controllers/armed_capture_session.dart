@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../services/process/process_runner.dart';
+import '../utils/recording_latency.dart';
 import 'capture_session.dart';
 import 'recording_controller.dart';
 
@@ -68,7 +69,9 @@ class TakeStartMark {
     required this.sessionId,
     required this.wallUs,
     required this.songPositionMs,
+    this.markedAtMs,
     this.playbackAlreadyRunning = false,
+    this.latencyCompensationMs = 0,
     this.context = const {},
   });
 
@@ -77,13 +80,25 @@ class TakeStartMark {
 
   /// 이 마크가 속한 세션 파일. 상한 재기동으로 파일이 바뀌어도 옛 조각을 자를 수 있다.
   final String sessionId;
+
+  /// 세션 시계(Stopwatch, µs) — 파일시각 환산용이다. epoch가 아니다.
   final int wallUs;
+
+  /// 마크를 찍은 달력 시각(epoch ms). 사이드카에 실려 부팅 복구가 테이크의 recordedAt로
+  /// 쓴다 — 복구 시각을 찍으면 같은 줄을 다시 받은 정상 조각이 이어붙이기 dedupe에서
+  /// 옛 실패 조각에 밀린다(늦게 받은 쪽이 이기는 규칙). null이면 모른다(테스트용).
+  final int? markedAtMs;
 
   /// 마크를 찍은 순간의 재생 위치(P0, ms).
   final int songPositionMs;
 
   /// 이미 재생 중일 때 찍었는가(R 키). 참이면 재생 시작 지연을 빼지 않는다.
   final bool playbackAlreadyRunning;
+
+  /// 마크를 찍은 순간의 「녹음 지연 보정」(ms). 저장은 한참 뒤에 돌고 부팅 복구는 다음
+  /// 실행에 돈다 — 그때 설정을 다시 읽으면 값을 바꾼 사이의 조각이 다른 좌표로 구워진다.
+  /// [songPositionMs]는 보정 전의 P0 그대로다(교차 검증이 보정 전 값끼리 견준다).
+  final int latencyCompensationMs;
 
   /// 화면이 그 순간 굳힌 컨텍스트(곡 id·슬롯·피치·반주 경로·템포 등). 해석하지 않는다.
   final Map<String, Object?> context;
@@ -130,6 +145,7 @@ class SlicedTake {
     required this.message,
     this.timelineErrorMs,
     this.filledGapMs = 0,
+    this.latencyAppliedMs = 0,
     this.context = const {},
   }) : ok = true;
 
@@ -147,7 +163,8 @@ class SlicedTake {
        timelineSuspect = false,
        truncated = false,
        timelineErrorMs = null,
-       filledGapMs = 0;
+       filledGapMs = 0,
+       latencyAppliedMs = 0;
 
   final bool ok;
   final String path;
@@ -176,6 +193,9 @@ class SlicedTake {
 
   /// 조각 도중의 pts 구멍(장치가 흘린 소리) 자리에 끼워 넣은 무음의 합(ms). 없으면 0.
   final int filledGapMs;
+
+  /// [songPositionMs]에 이미 구워진 「녹음 지연 보정」(ms) — 테이크에 그대로 남긴다.
+  final int latencyAppliedMs;
   final String message;
   final Map<String, Object?> context;
 }
@@ -193,6 +213,8 @@ class RecoveredSlice {
     required this.peakDbfs,
     required this.truncated,
     required this.wasOpenTake,
+    this.recordedAt,
+    this.latencyAppliedMs = 0,
     this.context = const {},
   });
 
@@ -207,6 +229,16 @@ class RecoveredSlice {
 
   /// 끝을 못 찍은 채 앱이 죽은 조각인가(끝 = 파일 길이와 「마지막 생존 표시 + 여유」 중 앞쪽).
   final bool wasOpenTake;
+
+  /// 마크를 찍은 달력 시각 — 테이크의 recordedAt이 된다. 사이드카에 없으면(옛 형식)
+  /// 세션 시작 시각 + 파일 오프셋으로 어림하고, 그것도 없으면 null(호출부가 지금 시각).
+  ///
+  /// 🔴 복구 시각을 쓰면 안 된다 — 저장이 실패해 마크가 남은 조각을 사용자가 다시
+  /// 받았을 때, 복구 조각이 「더 늦게 받은 것」이 돼 이어붙이기가 정상 조각을 뺀다.
+  final DateTime? recordedAt;
+
+  /// [songPositionMs]에 이미 구워진 「녹음 지연 보정」(ms) — 마크를 찍을 때의 값이다.
+  final int latencyAppliedMs;
   final Map<String, Object?> context;
 }
 
@@ -418,6 +450,13 @@ class ArmedCaptureSession {
   /// 세션 프로세스가 떠 있는가(여는 중 포함).
   bool get isOpen =>
       _state == ArmedSessionState.opening || _state == ArmedSessionState.live;
+
+  /// 세션의 ffmpeg가 **실제로** 장치를 쥐고 있는가.
+  ///
+  /// [isOpen]은 [markOpening] 직후부터 참이라, 프로세스를 띄우기 전에 도는 입력 장치
+  /// 자동 선택(후보를 잠깐 열어 소리를 잰다)이 그 값으로는 「쥐고 있다」와 「아직
+  /// 고르는 중」을 못 가린다.
+  bool get holdsDevice => _current != null;
 
   /// 마지막 실패 원인. 없으면 null.
   String? get error => _error;
@@ -773,6 +812,7 @@ class ArmedCaptureSession {
   TakeStartMark? markTakeStart({
     required int songPositionMs,
     bool playbackAlreadyRunning = false,
+    int latencyCompensationMs = 0,
     Map<String, Object?> context = const {},
   }) {
     // 🔴 벽시계는 맨 먼저 읽는다 — 아래 검사에 드는 시간이 마크에 실리면 안 된다.
@@ -784,7 +824,10 @@ class ArmedCaptureSession {
       sessionId: run.id,
       wallUs: wallUs,
       songPositionMs: songPositionMs,
+      // 달력 시각도 지금 찍는다 — 복구된 조각의 recordedAt이 된다(wallUs는 Stopwatch).
+      markedAtMs: DateTime.now().millisecondsSinceEpoch,
       playbackAlreadyRunning: playbackAlreadyRunning,
+      latencyCompensationMs: clampRecordingLatencyMs(latencyCompensationMs),
       context: Map.unmodifiable(context),
     );
     _openTake = mark;
@@ -895,6 +938,7 @@ class ArmedCaptureSession {
       songPosAtStartMs: start.songPositionMs,
       playbackAlreadyRunning: start.playbackAlreadyRunning,
       fileLengthMs: fileLengthMs,
+      latencyCompensationMs: start.latencyCompensationMs,
     );
     if (plan == null) {
       // 너무 짧다 — 저장할 게 없으니 대기열에서 뺀다.
@@ -936,6 +980,9 @@ class ArmedCaptureSession {
     if (!result.ok) return fail(result.message);
 
     // 교차 검증(표시만): 개루프 식과 조각 진행 중에 잰 좌표를 견준다.
+    // 🔴 「녹음 지연 보정」은 여기 넣지 않는다. 두 값은 모두 **표시 위치** 축이라 입력
+    // 지연이 서로 상쇄된다 — 한쪽에만 빼면 보정값이 40ms를 넘는 순간 멀쩡한 조각마다
+    // 「곡 위치가 부정확할 수 있습니다」가 붙는다.
     final latency = start.playbackAlreadyRunning ? 0 : kPlaybackStartLatencyMs;
     final openLoopMs = start.songPositionMs - latency;
     final anchorMs = end?.measuredAnchorMs ?? pending?.anchorMs;
@@ -959,6 +1006,7 @@ class ArmedCaptureSession {
       timelineErrorMs: measuredMs == null ? null : measuredMs - openLoopMs,
       truncated: result.truncated,
       filledGapMs: result.filledMs,
+      latencyAppliedMs: start.latencyCompensationMs,
       message: result.message,
       context: start.context,
     );
@@ -1247,7 +1295,9 @@ class ArmedCaptureSession {
         startFileMs: usToMs(run.clock.fileTimeUsAt(start.wallUs) ?? 0),
         endFileMs: endUs == null ? null : usToMs(endUs),
         songPosAtStartMs: start.songPositionMs,
+        markedAtMs: start.markedAtMs,
         playbackAlreadyRunning: start.playbackAlreadyRunning,
+        latencyCompensationMs: start.latencyCompensationMs,
         context: start.context,
       );
     }
@@ -1636,6 +1686,7 @@ Future<List<RecoveredSlice>> _recoverOwnedSession({
       songPosAtStartMs: span.songPosAtStartMs,
       playbackAlreadyRunning: span.playbackAlreadyRunning,
       fileLengthMs: lengthMs,
+      latencyCompensationMs: span.latencyCompensationMs,
     );
     // 너무 짧은 구간은 살릴 게 없다.
     if (plan == null) continue;
@@ -1663,6 +1714,8 @@ Future<List<RecoveredSlice>> _recoverOwnedSession({
       peakDbfs: result.peakDbfs,
       truncated: result.truncated,
       wasOpenTake: i == openIndex,
+      recordedAt: recoveredSliceRecordedAt(span, sidecar),
+      latencyAppliedMs: span.latencyCompensationMs,
       context: span.context,
     );
     // 등록이 디스크에 닿은 뒤에만 「살렸다」로 친다. 실패하면 구간을 남겨 다음 부팅에
@@ -1692,6 +1745,21 @@ Future<List<RecoveredSlice>> _recoverOwnedSession({
     );
   }
   return out;
+}
+
+/// 복구 조각의 recordedAt — 마크를 찍은 달력 시각. (순수 함수)
+///
+/// 사이드카에 `markedAtMs`가 있으면 그것, 없으면(v5.16.0 사이드카) 세션 시작 시각에
+/// 마크의 파일 오프셋을 더해 어림한다. 세션 시작 시각도 못 읽으면 null.
+DateTime? recoveredSliceRecordedAt(
+  SessionTakeMark span,
+  SessionSidecar sidecar,
+) {
+  final marked = span.markedAtMs;
+  if (marked != null) return DateTime.fromMillisecondsSinceEpoch(marked);
+  final started = DateTime.tryParse(sidecar.startedAtIso);
+  if (started == null) return null;
+  return started.add(Duration(milliseconds: span.startFileMs));
 }
 
 /// 되살린 조각을 호출부에 등록시킨다. 예외도 「등록 실패」로 친다.

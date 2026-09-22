@@ -182,13 +182,14 @@ class RecordingsPanel extends StatelessWidget {
                       onCutAccompaniment: () => onCutAccompaniment(take),
                       onMixSettings: () => onMixSettings(take),
                       onExport: () => onExport(take),
-                      // 곡 위치가 있는 같은 곡 조각이 둘 이상일 때만 보인다.
+                      // 이을 수 있는 같은 곡 조각이 둘 이상일 때만 보인다. 이어붙인
+                      // 결과물은 조각이 아니다 — 세면 「결과물 + 조각 1개」로도 버튼이 뜬다.
                       onStitch:
                           takes
                                   .where(
                                     (t) =>
                                         t.songId == take.songId &&
-                                        t.songPositionMs != null,
+                                        t.isStitchable,
                                   )
                                   .length >=
                               2
@@ -383,7 +384,9 @@ class _TakeRow extends StatelessWidget {
         '${formatKeyLabel(take.pitchSemitones)}'
         '${take.dualChannel ? ' · 2채널(보컬+반주)' : ''}'
         // 저장·취소 토스트와 같은 숫자(스페이스를 누른 자리)로 말한다.
-        '${take.displayPositionMs == null ? '' : ' · ${_formatPosition(take.displayPositionMs!)} 조각'}';
+        '${take.displayPositionMs == null ? '' : ' · ${_formatPosition(take.displayPositionMs!)} 조각'}'
+        // 결과물은 곡 좌표 0이라 예전에는 「0:00 조각」으로 떴다 — 조각들과 글자로 갈린다.
+        '${take.stitched ? ' · 이어붙인 곡' : ''}';
 
     return Semantics(
       label:

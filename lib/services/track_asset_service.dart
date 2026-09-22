@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 import 'key_detection_service.dart';
 import 'level_analysis_service.dart';
 import 'pitch_variant_service.dart';
+import 'playback_copy_service.dart';
 import 'vocal_segments_service.dart';
 
 class TrackAssetService {
@@ -25,11 +26,17 @@ class TrackAssetService {
   /// 함께 지워진다. 없으면(테스트 등) 그 캐시만 건너뛴다.
   final VocalSegmentsService? vocalSegments;
 
+  /// 위치 보정본(VBR MP3의 재생용 WAV 사본). 없으면(테스트 등) 건너뛴다.
+  /// 사본 이름에는 원본 지문이 들어 있어 낡은 것이 서빙되지는 않지만, 40~70MB짜리
+  /// 파일이 쓸모없이 남지 않게 여기서 함께 치운다.
+  final PlaybackCopyService? playbackCopies;
+
   const TrackAssetService({
     required this.pitch,
     required this.levels,
     required this.keys,
     this.vocalSegments,
+    this.playbackCopies,
   });
 
   /// [backingTrackFileName]에서 파생된 캐시를 모두 지운다.
@@ -41,6 +48,7 @@ class TrackAssetService {
     removed += await _clearLevels(backingTrackFileName);
     removed += await _clearKey(backingTrackFileName);
     removed += await vocalSegments?.clearFor(backingTrackFileName) ?? 0;
+    removed += await playbackCopies?.clearFor(backingTrackFileName) ?? 0;
     return removed;
   }
 

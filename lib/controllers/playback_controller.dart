@@ -19,6 +19,7 @@ import '../services/lyrics_sync_math.dart';
 import '../services/prompter_audio_service.dart';
 import '../services/song_queue_service.dart';
 import '../utils/lyrics_line_utils.dart';
+import '../utils/playback_copy_plan.dart';
 import 'position_clock.dart';
 
 /// 자주 바뀌지 않는 재생 상태 묶음. 위치(60Hz)는 여기 포함하지 않는다.
@@ -41,9 +42,17 @@ class PlaybackSnapshot {
   /// 비교하려면 이 값이 필요하다(lyrics_sync_math의 축 규약 참고).
   final double tempoScale;
 
-  /// 지금 재생에 물린 실제 파일 경로(키/템포 변형본 포함).
+  /// 지금 재생에 물린 실제 파일 경로(키/템포 변형본·위치 보정본 포함).
   /// 녹음 시 이 파일에서 반주 구간을 잘라 테이크에 보관한다.
+  ///
+  /// 🔴 「원본 슬롯 파일」이 아니라 **플레이어가 실제로 연 파일**이다. 테이크의
+  /// sourceAudioPath가 이 값을 그대로 받는다. 원본이 필요한 일(키·템포 변형본 렌더,
+  /// 조성·EQ 분석, 내보내기)은 이 값을 쓰지 말고 repo.getBackingTrackPath로 집는다.
   final String? activeAudioPath;
+
+  /// [activeAudioPath]의 성격 — VBR 원본 그대로인지, 위치 보정본인지.
+  /// 화면의 「재생: 위치 보정본」 글자와 녹음 때의 VBR 안내가 이 값을 본다.
+  final PlaybackSourceKind sourceKind;
 
   const PlaybackSnapshot({
     this.song,
@@ -56,6 +65,7 @@ class PlaybackSnapshot {
     this.lyricsOffsetMs = 0,
     this.tempoScale = 1,
     this.activeAudioPath,
+    this.sourceKind = PlaybackSourceKind.plain,
   });
 
   PlaybackSnapshot copyWith({
@@ -69,6 +79,7 @@ class PlaybackSnapshot {
     int? lyricsOffsetMs,
     double? tempoScale,
     String? activeAudioPath,
+    PlaybackSourceKind? sourceKind,
     bool clearSong = false,
     bool clearTrack = false,
     bool clearAudioPath = false,
@@ -86,6 +97,10 @@ class PlaybackSnapshot {
       activeAudioPath: (clearTrack || clearAudioPath)
           ? null
           : (activeAudioPath ?? this.activeAudioPath),
+      // 파일이 없어지면 성격도 함께 비운다 — 옛 곡의 「보정본」 글자가 남지 않게.
+      sourceKind: (clearTrack || clearAudioPath)
+          ? PlaybackSourceKind.plain
+          : (sourceKind ?? this.sourceKind),
     );
   }
 
@@ -118,6 +133,14 @@ class PlaybackController {
     double tempoScale,
   )?
   trackVariantResolver;
+
+  /// 기본 키·템포로 재생할 때 「위치 보정본」(VBR MP3의 WAV 사본)이 있는지 묻는다.
+  ///
+  /// 🔴 **조회만** 해야 한다 — 없다고 굽기를 기다리면 첫 재생이 늦어진다. 없으면
+  /// (path: null)을 돌려주고 굽기는 뒤에서 건다. 구워진 사본은 **다음에 물릴 때**부터
+  /// 쓰인다. 변형본과 달리 원본을 대신하는 파일이 아니라 같은 소리의 재생용 사본이다.
+  final Future<PlaybackCopyResolution> Function(Song song, int slot)?
+  playbackCopyResolver;
 
   /// 반주의 EQ 밴드 레벨을 읽어온다(없으면 백그라운드 분석 후 늦게 도착).
   final Future<TrackLevels?> Function(Song song, int slot)? levelsLoader;
@@ -198,6 +221,7 @@ class PlaybackController {
     required this.onMessage,
     this.timedLyricsLoader,
     this.trackVariantResolver,
+    this.playbackCopyResolver,
     this.levelsLoader,
     this.vocalSegmentsLoader,
     this.onSongReady,
@@ -269,11 +293,21 @@ class PlaybackController {
     _syncTicker();
   }
 
+  /// 지금 위치에 **재생으로** 도달했는가(마지막 seek·처음·정지 뒤에 재생이 걸렸다).
+  ///
+  /// VBR 원본을 틀다 멈춘 자리의 보고 위치 P는 실제 들린 내용과 최대 ±0.7초 어긋나
+  /// 있다(seek 오차). 그 자리에서 위치 보정본으로 갈아타면 내용은 P로 정확해지지만
+  /// 사용자에게는 「방금 멈춘 자리」가 옮겨진 것으로 들린다 — 화면이 이 값으로 그 안내를
+  /// 실을지 정한다. 화살표·처음으로 정한 위치라면(seek 뒤 재생 없음) 옮겨지지 않는다.
+  bool get positionHeardSinceSeek => _heardSinceSeek;
+  bool _heardSinceSeek = false;
+
   void _handlePlayingChanged(bool playing) {
     if (_disposed) return;
     if (playing) {
       _clock.start();
       _practiceMarker = _clock.value;
+      _heardSinceSeek = true;
     } else {
       _accumulatePractice();
       _clock.pause();
@@ -657,6 +691,12 @@ class PlaybackController {
         trackEndMs: track?.endMs,
         lyricsOffsetMs: track?.lyricsOffsetMs ?? 0,
         clearTrack: resolvedSlot == null,
+        // 새 곡의 파일은 prepareAudioForSelection이 정한다 — 그 전까지 옛 곡의
+        // activeAudioPath·sourceKind가 남으면 고정 중 VBR 안내가 옛 곡의 성격으로
+        // 새 곡에 잘못 뜬다(VbrNoticeGate가 곡마다 한 번이라 되돌릴 수도 없다). 성격만
+        // 비운다(plain) — audioReady는 손대지 않는다: 무대 화면이 그 값으로 진행바를
+        // 넣었다 뺐다 하므로 곡을 바꿀 때마다 접근성 노드가 생겼다 사라진다.
+        clearAudioPath: true,
       ),
     );
 
@@ -719,6 +759,17 @@ class PlaybackController {
       );
     }
 
+    // 기본 키·템포면 「위치 보정본」이 있는지 본다(VBR MP3 원본의 seek 어긋남 대책).
+    // 🔴 재생 파일은 **이 함수 안에서만** 정해진다 — 사본이 뒤늦게 구워져도 재생·고정
+    // 도중에 갈아끼우지 않는다(stop→setSource라 소리가 끊기고 조각 좌표가 깨진다).
+    // 변형본(m4a)은 어긋나지 않으므로 묻지 않는다. 변형본은 언제나 **원본**에서 굽는다.
+    var sourceKind = PlaybackSourceKind.plain;
+    if (song != null && slot != null && semitones == 0 && tempo == 1) {
+      final copy = await _resolvePlaybackCopy(song, slot);
+      overridePath = copy.path;
+      sourceKind = copy.kind;
+    }
+
     // 템포가 바뀌면 파일 길이 자체가 달라지므로 트림 지점을 렌더 축으로 옮긴다.
     final track = song?.trackForSlot(slot ?? -1);
     _update(
@@ -729,8 +780,8 @@ class PlaybackController {
       ),
     );
 
-    final result = await audio.prepareSelection(
-      overridePath: overridePath,
+    Future<AudioPrepareResult> prepare(String? path) => audio.prepareSelection(
+      overridePath: path,
       song: state.value.song,
       selectedTrackSlot: state.value.trackSlot,
       volume: settings.volume,
@@ -741,18 +792,29 @@ class PlaybackController {
       playbackRate: 1,
       startMs: state.value.trackStartMs,
     );
+    var result = await prepare(overridePath);
     if (_disposed) return;
+    // 보정본을 못 열었으면(깨짐·잠김) 원본으로 한 번 더 물린다 — 파생물 하나 때문에
+    // 재생이 막히면 안 된다. 원본은 VBR이니 성격도 그렇게 적는다.
+    if (!result.ready && sourceKind == PlaybackSourceKind.seekCopy) {
+      sourceKind = PlaybackSourceKind.vbrOriginal;
+      result = await prepare(null);
+      if (_disposed) return;
+    }
 
     // 이벤트 스트림에 맡기지 않고 준비 완료 시점에 위치를 확정한다.
     final start = Duration(milliseconds: state.value.trackStartMs ?? 0);
     _clock.anchor(start);
     position.value = start;
+    // 위치를 처음(또는 유지)으로 새로 정했다 — 이어 갈 때는 들은 자리를 그대로 잇는다.
+    if (resumeAt == null) _heardSinceSeek = false;
 
     _update(
       state.value.copyWith(
         audioReady: result.ready,
         activeAudioPath: result.path,
         clearAudioPath: result.path == null,
+        sourceKind: sourceKind,
       ),
     );
 
@@ -784,6 +846,61 @@ class PlaybackController {
     }
 
     if (result.message != null) onMessage(result.message!);
+  }
+
+  /// 위치 보정본 경로를 묻는다. 리졸버가 없거나, 던지거나, 늦으면 원본 그대로다 —
+  /// 어떤 경우에도 첫 재생을 막지 않는다.
+  Future<PlaybackCopyResolution> _resolvePlaybackCopy(
+    Song song,
+    int slot,
+  ) async {
+    final resolver = playbackCopyResolver;
+    if (resolver == null) return kPlainPlayback;
+    try {
+      // async 함수로 한 번 감싸 **새 Future**를 만든다 — 리졸버가 `Future<Never>`(곧바로
+      // 던지는 async)를 돌려주면 timeout의 onTimeout 타입이 안 맞아 여기서 던지고, 원래
+      // 오류는 받는 이 없는 비동기 오류로 샌다(Future.sync는 같은 객체를 돌려줘 소용없다).
+      Future<PlaybackCopyResolution> ask() async => await resolver(song, slot);
+      return await ask().timeout(
+        kPlaybackCopyLookupTimeout,
+        onTimeout: () => kPlainPlayback,
+      );
+    } catch (e) {
+      debugPrint('위치 보정본 조회 실패: $e');
+      return kPlainPlayback;
+    }
+  }
+
+  /// 그사이 구워진 위치 보정본으로 갈아탄다 — **멈춰 있고 받는 중도 아닐 때만.**
+  /// 갈아탔으면 true. 녹음 고정을 켜거나 R 녹음을 걸기 직전에 부른다.
+  ///
+  /// 곡을 연 직후에 고정을 켜면 보정본은 2~3초 뒤에야 생긴다. 그대로 두면 그 세션의
+  /// 조각은 전부 VBR 원본 위에서 받게 된다(「다음에 열 때 적용」을 한 세션 미루는 셈).
+  /// 같은 자리에서 다시 물리는 것은 「키를 원래대로 되돌렸을 때」와 같은 길이라 위치가
+  /// 그대로 이어진다. 🔴 재생 중이거나 조각이 열려 있으면 절대 손대지 않는다.
+  ///
+  /// 「위치가 이어진다」는 **보고 위치 P**다. VBR 원본에서 재생으로 도달한 P는 실제
+  /// 들린 내용과 최대 ±0.7초 어긋나 있어(seek 오차, playback_copy_plan 머리말), 사본에서는
+  /// 내용이 P로 정확해지는 대신 사용자에게는 「방금 멈춘 자리」가 그만큼 옮겨진 것으로
+  /// 들린다. 좌표는 옳다 — 화면이 [positionHeardSinceSeek]를 보고 그 점만 알린다.
+  Future<bool> adoptPlaybackCopyIfIdle() async {
+    bool idleOnVbrOriginal() =>
+        state.value.sourceKind == PlaybackSourceKind.vbrOriginal &&
+        !state.value.playing &&
+        !(isRecordingProvider?.call() ?? false);
+
+    final song = state.value.song;
+    final slot = state.value.trackSlot;
+    if (song == null || slot == null || !idleOnVbrOriginal()) return false;
+    final copy = await _resolvePlaybackCopy(song, slot);
+    if (_disposed || copy.kind != PlaybackSourceKind.seekCopy) return false;
+    // 묻는 사이에 재생이 걸렸거나 곡·슬롯이 바뀌었으면 그만둔다.
+    if (!idleOnVbrOriginal()) return false;
+    if (state.value.song?.id != song.id || state.value.trackSlot != slot) {
+      return false;
+    }
+    await prepareAudioForSelection(keepPosition: true);
+    return !_disposed && state.value.sourceKind == PlaybackSourceKind.seekCopy;
   }
 
   Future<void> selectTrackSlot(int slot) async {
@@ -931,6 +1048,7 @@ class PlaybackController {
     _clock.reset();
     position.value = Duration.zero;
     lineIndex.value = 0;
+    _heardSinceSeek = false;
     _finishPracticeSession();
     _syncTicker();
   }
@@ -943,6 +1061,8 @@ class PlaybackController {
     final start = Duration(milliseconds: state.value.trackStartMs ?? 0);
     _clock.anchor(start);
     position.value = start;
+    // 재생 중이었으면 새 자리부터 계속 듣는다 — 그 뒤의 정지 위치는 재생으로 도달한 것.
+    _heardSinceSeek = state.value.playing;
     // 트림 시작이 있으면 첫 줄이 아닐 수 있다.
     _recomputeLineIndex(start);
     if (message != null) onMessage(message);
@@ -958,6 +1078,9 @@ class PlaybackController {
     await audio.seek(clamped);
     _clock.anchor(clamped);
     position.value = clamped;
+    // 사용자가 정한 자리다 — 멈춘 채 여기서 갈아타도 들은 자리가 옮겨지지 않는다.
+    // 재생 중의 이동이면 새 자리부터 계속 듣는다(그 뒤의 정지 위치는 재생으로 도달).
+    _heardSinceSeek = state.value.playing;
     // 이동 직후 바로 하이라이트를 맞춘다 — 다음 틱을 기다리면 정지 중에는
     // 영영 갱신되지 않는다.
     _recomputeLineIndex(clamped);

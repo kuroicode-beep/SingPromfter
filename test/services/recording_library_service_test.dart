@@ -13,6 +13,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:singpromfter_app/models/recording_take.dart';
+import 'package:singpromfter_app/services/atomic_json_file.dart';
 import 'package:singpromfter_app/services/recording_library_service.dart';
 
 RecordingTake take(int i, {String comment = ''}) => RecordingTake(
@@ -63,9 +64,14 @@ void main() {
   ];
 
   /// 지금 열 수 있으면 본문을, 없거나 잠깐 거절되면 null을 준다.
-  Future<String?> readIfOpenable(File file) async {
+  ///
+  /// 🔴 동기로 읽는다. 쓰기가 도는 중에 부르는 헬퍼라서다 — Windows는 다른 핸들이
+  /// 정본을 쥔 동안 .tmp→정본 rename을 거절한다(errno 5). 비동기 읽기는 IO 스레드를
+  /// 오가는 사이 핸들을 잡고 있어서, 스위트가 병렬로 돌 때 8×1ms 재시도 예산보다
+  /// 오래 쥘 수 있다(song_meta_store_test에서 실측). 동기 읽기는 μs 단위다.
+  String? readIfOpenable(File file) {
     try {
-      return await file.readAsString();
+      return file.readAsStringSync();
     } on FileSystemException {
       return null;
     }
@@ -95,7 +101,14 @@ void main() {
       expect(decodeRecordingIndex(body.substring(0, body.length ~/ 2)), isNull);
       expect(decodeRecordingIndex('[]'), isNull);
       expect(decodeRecordingIndex('{"schemaVersion":2,"takes":"x"}'), isNull);
-      expect(decodeRecordingIndex('{"schemaVersion":99,"takes":[]}'), isNull);
+    });
+
+    test('상위 버전은 null(깨짐)이 아니라 예외다 — 헬퍼가 「읽기 거부」로 분류한다', () {
+      // null이면 헬퍼가 첫 저장에서 .corrupt-로 옮기고 구버전 봉투로 갈아 끼운다.
+      expect(
+        () => decodeRecordingIndex('{"schemaVersion":99,"takes":[]}'),
+        throwsA(isA<AtomicSchemaException>()),
+      );
     });
 
     test('두 쓰기가 한 파일에 섞인 모양(실사고 재현)은 null', () {
@@ -203,7 +216,7 @@ void main() {
         // 도는 중간에도 정본은 언제나 읽히는 JSON이다(없거나, 온전하거나).
         // 교체 순간에는 Windows가 열기를 잠깐 거절한다(errno 32) — 그건 깨진 게
         // 아니므로 건너뛴다. 보려는 것은 「읽혔는데 반쪽짜리」인 경우다.
-        final raw = await readIfOpenable(indexFile());
+        final raw = readIfOpenable(indexFile());
         if (raw != null) {
           expect(
             decodeRecordingIndex(raw),
@@ -503,8 +516,13 @@ void main() {
 
       final store = newStore();
       expect(await store.load(), isEmpty);
+      expect(store.lastLoadState, RecordingIndexState.unreadable);
       expect(await store.save(const []), isFalse);
+      // 🔴 비어 있지 않은 저장도 덮지 않는다 — 예전에는 상위 버전을 「깨짐」으로 봐서
+      // 첫 녹음 저장이 정본을 .corrupt-로 옮기고 구버전 봉투로 갈아 끼웠다.
+      expect(await store.save([take(1)]), isFalse);
       expect(await indexFile().readAsString(), newer);
+      expect(await dataFiles(), ['recordings.json']);
     });
   });
 
@@ -549,6 +567,223 @@ void main() {
       // 둘째 차례가 「앞에서 이미 썼다」고 넘어가면 안 된다.
       expect(await second, isTrue);
       expect(await idsOnDisk(), ['t1', 't2']);
+    });
+  });
+
+  // ── v5.17.0: 낡은 사본으로 통째 저장하던 길을 막는다 ─────────────────────
+  //
+  // 반주 컷·믹스·보컬 분리는 수 초~수십 초가 걸리고, 저장 직후에는 기다리지 않고 돈다.
+  // 시작할 때 집어 둔 사본에 결과를 얹어 update()로 통째 저장하면 그사이의 별점·코멘트가
+  // 되돌아갔고, 거꾸로 코멘트 저장은 방금 붙은 반주 파일 이름을 지웠다.
+
+  /// 녹음 폴더에 빈 대역 파일을 만든다(ffmpeg가 방금 써낸 파일의 대역).
+  Future<File> touch(RecordingLibraryService library, String name) async {
+    final file = File('${(await library.directory()).path}/$name');
+    await file.writeAsString('x');
+    return file;
+  }
+
+  RecordingTake withAcc(RecordingTake current) =>
+      current.copyWith(accompanimentFileName: '${current.id}_acc.m4a');
+
+  group('patch — 지금 테이크에 변경을 얹는다', () {
+    test('🔴 느린 반주 컷이 도는 사이에 준 별점·코멘트가 남는다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+
+      // 컷이 시작할 때 집어 둔 사본 — 끝날 때까지 수 초가 걸린다.
+      final picked = library.byId('t1')!;
+      final cutDone = Completer<void>();
+      final cut = () async {
+        await cutDone.future;
+        return library.attachFile(picked.id, 't1_acc.m4a', withAcc);
+      }();
+
+      // 그사이 사용자가 별점과 코멘트를 준다.
+      expect(
+        (await library.patch('t1', (c) => c.copyWith(rating: 4)))!.rating,
+        4,
+      );
+      await library.patch('t1', (c) => c.copyWith(comment: '2절이 좋다'));
+      cutDone.complete();
+      final attached = await cut;
+
+      // 예전(picked.copyWith(...)를 통째로 update)에는 별점 0·코멘트 빈칸으로 되돌아갔다.
+      expect(attached!.rating, 4);
+      expect(attached.comment, '2절이 좋다');
+      expect(attached.accompanimentFileName, 't1_acc.m4a');
+
+      // 새로 켠 앱도 셋 다 본다(디스크에 닿았다).
+      final reopened = RecordingLibraryService(store: newStore());
+      await reopened.load();
+      final onDisk = reopened.byId('t1')!;
+      expect(onDisk.rating, 4);
+      expect(onDisk.comment, '2절이 좋다');
+      expect(onDisk.accompanimentFileName, 't1_acc.m4a');
+    });
+
+    test('🔴 반대 방향 — 화면이 그려 둔 낡은 사본으로 코멘트를 저장해도 반주 파일 이름이 안 지워진다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+
+      // 코멘트 다이얼로그를 열 때의 사본. 열려 있는 동안 반주 컷이 끝난다.
+      final shown = library.byId('t1')!;
+      await library.attachFile('t1', 't1_acc.m4a', withAcc);
+      await library.patch(shown.id, (c) => c.copyWith(comment: '메모'));
+
+      final now = library.byId('t1')!;
+      expect(now.comment, '메모');
+      // 예전에는 여기가 null로 되돌아가 t1_acc.m4a가 고아가 됐다.
+      expect(now.accompanimentFileName, 't1_acc.m4a');
+    });
+
+    test('기다리지 않고 겹쳐 부른 patch 50개가 서로의 변경을 잃지 않는다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+
+      final results = [
+        for (var i = 0; i < 50; i++)
+          library.patch('t1', (c) => c.copyWith(comment: '${c.comment}x')),
+      ];
+      await Future.wait(results);
+
+      expect(library.byId('t1')!.comment, 'x' * 50);
+      final onDisk = decodeRecordingIndex(await indexFile().readAsString())!;
+      expect(onDisk.single.comment, 'x' * 50);
+      expect((await dataFiles()).where((f) => f.endsWith('.tmp')), isEmpty);
+    });
+
+    test('없는 id는 null이고 목록 파일을 다시 쓰지 않는다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+
+      // 저장이 한 번이라도 돌면 정본이 다시 생긴다 — 지워 두고 본다.
+      await indexFile().delete();
+      expect(
+        await library.patch('ghost', (c) => c.copyWith(rating: 5)),
+        isNull,
+      );
+      expect(await indexFile().exists(), isFalse);
+      expect(library.takes.single.rating, 0);
+      expect(library.byId('ghost'), isNull);
+    });
+
+    test('물려 둔(Ctrl+R) 테이크는 patch 대상이 아니다 — 목록에 되살아나지 않는다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+      await library.removeRecordOnly(take(1));
+
+      expect(await library.patch('t1', (c) => c.copyWith(rating: 5)), isNull);
+      expect(library.takes, isEmpty);
+      expect(await idsOnDisk(), isEmpty);
+    });
+  });
+
+  group('attachFile — 뒤늦게 끝난 작업의 파일이 고아가 되지 않는다', () {
+    test('🔴 Ctrl+R로 물린 뒤에 끝난 반주 컷 — 되살리면 파일 이름이 따라온다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+      await touch(library, 't1.wav');
+
+      await library.removeRecordOnly(library.byId('t1')!);
+      // 컷이 이제 끝났다 — 목록에는 없다.
+      final acc = await touch(library, 't1_acc.m4a');
+      expect(await library.attachFile('t1', 't1_acc.m4a', withAcc), isNull);
+      // 되살릴 수 있는 동안에는 파일을 지우지 않는다.
+      expect(await acc.exists(), isTrue);
+      expect(library.takes, isEmpty);
+
+      final restored = await library.restoreParked('t1');
+      // 예전에는 화면이 들고 있던 사본을 되살려 이 이름이 빠졌다(파일만 남았다).
+      expect(restored!.accompanimentFileName, 't1_acc.m4a');
+      expect(library.byId('t1')!.accompanimentFileName, 't1_acc.m4a');
+      expect(await idsOnDisk(), ['t1']);
+    });
+
+    test('🔴 물린 채로 확정되면 뒤늦게 붙은 반주 파일도 함께 지워진다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+      final wav = await touch(library, 't1.wav');
+
+      await library.removeRecordOnly(library.byId('t1')!);
+      final acc = await touch(library, 't1_acc.m4a');
+      await library.attachFile('t1', 't1_acc.m4a', withAcc);
+      await library.purgeParked('t1');
+
+      expect(await wav.exists(), isFalse);
+      expect(await acc.exists(), isFalse, reason: '_acc.m4a가 고아로 남았다');
+      // 확정된 뒤에는 되살릴 것이 없다.
+      expect(await library.restoreParked('t1'), isNull);
+    });
+
+    test('🔴 확정(파일 정리)까지 끝난 뒤에 온 파일은 그 자리에서 지운다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+      await library.removeRecordOnly(library.byId('t1')!);
+      await library.purgeParked('t1');
+
+      // 합치기(ffmpeg)가 이제야 끝났다.
+      final mix = await touch(library, 't1_mix.m4a');
+      expect(
+        await library.attachFile(
+          't1',
+          't1_mix.m4a',
+          (c) => c.copyWith(mixedFileName: 't1_mix.m4a'),
+        ),
+        isNull,
+      );
+      expect(await mix.exists(), isFalse);
+    });
+
+    test('🔴 아예 지운 테이크에 뒤늦게 온 파일도 지운다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+      await library.remove(library.byId('t1')!);
+
+      final sep = await touch(library, 't1_sep.wav');
+      expect(
+        await library.attachFile(
+          't1',
+          't1_sep.wav',
+          (c) => c.copyWith(separatedFileName: 't1_sep.wav'),
+        ),
+        isNull,
+      );
+      expect(await sep.exists(), isFalse);
+      expect(library.takes, isEmpty);
+    });
+
+    test('remove는 넘겨받은 낡은 사본이 아니라 지금 테이크에 적힌 파일을 지운다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+      // 목록을 그릴 때의 사본 — 반주 파일 이름이 아직 없다.
+      final shown = library.byId('t1')!;
+      final acc = await touch(library, 't1_acc.m4a');
+      await library.attachFile('t1', 't1_acc.m4a', withAcc);
+
+      await library.remove(shown);
+      expect(await acc.exists(), isFalse);
+      expect(await idsOnDisk(), isEmpty);
+    });
+
+    test('물려 둔 것이 없으면 restoreParked·purgeParked는 아무 일도 하지 않는다', () async {
+      final library = RecordingLibraryService(store: newStore());
+      await library.load();
+      await library.add(take(1));
+
+      expect(await library.restoreParked('t1'), isNull);
+      await library.purgeParked('t1');
+      expect(library.takes.single.id, 't1');
     });
   });
 }

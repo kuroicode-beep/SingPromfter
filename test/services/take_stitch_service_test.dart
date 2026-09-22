@@ -9,6 +9,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:singpromfter_app/models/recording_take.dart';
 import 'package:singpromfter_app/models/timed_lyrics.dart';
 import 'package:singpromfter_app/services/lyrics_sync_math.dart';
 import 'package:singpromfter_app/services/process/process_runner.dart';
@@ -21,6 +22,7 @@ StitchSegment seg(
   int lead = 0,
   int leadIn = 0,
   double? peak,
+  DateTime? recordedAt,
 }) => StitchSegment(
   vocalPath: path,
   songPositionMs: posMs,
@@ -28,6 +30,30 @@ StitchSegment seg(
   contentOffsetMs: lead,
   leadInMs: leadIn,
   peakDbfs: peak,
+  recordedAt: recordedAt,
+);
+
+/// 받은 시각 — 초만 다르게 준다(클수록 나중에 받은 조각).
+DateTime recAt(int second) => DateTime(2026, 9, 22, 10, 0, second);
+
+/// 이어붙이기 재료 고르기 테스트용 테이크.
+RecordingTake stitchTake(
+  String id, {
+  int? positionMs,
+  int second = 0,
+  String songId = 's1',
+  double tempo = 1.0,
+  bool stitched = false,
+}) => RecordingTake(
+  id: id,
+  songId: songId,
+  songTitle: '곡',
+  fileName: '$id.wav',
+  recordedAt: recAt(second),
+  durationMs: 28000,
+  songPositionMs: positionMs,
+  tempoScale: tempo,
+  stitched: stitched,
 );
 
 TimedLyrics lyricsAt(List<int> ms, {int offsetMs = 0}) => TimedLyrics(
@@ -424,6 +450,261 @@ void main() {
     });
   });
 
+  group('같은 줄을 다시 받은 조각 — 받은 시각이 가장 늦은 것만 (v5.17.0)', () {
+    test('🔴 앱의 입력 순서(최신순)에서 완전 동률이어도 최신 조각이 남는다', () {
+      // 목록은 최신순이라 새 조각이 **앞**에 온다. 예전에는 입력 순서상 뒤(= 옛 조각)가
+      // 남았다 — 위의 「나중 것만 남는다」 테스트와 실제 호출부의 뜻이 뒤집혀 있었다.
+      final spans = computeStitchSpans(
+        segments: [
+          seg(120000, 5000, path: 'new.wav', recordedAt: recAt(30)),
+          seg(120000, 5000, path: 'old.wav', recordedAt: recAt(10)),
+        ],
+      );
+      expect(spans.single.segment.vocalPath, 'new.wav');
+    });
+
+    test('🔴 같은 줄로 스냅되는데 새 조각이 50ms 일찍 들어와도 최신이 남는다', () {
+      // 예전에는 「내용 시작이 늦은 쪽」이 남아, 일찍 들어온 새 조각이 졌다.
+      final spans = computeStitchSpans(
+        segments: [
+          seg(118000, 8000, path: 'old.wav', lead: 2040, recordedAt: recAt(10)),
+          seg(118500, 8000, path: 'new.wav', lead: 1490, recordedAt: recAt(30)),
+        ],
+        lineStartsMs: const [120000],
+      );
+      expect(spans.single.segment.vocalPath, 'new.wav');
+      expect(spans.single.startMs, 120000);
+      expect(spans.single.endMs, 126500);
+    });
+
+    test('🔴 가사가 없는 곡 — 80ms 차이면 옛 조각의 토막 없이 최신 하나만', () {
+      // 예전: old [60000,60080) 토막 뒤에 new가 붙어 첫 음절이 두 번 났다.
+      final spans = computeStitchSpans(
+        segments: [
+          seg(60000, 6000, path: 'old.wav', recordedAt: recAt(10)),
+          seg(60080, 6000, path: 'new.wav', recordedAt: recAt(30)),
+        ],
+      );
+      expect(spans.single.segment.vocalPath, 'new.wav');
+      expect(spans.single.startMs, 60080);
+    });
+
+    test('새 조각이 80ms **먼저** 들어왔어도 최신이 남는다', () {
+      final spans = computeStitchSpans(
+        segments: [
+          seg(60080, 6000, path: 'old.wav', recordedAt: recAt(10)),
+          seg(60000, 6000, path: 'new.wav', recordedAt: recAt(30)),
+        ],
+      );
+      expect(spans.single.segment.vocalPath, 'new.wav');
+      expect(spans.single.startMs, 60000);
+    });
+
+    test('🔴 진 조각은 통째로 빠진다 — 더 길어서 다음 줄까지 덮고 있었어도', () {
+      final spans = computeStitchSpans(
+        segments: [
+          seg(60000, 20000, path: 'old_long.wav', recordedAt: recAt(10)),
+          seg(70000, 5000, path: 'next.wav', recordedAt: recAt(20)),
+          seg(60000, 4000, path: 'new_short.wav', recordedAt: recAt(30)),
+        ],
+      );
+      expect(spans.map((s) => s.segment.vocalPath), [
+        'new_short.wav',
+        'next.wav',
+      ]);
+      // 새 조각은 자기 끝에서 멈춘다 — 옛 조각의 64~70초로 메우지 않는다.
+      expect(spans[0].endMs, 64000);
+      expect(spans[1].startMs, 70000);
+    });
+
+    test('세 번 받은 줄 — 입력 순서와 무관하게 가장 늦게 받은 하나', () {
+      final takes = [
+        seg(30000, 4000, path: 'first.wav', recordedAt: recAt(1)),
+        seg(30040, 4000, path: 'third.wav', recordedAt: recAt(3)),
+        seg(29990, 4000, path: 'second.wav', recordedAt: recAt(2)),
+      ];
+      for (final order in [
+        takes,
+        takes.reversed.toList(),
+        [takes[1], takes[0], takes[2]],
+      ]) {
+        final spans = computeStitchSpans(segments: order);
+        expect(spans.single.segment.vocalPath, 'third.wav');
+      }
+    });
+
+    test('허용 오차(200ms) 밖이면 다른 자리다 — 둘 다 쓴다', () {
+      final spans = computeStitchSpans(
+        segments: [
+          seg(60000, 6000, path: 'a.wav', recordedAt: recAt(10)),
+          seg(60250, 6000, path: 'b.wav', recordedAt: recAt(30)),
+        ],
+      );
+      expect(spans.map((s) => s.segment.vocalPath), ['a.wav', 'b.wav']);
+      expect(spans[0].endMs, 60250);
+    });
+
+    test('받은 시각을 아는 조각이 모르는 조각을 이긴다', () {
+      final spans = computeStitchSpans(
+        segments: [
+          seg(60000, 6000, path: 'known.wav', recordedAt: recAt(10)),
+          seg(60000, 6000, path: 'unknown.wav'),
+        ],
+      );
+      expect(spans.single.segment.vocalPath, 'known.wav');
+    });
+
+    test('withContentOffset이 받은 시각을 들고 간다', () {
+      final s = seg(1000, 2000, recordedAt: recAt(5)).withContentOffset(300);
+      expect(s.recordedAt, recAt(5));
+      expect(s.contentOffsetMs, 300);
+    });
+
+    test('🔴 부팅 복구 조각(「복구됨」)은 마크 시각을 받으므로 다시 받은 정상 조각에 진다', () {
+      // 저장이 실패해 마크만 남은 A(21:00:04)를 사용자가 다시 받았다(B, 21:00:40).
+      // 다음 부팅의 복구가 A에 **복구 시각**(다음 날)을 찍으면 A가 「최신」이 돼 B가
+      // 통째로 빠진다 — 이제 복구는 마크를 찍은 시각(recoveredSliceRecordedAt)을 찍는다.
+      final recovered = seg(
+        120000,
+        5000,
+        path: 'recovered.wav',
+        recordedAt: DateTime(2026, 9, 22, 21, 0, 4),
+      );
+      final retake = seg(
+        120000,
+        5000,
+        path: 'retake.wav',
+        recordedAt: DateTime(2026, 9, 22, 21, 0, 40),
+      );
+      // 목록은 최신순 — 복구 조각이 앞에 온다(다음 날 등록됐으니 recordedAt과 무관하게
+      // 목록 앞자리일 수 있다). 어느 순서로 넣어도 재녹음이 남는다.
+      for (final segments in [
+        [recovered, retake],
+        [retake, recovered],
+      ]) {
+        final result = dedupeSameLineSegments(segments: segments);
+        expect(result.kept.single.vocalPath, 'retake.wav');
+        expect(result.droppedCount, 1);
+      }
+      // 반대로 복구 시각(다음 날)을 찍었다면 옛 실패 조각이 이긴다 — 이 결함이다.
+      final wrong = dedupeSameLineSegments(
+        segments: [
+          seg(
+            120000,
+            5000,
+            path: 'recovered.wav',
+            recordedAt: DateTime(2026, 9, 23, 9, 0, 0),
+          ),
+          retake,
+        ],
+      );
+      expect(wrong.kept.single.vocalPath, 'recovered.wav');
+    });
+
+    test('dedupeSameLineSegments — 몇 개를 뺐는지 돌려주고, 두 번 걸러도 같다', () {
+      final first = dedupeSameLineSegments(
+        segments: [
+          seg(10000, 3000, path: 'a1.wav', recordedAt: recAt(1)),
+          seg(10150, 3000, path: 'a2.wav', recordedAt: recAt(2)),
+          seg(10300, 3000, path: 'a3.wav', recordedAt: recAt(3)),
+          seg(20000, 3000, path: 'b.wav', recordedAt: recAt(4)),
+        ],
+      );
+      // 150ms씩 이어진 셋은 한 묶음이다 — 토막(150ms)을 남기지 않는다.
+      expect(first.kept.map((s) => s.vocalPath), ['a3.wav', 'b.wav']);
+      expect(first.startsMs, [10300, 20000]);
+      expect(first.droppedCount, 2);
+
+      final second = dedupeSameLineSegments(segments: first.kept);
+      expect(second.kept.map((s) => s.vocalPath), ['a3.wav', 'b.wav']);
+      expect(second.droppedCount, 0);
+    });
+
+    test('겹치는 조각이 없으면 아무것도 빼지 않는다', () {
+      final result = dedupeSameLineSegments(
+        segments: [seg(0, 1000), seg(5000, 1000), seg(9000, 1000)],
+      );
+      expect(result.kept.length, 3);
+      expect(result.droppedCount, 0);
+      expect(dedupeSameLineSegments(segments: const []).kept, isEmpty);
+    });
+
+    test('stitchExclusionNote — 뺀 것이 있을 때만, 무엇을 왜 뺐는지 말한다', () {
+      expect(stitchExclusionNote(silentCount: 0, retakeCount: 0), '');
+      expect(
+        stitchExclusionNote(silentCount: 2, retakeCount: 0),
+        ' (무음 조각 2개 제외)',
+      );
+      expect(
+        stitchExclusionNote(silentCount: 0, retakeCount: 1),
+        ' (같은 줄을 다시 받은 조각 1개는 최신 것만 사용)',
+      );
+      expect(
+        stitchExclusionNote(silentCount: 1, retakeCount: 3),
+        ' (무음 조각 1개 제외 · 같은 줄을 다시 받은 조각 3개는 최신 것만 사용)',
+      );
+    });
+  });
+
+  group('stitchSiblings — 이어붙인 결과물은 재료가 아니다 (v5.17.0)', () {
+    test('같은 곡·좌표 있음·같은 템포·결과물 아님만 고른다', () {
+      final picked = stitchTake('f1', positionMs: 12000);
+      final siblings = stitchSiblings([
+        picked,
+        stitchTake('f2', positionMs: 26000),
+        stitchTake('other', positionMs: 12000, songId: 's2'),
+        stitchTake('slow', positionMs: 12000, tempo: 0.9),
+        stitchTake('legacy'),
+        stitchTake('result', positionMs: 0, stitched: true),
+      ], picked);
+      expect(siblings.map((t) => t.id), ['f1', 'f2']);
+    });
+
+    test('🔴 가운데 조각을 지우고 다시 이어도 지운 소리가 되살아나지 않는다', () {
+      // 1차: f1(12~40초)·f2(26~54초)·f3(40~68초)를 이어 결과물(0~68초)을 만들었다.
+      // 그 뒤 f2를 지우고 다시 잇는다. 결과물에는 f2의 소리가 들어 있다.
+      final f1 = stitchTake('f1', positionMs: 12000, second: 1);
+      final f3 = stitchTake('f3', positionMs: 40000, second: 3);
+      final result = RecordingTake(
+        id: 'result',
+        songId: 's1',
+        songTitle: '곡',
+        fileName: 'result.wav',
+        recordedAt: recAt(9),
+        durationMs: 68000,
+        songPositionMs: 0,
+        stitched: true,
+      );
+      // 앱의 목록은 최신순이다.
+      final library = [result, f3, f1];
+
+      List<StitchSpan> spansOf(List<RecordingTake> takes) => computeStitchSpans(
+        segments: [
+          for (final t in takes)
+            StitchSegment(
+              vocalPath: t.fileName,
+              songPositionMs: t.songPositionMs!,
+              durationMs: t.durationMs,
+              // 결과물은 0~12초가 무음이라 내용이 12초에서 시작한다(f1과 같은 자리).
+              contentOffsetMs: t.id == 'result' ? 12000 : 0,
+              recordedAt: t.recordedAt,
+            ),
+        ],
+      );
+
+      // 표식이 없던 때의 재료(좌표만 봄): 결과물이 f1과 같은 자리에서 더 늦게 받은
+      // 조각으로 이겨 12~40초를 통째로 차지했다 — 지운 f2의 26~40초가 되살아난다.
+      final before = spansOf(library.where((t) => t.hasSongPosition).toList());
+      expect(before.first.segment.vocalPath, 'result.wav');
+      expect(before.map((s) => s.segment.vocalPath), isNot(contains('f1.wav')));
+
+      final after = spansOf(stitchSiblings(library, f1));
+      expect(after.map((s) => s.segment.vocalPath), ['f1.wav', 'f3.wav']);
+      expect(after[0].startMs, 12000);
+      expect(after[0].endMs, 40000);
+    });
+  });
+
   group('스냅은 조각 자기 시작보다 앞으로 가지 않는다', () {
     test('줄 경계가 조각 시작보다 앞이면 조각 시작에서 막는다', () {
       // 박보다 120ms 늦게 녹음을 걸고 곧바로 불렀다. 줄 경계(119880)에는 이 조각의
@@ -680,11 +961,14 @@ void main() {
 
     test('구간이 짧으면 크로스페이드를 줄인다', () {
       // 50ms 구간에 30ms 페이드를 앞뒤로 걸면 구간을 덮어쓴다.
+      // (v5.17.0) 뒤 조각을 1초로 옮겼다 — 시작이 200ms 안쪽으로 붙은 조각은 이제
+      // 「같은 자리를 다시 받은 것」으로 묶여 하나만 남는다. 짧은 구간은 자기 녹음이
+      // 짧은 조각에서 여전히 나온다.
       final a = buildStitchArgs(
         spans: computeStitchSpans(
           segments: [
             seg(0, 50, path: 'a.wav'),
-            seg(50, 500, path: 'b.wav'),
+            seg(1000, 500, path: 'b.wav'),
           ],
         ),
         outputPath: 'o.wav',

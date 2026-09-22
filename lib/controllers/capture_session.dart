@@ -15,6 +15,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../utils/recording_latency.dart';
 import 'recording_controller.dart';
 
 /// 세션 상한(초). 앱이 죽어 ffmpeg가 고아가 돼도 45분·259MB에서 스스로 끝난다.
@@ -458,15 +459,18 @@ class TakeSlicePlan {
 /// 지연([kPlaybackStartLatencyMs])을 빼지 않는다 — 이미 흐르던 위치를 읽은 것이다.
 /// [fileLengthMs]는 세션 파일이 **더 자라지 않을 때만** 준다(세션 사망·부팅 복구).
 /// 살아 있는 세션은 null로 두고 [writeTakeFromSession]이 끝 바이트를 기다리게 한다.
+/// [latencyCompensationMs]는 마크를 찍을 때 굳힌 「녹음 지연 보정」 C(−300…+300ms)다.
 ///
-/// 좌표 식: 시작 마크가 파일 F에 있고 재생은 그 L ms 뒤에 P0에서 흐르기 시작하니
-/// 조각 t=0(= F − leadIn)의 곡 좌표는 `P0 − L − leadIn`이다.
-/// 불변식 `songPositionMs + leadInMs + L == P0`.
+/// 좌표 식: 시작 마크가 파일 F에 있고 재생은 그 L ms 뒤에 P0에서 흐르기 시작하며,
+/// 목소리는 거기서 다시 C만큼 늦게 파일에 닿는다. 그래서 조각 t=0(= F − leadIn)의
+/// 곡 좌표는 `P0 − L − C − leadIn`이다(부호는 [compensateSongPositionMs] 한 곳).
+/// 불변식 `songPositionMs + leadInMs + L + C == P0`.
 ///
-/// 🔴 곡 앞머리(P0 < leadIn + L)에서는 좌표를 0으로 눕히지 않고 **리드인을 줄인다.**
+/// 🔴 곡 앞머리(P0 < leadIn + L + C)에서는 좌표를 0으로 눕히지 않고 **리드인을 줄인다.**
 /// 눕히면 조각 안의 소리가 그만큼 뒤로 밀린 좌표로 저장된다 — 곡 처음에서
 /// 스페이스를 누르는 가장 흔한 경우에 이어붙이기가 315ms 어긋난다.
-/// P0 < L이면 모자란 만큼 조각 머리를 마크 뒤에서 시작해 t=0을 곡 0에 맞춘다.
+/// P0 < L + C이면 모자란 만큼 조각 머리를 마크 뒤에서 시작해 t=0을 곡 0에 맞춘다 —
+/// 보정값이 커져도 같은 방식이라 좌표 계약(파일 t ↔ 곡 songPositionMs + t)이 안 깨진다.
 ///
 /// 마크 구간이 [kMinimumTakeDuration]보다 짧으면 null(저장하지 않는다).
 TakeSlicePlan? computeTakeSlice({
@@ -475,14 +479,19 @@ TakeSlicePlan? computeTakeSlice({
   required int songPosAtStartMs,
   required bool playbackAlreadyRunning,
   int? fileLengthMs,
+  int latencyCompensationMs = 0,
 }) {
   final start = startFileMs < 0 ? 0 : startFileMs;
   if (endFileMs - start < kMinimumTakeDuration.inMilliseconds) return null;
 
   final latency = playbackAlreadyRunning ? 0 : kPlaybackStartLatencyMs;
   final p0 = songPosAtStartMs < 0 ? 0 : songPosAtStartMs;
-  // 곡 좌표가 0 밑으로 내려가지 않는 선에서 담을 수 있는 리드인.
-  final songRoom = p0 - latency;
+  // 마크 자리의 곡 좌표 — 곡 좌표가 0 밑으로 내려가지 않는 선에서 담을 수 있는 리드인.
+  // 보정값이 음수면 늘어나고, P0 < L + C면 음수가 된다(아래에서 머리를 뒤로 옮긴다).
+  final songRoom = compensateSongPositionMs(
+    p0 - latency,
+    latencyCompensationMs,
+  );
   var lead = math.min(kArmedLeadInMs, start);
   if (songRoom < lead) lead = songRoom;
 
@@ -875,14 +884,26 @@ class SessionTakeMark {
     required this.startFileMs,
     this.endFileMs,
     required this.songPosAtStartMs,
+    this.markedAtMs,
     this.playbackAlreadyRunning = false,
+    this.latencyCompensationMs = 0,
     this.context = const {},
   });
 
   final int startFileMs;
   final int? endFileMs;
   final int songPosAtStartMs;
+
+  /// 마크를 찍은 달력 시각(epoch ms). 부팅 복구가 테이크의 recordedAt으로 쓴다 —
+  /// 복구 시각을 찍으면 같은 줄을 다시 받은 정상 조각이 이어붙이기에서 옛 실패
+  /// 조각에 밀린다. 옛 사이드카(v5.16.0)에는 없다(null → 세션 시작 + 파일 오프셋).
+  final int? markedAtMs;
   final bool playbackAlreadyRunning;
+
+  /// 마크를 찍을 때의 「녹음 지연 보정」(ms). 복구가 **그때 값**으로 자르게 한다 —
+  /// 지금 설정을 읽으면 그사이 값을 바꾼 사용자의 조각이 다른 좌표로 되살아난다.
+  /// 옛 사이드카에는 없다(0 = 보정 없음 = 그때의 동작).
+  final int latencyCompensationMs;
 
   /// 시작 순간에 굳힌 컨텍스트(곡 id·슬롯·피치·반주 경로·템포 등).
   /// 이 모듈은 내용을 해석하지 않는다 — 그대로 보관했다 돌려준다.
@@ -895,7 +916,9 @@ class SessionTakeMark {
     startFileMs: startFileMs,
     endFileMs: endMs,
     songPosAtStartMs: songPosAtStartMs,
+    markedAtMs: markedAtMs,
     playbackAlreadyRunning: playbackAlreadyRunning,
+    latencyCompensationMs: latencyCompensationMs,
     context: context,
   );
 
@@ -903,7 +926,9 @@ class SessionTakeMark {
     'startFileMs': startFileMs,
     if (endFileMs != null) 'endFileMs': endFileMs,
     'songPosAtStartMs': songPosAtStartMs,
+    if (markedAtMs != null) 'markedAtMs': markedAtMs,
     'playbackAlreadyRunning': playbackAlreadyRunning,
+    'latencyCompensationMs': latencyCompensationMs,
     'context': context,
   };
 
@@ -916,7 +941,11 @@ class SessionTakeMark {
       startFileMs: start,
       endFileMs: _asInt(json['endFileMs']),
       songPosAtStartMs: _asInt(json['songPosAtStartMs']) ?? 0,
+      markedAtMs: _asInt(json['markedAtMs']),
       playbackAlreadyRunning: json['playbackAlreadyRunning'] == true,
+      latencyCompensationMs: clampRecordingLatencyMs(
+        json['latencyCompensationMs'],
+      ),
       context: _asStringKeyedMap(json['context']),
     );
   }

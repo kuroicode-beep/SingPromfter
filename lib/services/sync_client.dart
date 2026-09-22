@@ -15,6 +15,7 @@ import '../models/song.dart';
 import '../repository/lrc_store.dart';
 import '../repository/practice_log_store.dart';
 import '../repository/song_repository.dart';
+import 'atomic_json_file.dart';
 import 'sync_protocol.dart';
 
 class SyncOutcome {
@@ -154,7 +155,10 @@ class SyncClient {
         return const SyncOutcome.failure('PC에서 동기화 서버를 켜 주세요.');
       }
       if (res.statusCode != 200) {
-        return SyncOutcome.failure('PC가 응답하지 않습니다 (HTTP ${res.statusCode})');
+        // PC가 사유를 실어 보냈으면(곡 목록을 못 읽은 상태 등) 그 말을 그대로 보여 준다.
+        return SyncOutcome.failure(
+          _errorMessageOf(res) ?? 'PC가 응답하지 않습니다 (HTTP ${res.statusCode})',
+        );
       }
       final decoded = jsonDecode(utf8.decode(res.bodyBytes));
       if (decoded is! Map<String, dynamic>) {
@@ -243,7 +247,19 @@ class SyncClient {
     }
 
     try {
-      await _repo.saveSongs(songs);
+      // 🔴 빈 매니페스트로 폰 목록을 지우는 일은 어느 경우에도 사용자가 원하는 일이
+      // 아니다 — PC가 곡 목록을 못 읽은 채 떠 있으면 0곡 매니페스트가 온다(서버가
+      // 503으로 막지만, 옛 PC 앱은 그대로 내준다). 폰의 songs.json은 멀쩡히 읽히므로
+      // 저장소의 「빈 값으로 덮지 않는다」 보호도 걸리지 않는다.
+      if (songs.isEmpty && (await _repo.loadSongs()).isNotEmpty) {
+        return const SyncOutcome.failure(
+          'PC 곡 목록이 비어 있어 폰의 곡 목록을 지우지 않았습니다. PC 앱에서 곡 목록을 확인해 주세요.',
+        );
+      }
+      // 저장 실패는 예외가 아니라 false로 온다(v5.17.0) — 조용히 「성공」으로 넘기지 않는다.
+      if (!await _repo.saveSongs(songs)) {
+        return const SyncOutcome.failure('받은 곡을 저장하지 못했습니다.');
+      }
     } catch (e) {
       debugPrint('곡 저장 실패: $e');
       return const SyncOutcome.failure('받은 곡을 저장하지 못했습니다.');
@@ -262,12 +278,27 @@ class SyncClient {
     );
   }
 
+  /// PC 오류 응답 본문의 `error.message`. 없거나 못 읽으면 null.
+  static String? _errorMessageOf(http.Response res) {
+    try {
+      final body = jsonDecode(utf8.decode(res.bodyBytes));
+      if (body is! Map) return null;
+      final error = body['error'];
+      if (error is! Map) return null;
+      final message = error['message'];
+      return message is String && message.trim().isNotEmpty ? message : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _writeLyrics(Song song, String text) async {
     try {
       final dir = await _repo.getLyricsDir();
       final name = song.lyricsPath.split(RegExp(r'[/\\]')).last;
       if (name.isEmpty) return;
-      await File('${dir.path}/$name').writeAsString(text);
+      // 받다 끊겨도 반쪽짜리 가사가 남지 않게 원자적으로 쓴다.
+      await writeTextAtomically(File('${dir.path}/$name'), text);
     } catch (e) {
       debugPrint('가사 저장 실패(${song.id}): $e');
     }

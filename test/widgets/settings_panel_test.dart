@@ -9,10 +9,13 @@ import 'package:singpromfter_app/models/prompter_settings.dart';
 import 'package:singpromfter_app/theme/app_theme.dart';
 import 'package:singpromfter_app/widgets/settings_panel.dart';
 
+import '../fakes/semantics_count.dart';
+
 Widget _panel(
   PrompterSettings settings,
   ValueChanged<PrompterSettings> onChanged, {
   List<String> recordingDevices = const [],
+  String? recordingDeviceStatus,
   bool micTesting = false,
   bool backingTesting = false,
 }) => MaterialApp(
@@ -22,6 +25,7 @@ Widget _panel(
       settings: settings,
       onSettingsChanged: onChanged,
       recordingDevices: recordingDevices,
+      recordingDeviceStatus: recordingDeviceStatus,
       micTesting: micTesting,
       micLevel: 0.5,
       micLevelLabel: '입력 좋음',
@@ -189,6 +193,244 @@ void main() {
 
       expect(find.textContaining('반주 채널을 열지 못했습니다'), findsOneWidget);
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    });
+  });
+
+  group('녹음 > 녹음 지연 보정 (v5.17.0)', () {
+    const minusKey = Key('recordingLatencyMinus');
+    const plusKey = Key('recordingLatencyPlus');
+    const resetKey = Key('recordingLatencyReset');
+    const valueKey = Key('recordingLatencyValue');
+
+    /// 누른 결과가 다시 패널로 돌아오는 호스트 — 실제 화면처럼 값이 쌓인다.
+    Widget host(PrompterSettings initial, List<PrompterSettings> changes) {
+      var current = initial;
+      return StatefulBuilder(
+        builder: (context, setState) => _panel(current, (next) {
+          changes.add(next);
+          setState(() => current = next);
+        }),
+      );
+    }
+
+    Future<void> tapKey(WidgetTester tester, Key key) async {
+      await tester.ensureVisible(find.byKey(key));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(key));
+      await tester.pumpAndSettle();
+    }
+
+    String valueText(WidgetTester tester) =>
+        tester.widget<Text>(find.byKey(valueKey)).data!;
+
+    testWidgets('기본은 「0 ms (보정 없음)」 — +5 ms를 누를 때마다 5씩 오른다', (tester) async {
+      final changes = <PrompterSettings>[];
+      await tester.pumpWidget(host(const PrompterSettings(), changes));
+      await _openRecordingTab(tester);
+
+      expect(find.text('녹음 지연 보정'), findsOneWidget);
+      expect(valueText(tester), '0 ms (보정 없음)');
+
+      await tapKey(tester, plusKey);
+      expect(changes.single.recordingLatencyMs, 5);
+      expect(valueText(tester), '+5 ms');
+
+      for (var i = 0; i < 6; i++) {
+        await tapKey(tester, plusKey);
+      }
+      expect(changes.last.recordingLatencyMs, 35);
+      expect(valueText(tester), '+35 ms');
+      // 다른 녹음 설정은 건드리지 않는다.
+      expect(changes.last.recordingGain, 1.0);
+      expect(changes.last.recordingDevice, isNull);
+    });
+
+    testWidgets('−5 ms는 5씩 내리고(음수까지), [0으로 되돌리기]는 한 번에 0으로', (tester) async {
+      final changes = <PrompterSettings>[];
+      await tester.pumpWidget(
+        host(const PrompterSettings(recordingLatencyMs: 5), changes),
+      );
+      await _openRecordingTab(tester);
+
+      await tapKey(tester, minusKey);
+      expect(valueText(tester), '0 ms (보정 없음)');
+      await tapKey(tester, minusKey);
+      expect(changes.last.recordingLatencyMs, -5);
+      expect(valueText(tester), '−5 ms');
+
+      await tapKey(tester, resetKey);
+      expect(changes.last.recordingLatencyMs, 0);
+      expect(valueText(tester), '0 ms (보정 없음)');
+    });
+
+    testWidgets('범위 끝 — 값은 그대로고 저장도 돌지 않는다. 이유는 글자로 말한다', (tester) async {
+      final changes = <PrompterSettings>[];
+      await tester.pumpWidget(
+        host(const PrompterSettings(recordingLatencyMs: 300), changes),
+      );
+      await _openRecordingTab(tester);
+      expect(valueText(tester), '+300 ms (최대)');
+
+      await tapKey(tester, plusKey);
+      expect(changes, isEmpty);
+      expect(valueText(tester), '+300 ms (최대)');
+
+      await tapKey(tester, minusKey);
+      expect(changes.single.recordingLatencyMs, 295);
+    });
+
+    testWidgets('이미 0이면 [0으로 되돌리기]는 저장을 돌리지 않는다', (tester) async {
+      final changes = <PrompterSettings>[];
+      await tester.pumpWidget(host(const PrompterSettings(), changes));
+      await _openRecordingTab(tester);
+      await tapKey(tester, resetKey);
+      expect(changes, isEmpty);
+    });
+
+    testWidgets('버튼 셋 다 높이 50px 이상·글자 12px 이상, 글자 라벨', (tester) async {
+      await tester.pumpWidget(_panel(const PrompterSettings(), (_) {}));
+      await _openRecordingTab(tester);
+
+      for (final key in [minusKey, plusKey, resetKey]) {
+        final size = tester.getSize(find.byKey(key));
+        expect(size.height, greaterThanOrEqualTo(50), reason: '$key');
+        expect(size.width, greaterThanOrEqualTo(50), reason: '$key');
+        final label = tester.widget<Text>(
+          find.descendant(of: find.byKey(key), matching: find.byType(Text)),
+        );
+        expect(label.style!.fontSize, greaterThanOrEqualTo(12), reason: '$key');
+        expect(label.style!.color, AppColors.onSurface, reason: '$key');
+      }
+      expect(find.text('−5 ms'), findsOneWidget);
+      expect(find.text('+5 ms'), findsOneWidget);
+      expect(find.text('0으로 되돌리기'), findsOneWidget);
+    });
+
+    testWidgets('도움말 — 언제 올리는지, 언제부터 먹는지 글자로 적는다', (tester) async {
+      await tester.pumpWidget(_panel(const PrompterSettings(), (_) {}));
+      await _openRecordingTab(tester);
+      expect(
+        find.textContaining('이어붙인 보컬이 반주보다 늦게 들리면 값을 올리세요'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('새로 받는 녹음부터 적용됩니다'), findsOneWidget);
+    });
+
+    testWidgets('화면 읽기 라벨은 기호(+·−)를 말로 푼다', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        _panel(const PrompterSettings(recordingLatencyMs: -20), (_) {}),
+      );
+      await _openRecordingTab(tester);
+      // 패널의 글자들은 한 노드로 합쳐 읽힌다 — 제목 바로 뒤에 값이 말로 이어진다.
+      expect(
+        find.bySemanticsLabel(RegExp('녹음 지연 보정\n마이너스 20 밀리초')),
+        findsWidgets,
+      );
+      expect(find.bySemanticsLabel(RegExp('−20 ms')), findsNothing);
+      expect(find.bySemanticsLabel('녹음 지연 보정 5밀리초 늘리기'), findsOneWidget);
+      expect(find.bySemanticsLabel('녹음 지연 보정 5밀리초 줄이기'), findsOneWidget);
+      expect(find.bySemanticsLabel('녹음 지연 보정을 0으로 되돌리기'), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('🔴 값이 바뀌어도 시맨틱스 노드 수가 그대로다 — 글자만 바뀐다', (tester) async {
+      // 생겼다 사라지는 접근성 노드가 엔진 크래시를 냈다(center_alert.dart 머리말).
+      // 범위 끝에서 버튼을 끄거나 0일 때 되돌리기를 숨기면 여기서 걸린다.
+      final handle = tester.ensureSemantics();
+      Future<int> nodesAt(int ms) async {
+        await tester.pumpWidget(
+          _panel(PrompterSettings(recordingLatencyMs: ms), (_) {}),
+        );
+        await tester.pumpAndSettle();
+        return countSemanticsNodes(tester);
+      }
+
+      await nodesAt(0);
+      await _openRecordingTab(tester);
+      final zero = await nodesAt(0);
+      expect(await nodesAt(35), zero);
+      expect(await nodesAt(-20), zero);
+      expect(await nodesAt(300), zero);
+      expect(await nodesAt(-300), zero);
+      handle.dispose();
+    });
+  });
+
+  group('녹음 > 입력 장치 「자동」 상태 줄 (v5.17.0)', () {
+    const razer = '마이크(Razer Barracuda X 2.4)';
+    const rode = '마이크(RØDE NT-USB Mini)';
+
+    testWidgets('자동이 지금 어느 장치를 쓰는지 글자로 보여 준다', (tester) async {
+      const status = '자동 — 지금은 $rode (소리 확인됨 · 소리 없는 장치 1개 건너뜀)';
+      await tester.pumpWidget(
+        _panel(
+          const PrompterSettings(),
+          (_) {},
+          recordingDevices: const [razer, rode],
+          recordingDeviceStatus: status,
+        ),
+      );
+      await _openRecordingTab(tester);
+
+      expect(find.text(status), findsOneWidget);
+      // 「첫 번째 장치」는 더 이상 사실이 아니다 — 소리가 들어오는 마이크를 고른다.
+      expect(find.text('자동 (소리가 들어오는 마이크)'), findsWidgets);
+      expect(find.textContaining('첫 번째 장치'), findsNothing);
+    });
+
+    testWidgets('화면이 문구를 안 줘도 줄은 비지 않는다 — 목록과 설정으로 만든다', (tester) async {
+      await tester.pumpWidget(
+        _panel(
+          const PrompterSettings(),
+          (_) {},
+          recordingDevices: const [razer, rode],
+        ),
+      );
+      await _openRecordingTab(tester);
+      expect(find.textContaining('자동 — 지금은 $razer'), findsOneWidget);
+
+      await tester.pumpWidget(
+        _panel(
+          const PrompterSettings(recordingDevice: rode),
+          (_) {},
+          recordingDevices: const [razer, rode],
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('직접 고른 장치를 그대로 씁니다'), findsOneWidget);
+    });
+
+    testWidgets('🔴 상태가 바뀌어도 시맨틱스 노드 수가 그대로다 — 글자만 바뀐다', (tester) async {
+      // 생겼다 사라지는 접근성 노드가 엔진 크래시를 냈다(center_alert.dart 머리말).
+      final handle = tester.ensureSemantics();
+      Future<int> nodesWith(String? status) async {
+        await tester.pumpWidget(
+          _panel(
+            const PrompterSettings(),
+            (_) {},
+            recordingDevices: const [razer, rode],
+            recordingDeviceStatus: status,
+          ),
+        );
+        await tester.pumpAndSettle();
+        return countSemanticsNodes(tester);
+      }
+
+      await nodesWith(null);
+      await _openRecordingTab(tester);
+      final idle = await nodesWith(null);
+      final picked = await nodesWith('자동 — 지금은 $rode (소리 확인됨)');
+      final silent = await nodesWith(
+        '자동 — 소리가 들어오는 마이크를 찾지 못했습니다 (확인한 장치: $razer, $rode)',
+      );
+      // 빈 문자열을 받아도 줄(노드)은 남는다.
+      final empty = await nodesWith('');
+
+      expect(picked, idle);
+      expect(silent, idle);
+      expect(empty, idle);
+      handle.dispose();
     });
   });
 }

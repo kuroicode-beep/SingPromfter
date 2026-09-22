@@ -38,6 +38,7 @@ import '../services/lyrics_align_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/ollama_client.dart';
 import '../services/pitch_variant_service.dart';
+import '../services/playback_copy_service.dart';
 import '../services/track_asset_service.dart';
 import '../services/process/external_tool_locator.dart';
 import '../services/process/process_runner.dart';
@@ -64,6 +65,8 @@ import '../utils/lrc_builder.dart';
 import '../utils/tempo_label.dart';
 import '../utils/music_key.dart';
 import '../utils/pitch_math.dart';
+import '../utils/platform_capabilities.dart';
+import '../utils/playback_copy_plan.dart';
 import '../utils/youtube_title_cleaner.dart';
 import 'compose_job_controller.dart';
 import 'import_job_controller.dart';
@@ -138,11 +141,18 @@ class AppController extends ChangeNotifier {
   late final VocalSegmentsService vocalSegments = VocalSegmentsService(
     align: lyricsAlign,
   );
+
+  /// 위치 보정본 — VBR MP3 반주의 재생용 WAV 사본(seek 어긋남 대책).
+  /// 누가 어느 파일을 쓰는지는 playback_copy_service.dart 머리말에 적어 뒀다.
+  late final PlaybackCopyService playbackCopies = PlaybackCopyService(
+    locator: toolLocator,
+  );
   late final TrackAssetService trackAssets = TrackAssetService(
     pitch: pitchVariants,
     levels: levelAnalysis,
     keys: keyDetection,
     vocalSegments: vocalSegments,
+    playbackCopies: playbackCopies,
   );
   late final YoutubeImportService youtubeImport = YoutubeImportService(
     tmpDirProvider: repo.getTmpDir,
@@ -221,6 +231,7 @@ class AppController extends ChangeNotifier {
       onMessage: _emit,
       timedLyricsLoader: lyricsSync.loadFor,
       trackVariantResolver: _resolveTrackVariant,
+      playbackCopyResolver: _resolvePlaybackCopy,
       levelsLoader: loadTrackLevels,
       vocalSegmentsLoader: loadVocalSegments,
       onSongReady: (song, duration) =>
@@ -228,6 +239,8 @@ class AppController extends ChangeNotifier {
       onPracticeSessionEnded: (snapshot, played) =>
           onPracticeSessionEnded?.call(snapshot, played),
     )..init();
+    // 용량 축출이 지금 재생 중인 사본을 지우지 않게 한다.
+    playbackCopies.activePathProvider = () => playback.snapshot.activeAudioPath;
     importJobs = ImportJobController(runner: _runImportJob);
     composeJobs = ComposeJobController(runner: _runComposeJob);
   }
@@ -250,6 +263,7 @@ class AppController extends ChangeNotifier {
     songCompose.close();
     bgmCompose.close();
     ollama.close();
+    playbackCopies.dispose(); // 굽던 ffmpeg를 끊는다(남은 .part는 다음 실행이 치운다).
     playback.dispose();
     audio.dispose();
     lyricsScrollController.dispose();
@@ -310,6 +324,9 @@ class AppController extends ChangeNotifier {
             settings.lastSelectedTrackSlot,
       );
     }
+    // 원본이 사라졌거나 갈린 위치 보정본·지난 실행의 .part를 치운다. 첫 곡을 물린
+    // **뒤에** 돌려 부팅을 늦추지 않는다(폴더 한 번 훑고 stat 몇 번이다).
+    unawaited(sweepPlaybackCopies());
   }
 
   // ── 설정 (단일 쓰기 경로) ───────────────────────────────
@@ -344,6 +361,8 @@ class AppController extends ChangeNotifier {
   ) async {
     final track = song.trackForSlot(slot);
     if (track == null) return null;
+    // 🔴 변형본은 언제나 **원본**에서 굽는다 — 위치 보정본(WAV)이 있어도 쓰지 않는다.
+    // ffmpeg 디코드는 VBR에서도 정확하고, 사본은 언제든 축출되는 파생물이다.
     final sourcePath = await repo.getBackingTrackPath(track.fileName);
     if (sourcePath == null) return null;
 
@@ -367,6 +386,67 @@ class AppController extends ChangeNotifier {
       return null;
     }
     return result.path;
+  }
+
+  // ── 위치 보정본 (VBR MP3의 재생용 WAV 사본) ───────────────
+
+  /// 이 플랫폼에서 보정본을 쓰는가(Windows + 외부 도구) — 결정점은 PlatformCapabilities다.
+  bool get _playbackCopySupported =>
+      PlatformCapabilities.usesSeekSafePlaybackCopy;
+
+  /// 녹음 중이거나 고정 조각이 열려 있는가. 그동안에는 보정본을 굽지 않는다.
+  bool _captureBusy() => playback.isRecordingProvider?.call() ?? false;
+
+  /// 곡을 물릴 때 재생 파일을 정한다 — 보정본이 있으면 그것, 없으면 원본(null).
+  ///
+  /// 🔴 굽기를 **기다리지 않는다.** VBR 원본인데 보정본이 없으면 원본을 바로 틀고,
+  /// 굽기는 뒤에 걸어 둔다(한 번에 하나, 받는 중에는 미룸). 구워진 사본은 다음에
+  /// 이 곡을 물릴 때부터 쓰인다 — 재생·고정 도중에 파일을 갈아끼우지 않는다.
+  Future<PlaybackCopyResolution> _resolvePlaybackCopy(
+    Song song,
+    int slot,
+  ) async {
+    if (!_playbackCopySupported) return kPlainPlayback;
+    final track = song.trackForSlot(slot);
+    if (track == null) return kPlainPlayback;
+    final sourcePath = await repo.getBackingTrackPath(track.fileName);
+    if (sourcePath == null) return kPlainPlayback;
+    return playbackCopies.resolveForLoad(
+      sourcePath: sourcePath,
+      sourceFileName: track.fileName,
+      isBusy: _captureBusy,
+    );
+  }
+
+  /// 새로 들어온 반주의 보정본을 미리 구워 둔다 — 그 곡은 **첫 재생부터** 보정본을 쓴다.
+  /// VBR MP3가 아니면 아무것도 하지 않는다. 실패해도 조용하다(원본이 재생된다).
+  Future<void> prewarmPlaybackCopy(Song song, int slot) async {
+    if (!_playbackCopySupported) return;
+    final track = song.trackForSlot(slot);
+    if (track == null) return;
+    final sourcePath = await repo.getBackingTrackPath(track.fileName);
+    if (sourcePath == null) return;
+    await playbackCopies.ensure(
+      sourcePath: sourcePath,
+      sourceFileName: track.fileName,
+      isBusy: _captureBusy,
+    );
+  }
+
+  /// 쓸모없어진 보정본(원본이 사라짐·갈림, 굽다 만 .part)을 치우고 용량 상한에 맞춘다.
+  /// 지운 개수를 돌려준다. 앱을 켤 때와 「라이브러리 정리」에서 부른다.
+  Future<int> sweepPlaybackCopies() async {
+    if (!_playbackCopySupported) return 0;
+    // 곡 목록을 못 읽고 뜬 실행이면 전부 「원본 없음」으로 보인다 — 그때는 건드리지 않는다.
+    if (songs.isEmpty) return 0;
+    final names = <String>{
+      for (final song in songs)
+        for (final track in song.backingTracks) track.fileName,
+    };
+    return playbackCopies.sweep(
+      liveSourceFileNames: names,
+      sourcePathOf: repo.getBackingTrackPath,
+    );
   }
 
   /// 준비 안내에 쓸 짧은 이름. 둘 다 바뀌었으면 함께 적는다.
@@ -2051,8 +2131,11 @@ class AppController extends ChangeNotifier {
     }
 
     // 첫 무대 진입 때 EQ가 바로 뜨도록 등록 직후 백그라운드로 선분석한다.
+    // 위치 보정본도 같은 자리에서 굽는다 — 가져온 원본은 VBR(V0)이라, 미리 구워 두면
+    // 이 곡은 첫 재생부터 seek가 정확하다(한 번에 하나씩 줄을 선다).
     for (final slot in song.availableTrackSlots) {
       unawaited(loadTrackLevels(song, slot));
+      unawaited(prewarmPlaybackCopy(song, slot));
     }
     // 노래 구간도 같은 자리에서 — 가사 없는 곡의 줄 배분에 바로 쓰인다.
     unawaited(loadVocalSegments(song));
@@ -2597,11 +2680,15 @@ class AppController extends ChangeNotifier {
       if (_disposed) return null;
       songs = result.songs;
       _notify();
-      await composeLibrary.update(
-        comp.copyWith(registeredSongId: result.song.id),
+      // comp는 파일 복사 **전에** 집은 사본이다 — 그사이 바꾼 제목을 되돌리지 않게
+      // 지금 생성곡에 등록 표시만 얹는다.
+      await composeLibrary.patch(
+        compositionId,
+        (current) => current.copyWith(registeredSongId: result.song.id),
       );
-      // 가져오기와 동일하게 EQ 레벨을 선분석해 둔다.
+      // 가져오기와 동일하게 EQ 레벨을 선분석해 둔다(VBR이면 위치 보정본도).
       unawaited(loadTrackLevels(result.song, 1));
+      unawaited(prewarmPlaybackCopy(result.song, 1));
       _emit('"$title"을(를) 곡 목록에 등록했습니다.');
       return result.song;
     } catch (e) {
@@ -2690,6 +2777,7 @@ class AppController extends ChangeNotifier {
       if (track != null) await trackAssets.invalidate(track.fileName);
       await replaceSongInList(updated);
       unawaited(loadTrackLevels(updated, slot));
+      unawaited(prewarmPlaybackCopy(updated, slot));
       if (selectedSong?.id == songId) {
         await playback.loadSong(updated, preferredSlot: selectedTrackSlot);
       }
