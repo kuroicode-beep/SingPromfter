@@ -16,6 +16,7 @@ import '../controllers/armed_capture_session.dart'
     show ArmedSessionState, TakeEndMark, TakeStartMark, armedSessionStatusLabel;
 import '../controllers/armed_transport.dart';
 import '../controllers/auto_input_selection.dart';
+import '../controllers/mixer_snapshot_guard.dart';
 import '../controllers/capture_session.dart' show InputLevelBucket;
 import '../controllers/compose_job_controller.dart';
 import '../controllers/import_job_controller.dart';
@@ -50,6 +51,7 @@ import '../repository/song_repository.dart';
 import '../services/atomic_json_file.dart';
 import '../services/backup_service.dart';
 import '../services/data_load_report.dart';
+import '../services/mixer_state_service.dart';
 import '../services/lyrics_sync_service.dart';
 import '../services/practice_log_service.dart';
 import '../services/daily_goal_service.dart';
@@ -195,6 +197,14 @@ class _SongListScreenState extends State<SongListScreen> {
   /// 이번 세션에서 입력이 살아 있는 걸 확인했는가. 매번 1초씩 재면 조각을
   /// 받는 흐름이 끊겨서, 한 번 확인하면 장치가 바뀔 때까지 믿는다.
   bool _inputVerified = false;
+
+  /// 믹서 상태를 읽어 오는 통로(다른 프로그램이 남긴 파일). 파일이 없으면 조용히
+  /// 아무 말도 하지 않으므로, 화면에서는 따로 갈아끼우지 않는다.
+  final MixerStateService _mixerState = MixerStateService();
+
+  /// 「믹서가 녹음 상태가 아니다」를 알린 그때의 스냅샷 번호. 같은 상태로 다시
+  /// 누르면 그대로 진행한다 — 본체 버튼으로 바꿨을 때 영영 막히지 않게.
+  int? _mixerSnapshotWarnedFor;
   // 녹음 당시 실제 재생 파일(변형본 포함)·템포 — 반주 조각을 자르는 데 쓴다.
   String? _recordingSourcePath;
   double _recordingTempo = 1.0;
@@ -820,6 +830,33 @@ class _SongListScreenState extends State<SongListScreen> {
     CenterAlert.show(context, title: alert.title, detail: alert.detail);
   }
 
+  /// 녹음 전 믹서 점검 — 반주가 섞일 상태면 **한 번 알리고 멈춘다.**
+  ///
+  /// 무음 점검([_verifyInputOrBlock])이 「소리가 안 들어오는」 실패를 막는다면,
+  /// 이쪽은 「너무 많이 들어오는」 실패를 막는다. 녹음 입력이 믹서 메인 아웃인데
+  /// 믹서가 녹음 스냅샷이 아니면 반주가 보컬 트랙에 섞여 들어간다 — 녹음은 정상으로
+  /// 끝나서 들어 보기 전에는 알 수 없다(2026-09-23 실측 −38dBFS).
+  ///
+  /// 믹서는 상태를 돌려주지 않아 「이 PC가 마지막으로 보낸 스냅샷」만 알 수 있다.
+  /// 본체 버튼으로 직접 바꿨다면 이 판단이 틀릴 수 있어서, 같은 상태로 두 번째
+  /// 누르면 그대로 진행한다 — 틀린 경고가 녹음을 영영 막지 않게.
+  Future<bool> _verifyMixerSnapshotOrWarn() async {
+    final state = await _mixerState.read();
+    if (!mounted) return false;
+    final detail = mixerSnapshotWarning(
+      device: _recording.currentInputDevice,
+      state: state,
+    );
+    if (detail == null) {
+      _mixerSnapshotWarnedFor = null;
+      return true;
+    }
+    if (_mixerSnapshotWarnedFor == state!.lastSnapshot) return true;
+    _mixerSnapshotWarnedFor = state.lastSnapshot;
+    CenterAlert.show(context, title: kMixerSnapshotAlertTitle, detail: detail);
+    return false;
+  }
+
   /// 녹음 전 입력 점검 — 소리가 안 들어오면 **큰 경고로 막는다.**
   ///
   /// 무음은 헤드폰으로 확인이 안 된다. FLOW 8은 PC로 가는 소리만 마스터를
@@ -1060,6 +1097,7 @@ class _SongListScreenState extends State<SongListScreen> {
     // 입력 장치는 R 녹음과 **같은 길**로 정해진다(컨트롤러의 _resolveInputDevice) —
     // 자동이면 세션을 열기 전에 소리가 들어오는 후보를 고른다.
     _applyInputDeviceSetting();
+    if (!await _verifyMixerSnapshotOrWarn()) return false;
     final live = await _recording.openSession(gain: _settings.recordingGain);
     // 기다리는 사이 세션이 끊겨 고정이 풀렸으면 그쪽(_handleSessionLost)이 이미 알렸다.
     if (!_recordArmed) return false;
@@ -2320,6 +2358,8 @@ class _SongListScreenState extends State<SongListScreen> {
     final adoptNotice = await _adoptPlaybackCopyWithNotice();
     // 이번 세션 첫 녹음이면 입력을 한 번 재고 시작한다.
     if (!await _verifyInputOrBlock()) return;
+    // 믹서가 녹음 스냅샷인지 — 아니면 반주가 보컬에 섞인다(조용히 실패한다)
+    if (!await _verifyMixerSnapshotOrWarn()) return;
 
     // 설정에서 고른 입력 장치(자동 포함)·볼륨·지연 보정을 적용한다.
     _applyInputDeviceSetting();

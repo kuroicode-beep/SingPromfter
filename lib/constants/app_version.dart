@@ -12,9 +12,18 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.17.0';
+  static const String current = '5.18.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.18.0',
+      '2026-09-23',
+      '믹서를 거쳐 녹음할 때 반주가 보컬에 섞이는 것을 막습니다. 녹음 입력이 '
+          'FLOW 8 메인 아웃인데 믹서가 녹음 스냅샷이 아니면, 녹음을 걸기 전에 큰 글씨로 '
+          '알리고 한 번 멈춥니다 — 그 상태로 녹음하면 반주가 목소리 트랙에 그대로 들어가는데 '
+          '파일은 멀쩡해서 들어 보기 전에는 알 수가 없었습니다. 본체 버튼으로 직접 바꾸셨다면 '
+          '한 번 더 누르면 그대로 녹음합니다.',
+    ),
     AppVersionEntry(
       '5.17.0',
       '2026-09-22',
