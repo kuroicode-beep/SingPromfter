@@ -236,6 +236,7 @@ class SongListScreenContent extends StatelessWidget {
   final VoidCallback? onCreateFolder;
   final void Function(List<String> displayOrder, String name, int delta)?
   onMoveFolder;
+  final ValueChanged<String>? onRenameFolder;
   final void Function(String songId, String folder)? onMoveSongToFolder;
   final void Function(
     String draggedId,
@@ -430,6 +431,7 @@ class SongListScreenContent extends StatelessWidget {
     this.onToggleFolder,
     this.onCreateFolder,
     this.onMoveFolder,
+    this.onRenameFolder,
     this.onMoveSongToFolder,
     this.onDropSongOnSong,
     this.onDuetMix,
@@ -510,6 +512,7 @@ class SongListScreenContent extends StatelessWidget {
       onToggleFolder: onToggleFolder,
       onCreateFolder: onCreateFolder,
       onMoveFolder: onMoveFolder,
+      onRenameFolder: onRenameFolder,
       onMoveSongToFolder: onMoveSongToFolder,
       onDropSongOnSong: onDropSongOnSong,
     );

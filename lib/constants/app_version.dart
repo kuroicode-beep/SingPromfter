@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.18.0';
+  static const String current = '5.19.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.19.0',
+      '2026-09-28',
+      '좌측 곡 목록에서 폴더 이름을 바꾸면 폴더에 담긴 곡과 표시 순서·펼침 상태가 함께 갱신됩니다.',
+    ),
     AppVersionEntry(
       '5.18.0',
       '2026-09-23',

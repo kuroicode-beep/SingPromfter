@@ -2364,6 +2364,30 @@ class AppController extends ChangeNotifier {
     await _songsSaveChain;
   }
 
+  /// 폴더 이름을 바꿔 소속 곡의 메타데이터를 한 번에 저장한다.
+  /// 현재 재생 곡도 다시 로드하지 않아 재생 위치와 녹음 상태를 유지한다.
+  Future<int> renameFolderSongs(String oldName, String newName) async {
+    if (_disposed) return 0;
+    final matching = songs.where((song) => song.folder == oldName).toList();
+    if (matching.isEmpty) return 0;
+
+    final renamedAt = DateTime.now();
+    songs = songs
+        .map(
+          (song) => song.folder == oldName
+              ? song.copyWith(folder: newName, updatedAt: renamedAt)
+              : song,
+        )
+        .toList(growable: false);
+    _notify();
+
+    _songsSaveChain = _songsSaveChain
+        .catchError((_) {})
+        .then((_) => repo.saveSongs(songs));
+    await _songsSaveChain;
+    return matching.length;
+  }
+
   void _failJob(ImportJob job, String message) {
     final current = importJobs.jobById(job.id);
     if (current == null) return;

@@ -2181,6 +2181,103 @@ class _SongListScreenState extends State<SongListScreen> {
     _showSnack('"$trimmed" 폴더를 만들었습니다. 곡 수정에서 지정해 담습니다.');
   }
 
+  /// 목록에 표시된 폴더 이름을 바꾸고 소속 곡·정렬·펼침 상태를 함께 갱신한다.
+  Future<void> _renameFolder(String oldName) async {
+    final controller = TextEditingController(text: oldName);
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+    final folders = <String>[
+      ..._settings.folderOrder,
+      ...Song.folderNames(
+        _songs,
+      ).where((folder) => !_settings.folderOrder.contains(folder)),
+    ];
+    String? errorText;
+    String? validateName(String value) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return '폴더 이름을 입력해 주세요.';
+      if (folders.any((folder) => folder != oldName && folder == trimmed)) {
+        return '같은 이름의 폴더가 이미 있습니다.';
+      }
+      return null;
+    }
+
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('폴더 이름 바꾸기'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: '새 폴더 이름',
+              errorText: errorText,
+            ),
+            onChanged: (_) => setDialogState(() => errorText = null),
+            onSubmitted: (value) {
+              final trimmed = value.trim();
+              final validationError = validateName(trimmed);
+              if (validationError != null) {
+                setDialogState(() => errorText = validationError);
+                return;
+              }
+              Navigator.pop(ctx, trimmed);
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final trimmed = controller.text.trim();
+                final validationError = validateName(trimmed);
+                if (validationError != null) {
+                  setDialogState(() => errorText = validationError);
+                  return;
+                }
+                Navigator.pop(ctx, trimmed);
+              },
+              child: const Text('이름 바꾸기'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty || trimmed == oldName || !mounted) return;
+
+    final renamedCount = await _app.renameFolderSongs(oldName, trimmed);
+    if (!mounted) return;
+
+    final folderOrder = _settings.folderOrder
+        .map((folder) => folder == oldName ? trimmed : folder)
+        .toList(growable: false);
+    final expandedFolders = _settings.expandedFolders
+        .map((folder) => folder == oldName ? trimmed : folder)
+        .toSet()
+        .toList(growable: false);
+    await _updateSettings(
+      _settings.copyWith(
+        folderOrder: folderOrder,
+        expandedFolders: expandedFolders,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+    _showSnack(
+      renamedCount == 0
+          ? '"$oldName" 폴더 이름을 "$trimmed"으로 바꿨습니다.'
+          : '"$oldName" 폴더를 "$trimmed"으로 바꿨습니다. ($renamedCount곡)',
+    );
+  }
+
   /// 폴더를 위/아래로 옮긴다. 화면의 표시 순서를 그대로 저장해
   /// 곡에만 적혀 있던 폴더도 이때 순서에 편입된다.
   Future<void> _moveFolder(
@@ -4109,6 +4206,7 @@ class _SongListScreenState extends State<SongListScreen> {
         onToggleFolder: _toggleFolder,
         onCreateFolder: _createFolder,
         onMoveFolder: _moveFolder,
+        onRenameFolder: _renameFolder,
         onMoveSongToFolder: _moveSongToFolder,
         onDropSongOnSong: _dropSongOnSong,
         onDuetMix: _duetMix,

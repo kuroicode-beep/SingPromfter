@@ -65,6 +65,9 @@ class SongListPanel extends StatefulWidget {
   final void Function(List<String> displayOrder, String name, int delta)?
   onMoveFolder;
 
+  /// 폴더 이름 변경. null이면 변경 버튼을 표시하지 않는다.
+  final ValueChanged<String>? onRenameFolder;
+
   /// 곡을 드래그해 폴더에 떨어뜨렸을 때. folder가 ''이면 폴더에서 꺼낸다.
   /// null이면 드래그 손잡이를 그리지 않는다.
   final void Function(String songId, String folder)? onMoveSongToFolder;
@@ -111,6 +114,7 @@ class SongListPanel extends StatefulWidget {
     this.onToggleFolder,
     this.onCreateFolder,
     this.onMoveFolder,
+    this.onRenameFolder,
     this.onMoveSongToFolder,
     this.onDropSongOnSong,
   });
@@ -379,6 +383,7 @@ class _SongListPanelState extends State<SongListPanel> {
       rows.add(_songDropTarget(song, displayIds));
     }
     final moveFolder = widget.onMoveFolder;
+    final renameFolder = widget.onRenameFolder;
     for (var f = 0; f < folders.length; f++) {
       final name = folders[f];
       final members = byFolder[name] ?? const <Song>[];
@@ -400,6 +405,7 @@ class _SongListPanelState extends State<SongListPanel> {
             onMoveDown: moveFolder == null || f == folders.length - 1
                 ? null
                 : () => moveFolder(folders, name, 1),
+            onRename: renameFolder == null ? null : () => renameFolder(name),
           ),
         ),
       );
@@ -654,6 +660,7 @@ class _FolderHeader extends StatelessWidget {
   /// 순서 이동. 맨 위/맨 아래 폴더는 해당 방향이 null(흐리게)이다.
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
+  final VoidCallback? onRename;
 
   const _FolderHeader({
     required this.name,
@@ -662,11 +669,13 @@ class _FolderHeader extends StatelessWidget {
     required this.onTap,
     this.onMoveUp,
     this.onMoveDown,
+    this.onRename,
   });
 
   @override
   Widget build(BuildContext context) {
     final showMove = onMoveUp != null || onMoveDown != null;
+    final showActions = showMove || onRename != null;
     return Semantics(
       button: true,
       expanded: open,
@@ -696,14 +705,25 @@ class _FolderHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (onRename != null)
+                IconButton(
+                  onPressed: onRename,
+                  icon: const Icon(Icons.drive_file_rename_outline, size: 20),
+                  tooltip: '폴더 이름 바꾸기',
+                  constraints: const BoxConstraints(
+                    minWidth: 34,
+                    minHeight: 34,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
               if (showMove) ...[
                 IconButton(
                   onPressed: onMoveUp,
                   icon: const Icon(Icons.arrow_upward, size: 20),
                   tooltip: '폴더 위로',
                   constraints: const BoxConstraints(
-                    minWidth: AppConstants.denseTouchTarget,
-                    minHeight: AppConstants.denseTouchTarget,
+                    minWidth: 34,
+                    minHeight: 34,
                   ),
                   visualDensity: VisualDensity.compact,
                 ),
@@ -712,12 +732,13 @@ class _FolderHeader extends StatelessWidget {
                   icon: const Icon(Icons.arrow_downward, size: 20),
                   tooltip: '폴더 아래로',
                   constraints: const BoxConstraints(
-                    minWidth: AppConstants.denseTouchTarget,
-                    minHeight: AppConstants.denseTouchTarget,
+                    minWidth: 34,
+                    minHeight: 34,
                   ),
                   visualDensity: VisualDensity.compact,
                 ),
               ],
+              if (showActions) const SizedBox(width: 4),
               Text('$count곡', style: AppTypography.monoMuted),
               const SizedBox(width: 4),
               Icon(
