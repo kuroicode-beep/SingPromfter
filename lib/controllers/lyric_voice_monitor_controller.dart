@@ -84,7 +84,9 @@ class LyricVoiceMonitorController {
   void _onPlaybackChanged() {
     final playing = playback.snapshot.playing;
     final justStarted = playing && !_lastPlaying;
+    final justPaused = !playing && _lastPlaying;
     _lastPlaying = playing;
+    if (justPaused && enabled.value) _stopSafely();
     final songId = playback.snapshot.song?.id;
     if (songId != _activeSongId) {
       _activeSongId = songId;
