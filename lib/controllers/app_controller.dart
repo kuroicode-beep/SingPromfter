@@ -71,6 +71,7 @@ import '../utils/youtube_title_cleaner.dart';
 import 'compose_job_controller.dart';
 import 'import_job_controller.dart';
 import 'playback_controller.dart';
+import 'lyric_voice_monitor_controller.dart';
 
 /// 가져오기 요청 결과. 실패 시 [errorCode]로 사유를 기계가 읽을 수 있게 준다.
 class ImportEnqueueOutcome {
@@ -172,6 +173,7 @@ class AppController extends ChangeNotifier {
   late final ImportJobController importJobs;
   late final ComposeJobController composeJobs;
   late final PlaybackController playback;
+  late final LyricVoiceMonitorController lyricVoiceMonitor;
 
   // ── UI 연결점 (화면이 설정; 없어도 동작한다) ─────────────
   void Function(String message)? onMessage;
@@ -239,6 +241,10 @@ class AppController extends ChangeNotifier {
       onPracticeSessionEnded: (snapshot, played) =>
           onPracticeSessionEnded?.call(snapshot, played),
     )..init();
+    lyricVoiceMonitor = LyricVoiceMonitorController(
+      playback: playback,
+      onMessage: _emit,
+    );
     // 용량 축출이 지금 재생 중인 사본을 지우지 않게 한다.
     playbackCopies.activePathProvider = () => playback.snapshot.activeAudioPath;
     importJobs = ImportJobController(runner: _runImportJob);
@@ -264,6 +270,7 @@ class AppController extends ChangeNotifier {
     bgmCompose.close();
     ollama.close();
     playbackCopies.dispose(); // 굽던 ffmpeg를 끊는다(남은 .part는 다음 실행이 치운다).
+    lyricVoiceMonitor.dispose();
     playback.dispose();
     audio.dispose();
     lyricsScrollController.dispose();

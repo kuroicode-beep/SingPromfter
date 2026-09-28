@@ -12,9 +12,14 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.19.0';
+  static const String current = '5.20.0';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.20.0',
+      '2026-09-29',
+      'Ctrl+Alt+Z로 가사 읽기를 켜면 LRC 한 줄을 1초 먼저 한국어 음성으로 만들어 RØDE 헤드폰에 보냅니다. 음악 출력은 유지하고, 준비되지 않은 줄은 늦게 재생하지 않습니다.',
+    ),
     AppVersionEntry(
       '5.19.0',
       '2026-09-28',

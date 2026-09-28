@@ -100,6 +100,7 @@ int? stepLineFor(
 /// 새 동작은 여기 필드 하나 + 스코프 처리기 한 곳이면 양쪽에 다 걸린다.
 class PrompterActions {
   final VoidCallback? togglePlayPause;
+  final VoidCallback? toggleLyricVoiceMonitor;
   final VoidCallback? toggleRecording;
 
   /// 직전 녹음 취소(Ctrl+R). 방금 받은 조각이 맘에 안 들 때 곧바로 물린다 —
@@ -140,6 +141,7 @@ class PrompterActions {
 
   const PrompterActions({
     this.togglePlayPause,
+    this.toggleLyricVoiceMonitor,
     this.toggleRecording,
     this.discardLastRecording,
     this.toggleRecordArm,
@@ -352,6 +354,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     final shift = HardwareKeyboard.instance.isShiftPressed;
     final ctrl = HardwareKeyboard.instance.isControlPressed;
     final alt = HardwareKeyboard.instance.isAltPressed;
+    // Ctrl+Alt+Z = RØDE 헤드폰 가사 읽기 토글.
+    if (event is KeyDownEvent &&
+        key == LogicalKeyboardKey.keyZ && ctrl && alt && !shift) {
+      final toggle = widget.actions?.toggleLyricVoiceMonitor;
+      if (toggle != null) {
+        toggle();
+        return KeyEventResult.handled;
+      }
+    }
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.arrowRight) {
       final back = key == LogicalKeyboardKey.arrowLeft;

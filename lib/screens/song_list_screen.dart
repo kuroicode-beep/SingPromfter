@@ -267,6 +267,7 @@ class _SongListScreenState extends State<SongListScreen> {
 
   /// 홈과 무대가 똑같이 소비하는 동작 묶음 — 정의는 이 한 곳뿐이다.
   PrompterActions get _prompterActions => PrompterActions(
+    toggleLyricVoiceMonitor: _app.lyricVoiceMonitor.toggle,
     togglePlayPause: _togglePlayPause,
     toggleRecording: _toggleRecording,
     discardLastRecording: _discardLastRecording,
