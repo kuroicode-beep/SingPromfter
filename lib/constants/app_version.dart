@@ -12,9 +12,16 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.20.1';
+  static const String current = '5.20.2';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.20.2',
+      '2026-10-05',
+      '가사 음성 단축키·스케줄러·MethodChannel·WASAPI 재생 단계를 파일에 기록하고, '
+          'RØDE 장치 경로와 엔드포인트·앱 세션 볼륨/음소거 및 실제 전송 프레임을 진단합니다. '
+          'Ctrl+Alt+Z는 물리 Z 키도 인식합니다.',
+    ),
     AppVersionEntry(
       '5.20.1',
       '2026-10-05',

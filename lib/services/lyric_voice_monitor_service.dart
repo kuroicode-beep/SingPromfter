@@ -25,11 +25,13 @@ class LyricVoiceMonitorService {
   }
 
   Future<Map<Object?, Object?>> playFile(String path) async =>
-      await _channel.invokeMapMethod<Object?, Object?>(
-        'playFile',
-        {'path': path},
-      ) ??
+      await _channel.invokeMapMethod<Object?, Object?>('playFile', {
+        'path': path,
+      }) ??
       const <Object?, Object?>{};
 
   Future<void> stop() => _channel.invokeMethod<void>('stop');
+
+  Future<void> logEvent(String message) =>
+      _channel.invokeMethod<void>('logEvent', {'message': message});
 }

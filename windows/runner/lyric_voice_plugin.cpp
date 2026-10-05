@@ -1,6 +1,8 @@
 #include "lyric_voice_plugin.h"
 
 #include <audioclient.h>
+#include <audiopolicy.h>
+#include <endpointvolume.h>
 #include <mmdeviceapi.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <sapi.h>
@@ -92,6 +94,94 @@ std::string WideToUtf8(const std::wstring& text) {
                       result.data(), size, nullptr, nullptr);
   result.pop_back();
   return result;
+}
+
+std::string DeviceId(IMMDevice* device) {
+  LPWSTR id = nullptr;
+  if (!device || FAILED(device->GetId(&id)) || !id) return "unknown";
+  const std::string result = WideToUtf8(id);
+  CoTaskMemFree(id);
+  return result;
+}
+
+void LogEndpointState(IMMDevice* device, IAudioClient* client) {
+  std::ostringstream state;
+  state << "audio-endpoint id=" << DeviceId(device);
+  IAudioEndpointVolume* endpoint_volume = nullptr;
+  HRESULT hr = device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL,
+                                nullptr, reinterpret_cast<void**>(&endpoint_volume));
+  if (SUCCEEDED(hr) && endpoint_volume) {
+    float scalar = 0.0f;
+    BOOL muted = FALSE;
+    const HRESULT volume_hr = endpoint_volume->GetMasterVolumeLevelScalar(&scalar);
+    const HRESULT mute_hr = endpoint_volume->GetMute(&muted);
+    state << " endpointVolume=";
+    if (SUCCEEDED(volume_hr)) state << scalar;
+    else state << "error";
+    state << " endpointMute=";
+    if (SUCCEEDED(mute_hr)) state << (muted ? "true" : "false");
+    else state << "error";
+    endpoint_volume->Release();
+  } else {
+    state << " endpointVolume=unavailable";
+  }
+  LogLyricVoiceEvent(state.str());
+
+  IAudioSessionManager2* manager = nullptr;
+  hr = device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr,
+                        reinterpret_cast<void**>(&manager));
+  if (FAILED(hr) || !manager) {
+    LogLyricVoiceEvent("audio-session-manager unavailable " + HResultMessage("Activate", hr));
+    return;
+  }
+  IAudioSessionEnumerator* sessions = nullptr;
+  hr = manager->GetSessionEnumerator(&sessions);
+  if (FAILED(hr) || !sessions) {
+    LogLyricVoiceEvent("audio-session-enumeration failed " + HResultMessage("GetSessionEnumerator", hr));
+    manager->Release();
+    return;
+  }
+  int count = 0;
+  sessions->GetCount(&count);
+  const DWORD current_pid = GetCurrentProcessId();
+  bool found_current = false;
+  for (int i = 0; i < count; ++i) {
+    IAudioSessionControl* control = nullptr;
+    if (FAILED(sessions->GetSession(i, &control)) || !control) continue;
+    IAudioSessionControl2* control2 = nullptr;
+    if (SUCCEEDED(control->QueryInterface(IID_PPV_ARGS(&control2))) && control2) {
+      DWORD process_id = 0;
+      if (SUCCEEDED(control2->GetProcessId(&process_id)) && process_id == current_pid) {
+        ISimpleAudioVolume* volume = nullptr;
+        if (SUCCEEDED(control->QueryInterface(IID_PPV_ARGS(&volume))) && volume) {
+          float scalar = 0.0f;
+          BOOL muted = FALSE;
+          const HRESULT volume_hr = volume->GetMasterVolume(&scalar);
+          const HRESULT mute_hr = volume->GetMute(&muted);
+          std::ostringstream session;
+          session << "audio-session pid=" << process_id << " count=" << count
+                  << " volume=";
+          if (SUCCEEDED(volume_hr)) session << scalar;
+          else session << "error";
+          session << " mute=";
+          if (SUCCEEDED(mute_hr)) session << (muted ? "true" : "false");
+          else session << "error";
+          LogLyricVoiceEvent(session.str());
+          volume->Release();
+          found_current = true;
+        }
+      }
+      control2->Release();
+    }
+    control->Release();
+  }
+  if (!found_current) {
+    LogLyricVoiceEvent("audio-session current-process-not-found pid=" +
+                       std::to_string(current_pid) + " count=" + std::to_string(count));
+  }
+  sessions->Release();
+  manager->Release();
+  (void)client;
 }
 
 bool FindKoreanVoice(ISpObjectToken** voice, std::string* error) {
@@ -385,8 +475,10 @@ bool ProbeRodeOutput(IMMDevice* device, std::string* error) {
   client->Release();
   if (FAILED(hr)) {
     *error = HResultMessage("RØDE 무음 오디오 경로를 확인하지 못했어요", hr);
+    LogLyricVoiceEvent("silent-probe initialize-or-buffer failed " + *error);
     return false;
   }
+  LogLyricVoiceEvent("silent-probe initialized endpoint=" + DeviceId(device));
   return true;
 }
 }  // namespace
@@ -434,6 +526,7 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
                                     std::wstring* device_name,
                                     std::string* error) {
   *was_cancelled = false;
+  LogLyricVoiceEvent("playback-open path=" + WideToUtf8(std::filesystem::path(path).filename().wstring()));
   const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   if (FAILED(com) && com != RPC_E_CHANGED_MODE) {
     *error = HResultMessage("Windows 오디오 초기화에 실패했어요", com);
@@ -484,20 +577,30 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
   if (!have_format || !complete_data || wave_data.empty() ||
       wave_data.size() % format.nBlockAlign != 0) {
     *error = "재생할 수 있는 16비트 PCM 음성이 아니에요.";
+    LogLyricVoiceEvent("playback-wave-invalid error=" + *error);
     if (SUCCEEDED(com)) CoUninitialize();
     return false;
   }
   IMMDevice* device = nullptr;
   if (!EnumerateRodeOutput(&device, device_name, error)) {
+    LogLyricVoiceEvent("playback-route-failed error=" + *error);
     if (SUCCEEDED(com)) CoUninitialize();
     return false;
   }
+  const std::string device_id = DeviceId(device);
+  LogLyricVoiceEvent("playback-route name=" + WideToUtf8(*device_name) +
+                     " id=" + device_id + " sourceRate=" +
+                     std::to_string(format.nSamplesPerSec) + " channels=" +
+                     std::to_string(format.nChannels) + " bits=" +
+                     std::to_string(format.wBitsPerSample) + " bytes=" +
+                     std::to_string(wave_data.size()));
   IAudioClient* client = nullptr;
   HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                 reinterpret_cast<void**>(&client));
-  device->Release();
   if (FAILED(hr)) {
     *error = HResultMessage("RØDE 출력 엔드포인트를 열지 못했어요", hr);
+    LogLyricVoiceEvent("playback-activate-failed endpoint=" + device_id + " " + *error);
+    device->Release();
     if (SUCCEEDED(com)) CoUninitialize();
     return false;
   }
@@ -507,6 +610,8 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
                           10000000, 0, &format, nullptr);
   if (FAILED(hr)) {
     *error = HResultMessage("RØDE 오디오 스트림을 시작할 수 없어요", hr);
+    LogLyricVoiceEvent("playback-initialize-failed endpoint=" + device_id + " " + *error);
+    device->Release();
     client->Release();
     if (SUCCEEDED(com)) CoUninitialize();
     return false;
@@ -520,6 +625,9 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
   }
   if (FAILED(hr) || buffer_frames == 0) {
     *error = HResultMessage("RØDE 오디오 버퍼를 준비하지 못했어요", hr);
+    LogLyricVoiceEvent("playback-buffer-failed endpoint=" + device_id + " bufferFrames=" +
+                       std::to_string(buffer_frames) + " " + *error);
+    device->Release();
     if (render) render->Release();
     client->Release();
     if (SUCCEEDED(com)) CoUninitialize();
@@ -528,8 +636,19 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
 
   const UINT32 total_frames = static_cast<UINT32>(
       wave_data.size() / format.nBlockAlign);
+  LogLyricVoiceEvent("playback-buffer-ready endpoint=" + device_id + " bufferFrames=" +
+                     std::to_string(buffer_frames) + " totalFrames=" +
+                     std::to_string(total_frames));
   UINT32 written_frames = 0;
   HRESULT playback_hr = client->Start();
+  if (SUCCEEDED(playback_hr)) {
+    LogLyricVoiceEvent("playback-started endpoint=" + device_id + " pid=" +
+                       std::to_string(GetCurrentProcessId()));
+    LogEndpointState(device, client);
+  } else {
+    LogLyricVoiceEvent("playback-start-failed endpoint=" + device_id + " " +
+                       HResultMessage("IAudioClient::Start", playback_hr));
+  }
   while (SUCCEEDED(playback_hr) && !cancelled.load() &&
          written_frames < total_frames) {
     UINT32 padding = 0;
@@ -564,18 +683,29 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
   }
   const bool cancelled_before_completion = cancelled.load() && !drained;
   const HRESULT stop_hr = client->Stop();
+  device->Release();
   render->Release();
   client->Release();
   if (SUCCEEDED(com)) CoUninitialize();
   if (FAILED(playback_hr)) {
     *error = HResultMessage("RØDE 오디오 출력 중 오류가 났어요", playback_hr);
+    LogLyricVoiceEvent("playback-stream-failed endpoint=" + device_id + " writtenFrames=" +
+                       std::to_string(written_frames) + "/" +
+                       std::to_string(total_frames) + " drained=" +
+                       (drained ? "true" : "false") + " " + *error);
     return false;
   }
   if (FAILED(stop_hr)) {
     *error = HResultMessage("RØDE 오디오 스트림을 정지하지 못했어요", stop_hr);
+    LogLyricVoiceEvent("playback-stop-failed endpoint=" + device_id + " " + *error);
     return false;
   }
   *was_cancelled = cancelled_before_completion;
+  LogLyricVoiceEvent("playback-finished endpoint=" + device_id + " writtenFrames=" +
+                     std::to_string(written_frames) + "/" +
+                     std::to_string(total_frames) + " drained=" +
+                     (drained ? "true" : "false") + " cancelled=" +
+                     (*was_cancelled ? "true" : "false"));
   return true;
 }
 
@@ -588,6 +718,22 @@ void LyricVoicePlugin::StopPlayback() {
 void LyricVoicePlugin::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  LogLyricVoiceEvent("method-call name=" + call.method_name());
+  if (call.method_name() == "logEvent") {
+    const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+    const auto it = args ? args->find(flutter::EncodableValue("message"))
+                         : flutter::EncodableMap::const_iterator{};
+    const auto* message = args && it != args->end()
+        ? std::get_if<std::string>(&it->second) : nullptr;
+    if (!message) {
+      LogLyricVoiceEvent("method-log-event invalid-args");
+      result->Error("invalid_args", "진단 메시지가 없어요.");
+      return;
+    }
+    LogLyricVoiceEvent("flutter " + *message);
+    result->Success();
+    return;
+  }
   if (call.method_name() == "hasRodeOutput") {
     std::wstring device_name;
     std::string error;
@@ -597,6 +743,9 @@ void LyricVoicePlugin::HandleMethodCall(
     status.emplace(flutter::EncodableValue("device"),
                    flutter::EncodableValue(found ? WideToUtf8(device_name) : ""));
     status.emplace(flutter::EncodableValue("error"), flutter::EncodableValue(error));
+    LogLyricVoiceEvent(found
+        ? "method-result hasRodeOutput ok=true device=" + WideToUtf8(device_name)
+        : "method-result hasRodeOutput ok=false error=" + error);
     result->Success(flutter::EncodableValue(std::move(status)));
     return;
   }
@@ -616,6 +765,9 @@ void LyricVoicePlugin::HandleMethodCall(
           std::wstring device_name;
           if (PlayWaveFile(path, playback_cancelled_, &was_cancelled,
                            &device_name, &error)) {
+            LogLyricVoiceEvent("method-result playFile status=" +
+                std::string(was_cancelled ? "cancelled" : "played") +
+                " device=" + WideToUtf8(device_name));
             flutter::EncodableMap status;
             status.emplace(flutter::EncodableValue("status"),
                            flutter::EncodableValue(was_cancelled ? "cancelled" : "played"));
@@ -624,6 +776,7 @@ void LyricVoicePlugin::HandleMethodCall(
             result->Success(flutter::EncodableValue(std::move(status)));
           } else {
             LogLyricVoiceEvent("playback-failed error=" + error);
+            LogLyricVoiceEvent("method-result playFile status=error");
             result->Error("play_failed", error);
           }
         });

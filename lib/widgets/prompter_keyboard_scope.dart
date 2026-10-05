@@ -101,6 +101,7 @@ int? stepLineFor(
 class PrompterActions {
   final VoidCallback? togglePlayPause;
   final VoidCallback? toggleLyricVoiceMonitor;
+  final ValueChanged<String>? logLyricVoiceDiagnostic;
   final VoidCallback? toggleRecording;
 
   /// 직전 녹음 취소(Ctrl+R). 방금 받은 조각이 맘에 안 들 때 곧바로 물린다 —
@@ -142,6 +143,7 @@ class PrompterActions {
   const PrompterActions({
     this.togglePlayPause,
     this.toggleLyricVoiceMonitor,
+    this.logLyricVoiceDiagnostic,
     this.toggleRecording,
     this.discardLastRecording,
     this.toggleRecordArm,
@@ -299,6 +301,21 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     if (event is KeyUpEvent) return KeyEventResult.ignored;
 
     final key = event.logicalKey;
+    final ctrl = HardwareKeyboard.instance.isControlPressed;
+    final alt = HardwareKeyboard.instance.isAltPressed;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final isZKey =
+        key == LogicalKeyboardKey.keyZ ||
+        event.physicalKey == PhysicalKeyboardKey.keyZ;
+    final isLyricVoiceHotkey =
+        event is KeyDownEvent && isZKey && ctrl && alt && !shift;
+    if (isLyricVoiceHotkey) {
+      widget.actions?.logLyricVoiceDiagnostic?.call(
+        'hotkey:received logical=${key.keyLabel} physical=${event.physicalKey.debugName} '
+        'enabled=${widget.enabled} textInput=${SongListShortcutService.isTextInputFocused()} '
+        'scopeFocus=${node.hasFocus}',
+      );
+    }
 
     if (SongListShortcutService.isTextInputFocused()) {
       // ESC = 입력 포커스 해제. 검색창 등이 포커스를 쥐면 단축키가 전부
@@ -351,17 +368,15 @@ class _PrompterKeyboardScopeState extends State<PrompterKeyboardScope> {
     // 문장부호·글자 키가 환경(IME·자판)에 따라 안 먹는 실사용 보고로,
     // 어디서나 확실히 오는 화살표를 본대로 삼는다. 원래 기능은 Shift로:
     // Shift+←/→ = 30초 이동, Shift+↑/↓ = 볼륨. 꾹 누르면 연속(반복 수용).
-    final shift = HardwareKeyboard.instance.isShiftPressed;
-    final ctrl = HardwareKeyboard.instance.isControlPressed;
-    final alt = HardwareKeyboard.instance.isAltPressed;
     // Ctrl+Alt+Z = RØDE 헤드폰 가사 읽기 토글.
-    if (event is KeyDownEvent &&
-        key == LogicalKeyboardKey.keyZ && ctrl && alt && !shift) {
+    if (isLyricVoiceHotkey) {
       final toggle = widget.actions?.toggleLyricVoiceMonitor;
       if (toggle != null) {
+        widget.actions?.logLyricVoiceDiagnostic?.call('hotkey:dispatch');
         toggle();
         return KeyEventResult.handled;
       }
+      widget.actions?.logLyricVoiceDiagnostic?.call('hotkey:missing-action');
     }
     if (key == LogicalKeyboardKey.arrowLeft ||
         key == LogicalKeyboardKey.arrowRight) {
