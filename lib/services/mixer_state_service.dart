@@ -22,10 +22,14 @@ const String kRecordingSlotKeyword = '레코딩';
 
 class MixerStateService {
   /// [readFile]는 테스트가 디스크 없이 돌리기 위한 우회로다. 못 읽으면 null을 준다.
-  MixerStateService({Future<String?> Function(String path)? readFile})
-    : _readFile = readFile ?? _readIfExists;
+  MixerStateService({
+    Future<String?> Function(String path)? readFile,
+    String? Function()? localAppData,
+  }) : _readFile = readFile ?? _readIfExists,
+       _localAppData = localAppData ?? _getLocalAppData;
 
   final Future<String?> Function(String path) _readFile;
+  final String? Function() _localAppData;
 
   static Future<String?> _readIfExists(String path) async {
     try {
@@ -37,12 +41,12 @@ class MixerStateService {
     }
   }
 
-  static String? get _localAppData => Platform.environment['LOCALAPPDATA'];
+  static String? _getLocalAppData() => Platform.environment['LOCALAPPDATA'];
 
   /// 두 파일을 읽어 아는 만큼 채운다. 하나도 못 읽으면 null.
   Future<MixerSnapshotState?> read() async {
     if (PlatformCapabilities.isMobile) return null;
-    final base = _localAppData;
+    final base = _localAppData();
     if (base == null || base.isEmpty) return null;
 
     final last = parseLastSnapshot(

@@ -114,8 +114,40 @@ void main() {
   });
 
   group('MixerStateService — 두 파일을 합쳐 읽는다', () {
+    for (final base in <String?>[null, '']) {
+      test('missing LOCALAPPDATA ($base) skips file reads', () async {
+        final paths = <String>[];
+        final svc = MixerStateService(
+          localAppData: () => base,
+          readFile: (path) async {
+            paths.add(path);
+            return '{"last_snapshot": 1}';
+          },
+        );
+        expect(await svc.read(), isNull);
+        expect(paths, isEmpty);
+      });
+    }
+
+    test('reads both files under the supplied LOCALAPPDATA', () async {
+      final paths = <String>[];
+      final svc = MixerStateService(
+        localAppData: () => r'C:\test-app-data',
+        readFile: (path) async {
+          paths.add(path);
+          return null;
+        },
+      );
+      expect(await svc.read(), isNull);
+      expect(paths, [
+        r'C:\test-app-data\svil-flow8\state.json',
+        r'C:\test-app-data\audio-hotkeys\config.json',
+      ]);
+    });
+
     test('둘 다 읽히면 비교가 선다', () async {
       final svc = MixerStateService(
+        localAppData: () => r'C:\test-app-data',
         readFile: (path) async => path.contains('svil-flow8')
             ? '{"last_snapshot": 1}'
             : '{"snapshots": {"4": {"name": "레코딩", "flow8_snapshot": 4}}}',
@@ -127,12 +159,16 @@ void main() {
     });
 
     test('둘 다 없으면 null — FLOW 8을 안 쓰면 조용하다', () async {
-      final svc = MixerStateService(readFile: (_) async => null);
+      final svc = MixerStateService(
+        localAppData: () => r'C:\test-app-data',
+        readFile: (_) async => null,
+      );
       expect(await svc.read(), isNull);
     });
 
     test('한쪽만 읽히면 판단하지 않는다', () async {
       final svc = MixerStateService(
+        localAppData: () => r'C:\test-app-data',
         readFile: (path) async =>
             path.contains('svil-flow8') ? '{"last_snapshot": 1}' : null,
       );
