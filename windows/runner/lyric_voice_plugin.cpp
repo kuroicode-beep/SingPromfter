@@ -1,17 +1,74 @@
 #include "lyric_voice_plugin.h"
 
+#include <audioclient.h>
+#include <mmdeviceapi.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include <sapi.h>
+#include <propvarutil.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <mutex>
+#include <sstream>
 #include <thread>
+#include <cwctype>
+#include <ctime>
 
 namespace {
 constexpr char kChannelName[] = "singpromfter/lyric_voice_monitor";
 std::mutex g_synthesis_mutex;
+std::mutex g_log_mutex;
+
+void LogLyricVoiceEvent(const std::string& message) {
+  char* local_app_data = nullptr;
+  size_t local_app_data_size = 0;
+  if (_dupenv_s(&local_app_data, &local_app_data_size, "LOCALAPPDATA") != 0 ||
+      !local_app_data || !*local_app_data) {
+    free(local_app_data);
+    return;
+  }
+  const std::filesystem::path app_data_path(local_app_data);
+  free(local_app_data);
+  std::lock_guard<std::mutex> lock(g_log_mutex);
+  const auto log_path = app_data_path / "SingPromfter" / "logs" /
+                        "lyric_voice_monitor.log";
+  std::error_code ec;
+  std::filesystem::create_directories(log_path.parent_path(), ec);
+  if (ec) return;
+  std::ofstream log(log_path, std::ios::binary | std::ios::app);
+  if (!log) return;
+  const auto now = std::chrono::system_clock::to_time_t(
+      std::chrono::system_clock::now());
+  std::tm local_time{};
+  localtime_s(&local_time, &now);
+  log << std::put_time(&local_time, "%Y-%m-%d %H:%M:%S") << " "
+      << message << "\n";
+}
+
+std::string HResultMessage(const char* action, HRESULT code) {
+  std::ostringstream message;
+  message << action << " (HRESULT 0x" << std::hex << std::uppercase
+          << static_cast<unsigned long>(code) << ").";
+  return message.str();
+}
+
+bool ContainsIgnoringCase(const std::wstring& value,
+                          const std::wstring& needle) {
+  std::wstring folded_value(value);
+  std::wstring folded_needle(needle);
+  std::transform(folded_value.begin(), folded_value.end(), folded_value.begin(),
+                 [](wchar_t ch) { return static_cast<wchar_t>(towlower(ch)); });
+  std::transform(folded_needle.begin(), folded_needle.end(), folded_needle.begin(),
+                 [](wchar_t ch) { return static_cast<wchar_t>(towlower(ch)); });
+  return folded_value.find(folded_needle) != std::wstring::npos;
+}
 
 std::wstring Utf8ToWide(const std::string& text) {
   if (text.empty()) return {};
@@ -25,18 +82,38 @@ std::wstring Utf8ToWide(const std::string& text) {
   return result;
 }
 
-bool FindKoreanVoice(ISpObjectToken** voice) {
+std::string WideToUtf8(const std::wstring& text) {
+  if (text.empty()) return {};
+  const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
+                                       text.c_str(), -1, nullptr, 0, nullptr, nullptr);
+  if (size <= 0) return {};
+  std::string result(size, '\0');
+  WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, text.c_str(), -1,
+                      result.data(), size, nullptr, nullptr);
+  result.pop_back();
+  return result;
+}
+
+bool FindKoreanVoice(ISpObjectToken** voice, std::string* error) {
   ISpObjectTokenCategory* category = nullptr;
-  if (FAILED(CoCreateInstance(CLSID_SpObjectTokenCategory, nullptr,
-                              CLSCTX_ALL, IID_ISpObjectTokenCategory,
-                              reinterpret_cast<void**>(&category)))) return false;
-  if (FAILED(category->SetId(SPCAT_VOICES, FALSE))) {
+  HRESULT hr = CoCreateInstance(CLSID_SpObjectTokenCategory, nullptr,
+                                CLSCTX_ALL, IID_ISpObjectTokenCategory,
+                                reinterpret_cast<void**>(&category));
+  if (FAILED(hr)) {
+    *error = HResultMessage("SAPI 음성 목록을 열지 못했어요", hr);
+    return false;
+  }
+  hr = category->SetId(SPCAT_VOICES, FALSE);
+  if (FAILED(hr)) {
     category->Release();
+    *error = HResultMessage("SAPI 음성 목록을 선택하지 못했어요", hr);
     return false;
   }
   IEnumSpObjectTokens* tokens = nullptr;
-  if (FAILED(category->EnumTokens(nullptr, nullptr, &tokens))) {
+  hr = category->EnumTokens(nullptr, nullptr, &tokens);
+  if (FAILED(hr)) {
     category->Release();
+    *error = HResultMessage("SAPI 음성 목록을 읽지 못했어요", hr);
     return false;
   }
   category->Release();
@@ -47,44 +124,68 @@ bool FindKoreanVoice(ISpObjectToken** voice) {
     ISpObjectToken* token = nullptr;
     if (FAILED(tokens->Next(1, &token, nullptr)) || !token) continue;
     WCHAR* language = nullptr;
+    WCHAR* attribute_language = nullptr;
     WCHAR* token_id = nullptr;
-    const bool korean_language =
-        SUCCEEDED(token->GetStringValue(L"Language", &language)) && language &&
-        (wcsstr(language, L"412") != nullptr || wcsstr(language, L"0412") != nullptr);
-    const bool korean_name =
-        SUCCEEDED(token->GetId(&token_id)) && token_id &&
-        (wcsstr(token_id, L"ko-KR") != nullptr || wcsstr(token_id, L"Heami") != nullptr);
+    token->GetStringValue(L"Language", &language);
+    ISpDataKey* attributes = nullptr;
+    if (SUCCEEDED(token->OpenKey(L"Attributes", &attributes)) && attributes) {
+      attributes->GetStringValue(L"Language", &attribute_language);
+      attributes->Release();
+    }
+    token->GetId(&token_id);
+    const std::wstring locale = language ? language : L"";
+    const std::wstring attribute_locale =
+        attribute_language ? attribute_language : L"";
+    const std::wstring id = token_id ? token_id : L"";
+    const bool korean_language = ContainsIgnoringCase(locale, L"412") ||
+                                 ContainsIgnoringCase(locale, L"0412") ||
+                                 ContainsIgnoringCase(attribute_locale, L"412") ||
+                                 ContainsIgnoringCase(attribute_locale, L"0412");
+    const bool korean_name = ContainsIgnoringCase(id, L"ko-KR") ||
+                             ContainsIgnoringCase(id, L"Heami");
     if (korean_language && korean_name) {
       *voice = token;
       token = nullptr;
       found = true;
     }
     CoTaskMemFree(language);
+    CoTaskMemFree(attribute_language);
     CoTaskMemFree(token_id);
     if (token) token->Release();
   }
   tokens->Release();
+  if (!found) *error = "한국어 SAPI 음성(한국어 412)을 찾지 못했어요.";
   return found;
 }
 
-bool SynthesizeKorean(const std::wstring& text, const std::wstring& path) {
+bool SynthesizeKorean(const std::wstring& text, const std::wstring& path,
+                      std::string* error) {
   const HRESULT com_result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  if (FAILED(com_result) && com_result != RPC_E_CHANGED_MODE) return false;
-  bool success = false;
+  if (FAILED(com_result) && com_result != RPC_E_CHANGED_MODE) {
+    *error = HResultMessage("한국어 음성 합성 초기화에 실패했어요", com_result);
+    return false;
+  }
   ISpObjectToken* voice_token = nullptr;
   ISpVoice* voice = nullptr;
   ISpStream* stream = nullptr;
-  if (!FindKoreanVoice(&voice_token) ||
-      FAILED(CoCreateInstance(CLSID_SpVoice, nullptr, CLSCTX_ALL,
-                              IID_ISpVoice, reinterpret_cast<void**>(&voice))) ||
-      FAILED(voice->SetVoice(voice_token)) ||
-      FAILED(CoCreateInstance(CLSID_SpFileStream, nullptr, CLSCTX_ALL,
-                              IID_ISpStream, reinterpret_cast<void**>(&stream)))) {
-    if (stream) stream->Release();
-    if (voice) voice->Release();
-    if (voice_token) voice_token->Release();
-    if (SUCCEEDED(com_result)) CoUninitialize();
-    return false;
+  HRESULT hr = S_OK;
+  bool success = FindKoreanVoice(&voice_token, error);
+  if (success) {
+    hr = CoCreateInstance(CLSID_SpVoice, nullptr, CLSCTX_ALL, IID_ISpVoice,
+                          reinterpret_cast<void**>(&voice));
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("SAPI 음성 엔진을 만들지 못했어요", hr);
+  }
+  if (success) {
+    hr = voice->SetVoice(voice_token);
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("한국어 SAPI 음성을 선택하지 못했어요", hr);
+  }
+  if (success) {
+    hr = CoCreateInstance(CLSID_SpFileStream, nullptr, CLSCTX_ALL, IID_ISpStream,
+                          reinterpret_cast<void**>(&stream));
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("SAPI WAV 파일 스트림을 만들지 못했어요", hr);
   }
   WAVEFORMATEX format{};
   format.wFormatTag = WAVE_FORMAT_PCM;
@@ -93,17 +194,35 @@ bool SynthesizeKorean(const std::wstring& text, const std::wstring& path) {
   format.wBitsPerSample = 16;
   format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
   format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
-  if (SUCCEEDED(stream->BindToFile(path.c_str(), SPFM_CREATE_ALWAYS,
-                                   &SPDFID_WaveFormatEx, &format, 0)) &&
-      SUCCEEDED(voice->SetOutput(stream, FALSE)) &&
-      SUCCEEDED(voice->Speak(text.c_str(), SPF_DEFAULT, nullptr)) &&
-      SUCCEEDED(stream->Close())) {
-    success = true;
+  if (success) {
+    hr = stream->BindToFile(path.c_str(), SPFM_CREATE_ALWAYS,
+                            &SPDFID_WaveFormatEx, &format, 0);
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("가사 음성 WAV 파일을 열지 못했어요", hr);
   }
-  stream->Release();
-  voice->Release();
-  voice_token->Release();
+  if (success) {
+    hr = voice->SetOutput(stream, FALSE);
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("한국어 음성 출력을 설정하지 못했어요", hr);
+  }
+  if (success) {
+    hr = voice->Speak(text.c_str(), SPF_DEFAULT, nullptr);
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("한국어 가사를 합성하지 못했어요", hr);
+  }
+  if (success) {
+    hr = stream->Close();
+    success = SUCCEEDED(hr);
+    if (!success) *error = HResultMessage("가사 음성 WAV 파일을 닫지 못했어요", hr);
+  }
+  if (stream) stream->Release();
+  if (voice) voice->Release();
+  if (voice_token) voice_token->Release();
   if (SUCCEEDED(com_result)) CoUninitialize();
+  if (!success) {
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+  }
   return success;
 }
 
@@ -119,33 +238,156 @@ uint16_t ReadU16(const char* data) {
 }
 
 bool IsUsableWaveFile(const std::wstring& path) {
+  std::error_code ec;
+  const uint64_t file_size = std::filesystem::file_size(path, ec);
+  if (ec || file_size < 44 || file_size > 64 * 1024 * 1024) return false;
   std::ifstream file(path, std::ios::binary);
   char header[12]{};
   file.read(header, sizeof(header));
   if (file.gcount() != sizeof(header) || std::string(header, 4) != "RIFF" ||
       std::string(header + 8, 4) != "WAVE") return false;
+  const uint64_t riff_end = static_cast<uint64_t>(ReadU32(header + 4)) + 8;
+  if (riff_end < sizeof(header) || riff_end > file_size) return false;
   bool has_format = false;
   bool has_audio = false;
-  while (file && !file.eof()) {
+  uint64_t position = sizeof(header);
+  while (position + 8 <= riff_end) {
     char chunk[8]{};
     file.read(chunk, sizeof(chunk));
-    if (file.gcount() != sizeof(chunk)) break;
+    if (file.gcount() != sizeof(chunk)) return false;
     const uint32_t size = ReadU32(chunk + 4);
+    const uint64_t payload_end = position + 8 + size;
+    if (payload_end > riff_end) return false;
     if (std::string(chunk, 4) == "fmt " && size >= 16 && size < 4096) {
       char fmt[16]{};
       file.read(fmt, sizeof(fmt));
-      if (!file || ReadU16(fmt) != WAVE_FORMAT_PCM) return false;
+      if (file.gcount() != sizeof(fmt) || ReadU16(fmt) != WAVE_FORMAT_PCM ||
+          ReadU16(fmt + 2) != 1 || ReadU32(fmt + 4) != 22050 ||
+          ReadU16(fmt + 12) != 2 || ReadU16(fmt + 14) != 16) return false;
       has_format = true;
       if (size > sizeof(fmt)) file.seekg(size - sizeof(fmt), std::ios::cur);
     } else if (std::string(chunk, 4) == "data" && size > 0) {
-      has_audio = true;
-      break;
+      has_audio = (size % 2) == 0;
+      file.seekg(size, std::ios::cur);
     } else {
       file.seekg(size, std::ios::cur);
     }
     if (size & 1) file.seekg(1, std::ios::cur);
+    if (!file) return false;
+    position = payload_end + (size & 1);
   }
   return has_format && has_audio;
+}
+
+bool ContainsRodeUsbName(const std::wstring& name) {
+  std::wstring folded(name);
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](wchar_t ch) { return static_cast<wchar_t>(towlower(ch)); });
+  return (folded.find(L"r\u00f8de") != std::wstring::npos ||
+          folded.find(L"rode") != std::wstring::npos) &&
+         folded.find(L"nt-usb") != std::wstring::npos;
+}
+
+bool EnumerateRodeOutput(IMMDevice** selected, std::wstring* selected_name,
+                        std::string* error) {
+  *selected = nullptr;
+  IMMDeviceEnumerator* enumerator = nullptr;
+  HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                CLSCTX_ALL, IID_PPV_ARGS(&enumerator));
+  if (FAILED(hr)) {
+    *error = HResultMessage("Windows 오디오 엔드포인트 목록을 읽지 못했어요", hr);
+    return false;
+  }
+  IMMDeviceCollection* devices = nullptr;
+  hr = enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &devices);
+  enumerator->Release();
+  if (FAILED(hr)) {
+    *error = HResultMessage("활성 출력 장치를 조회하지 못했어요", hr);
+    return false;
+  }
+
+  UINT count = 0;
+  devices->GetCount(&count);
+  UINT matches = 0;
+  for (UINT i = 0; i < count; ++i) {
+    IMMDevice* device = nullptr;
+    if (FAILED(devices->Item(i, &device)) || !device) continue;
+    IPropertyStore* properties = nullptr;
+    std::wstring name;
+    if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &properties)) && properties) {
+      PROPVARIANT value;
+      PropVariantInit(&value);
+      if (SUCCEEDED(properties->GetValue(PKEY_Device_FriendlyName, &value)) &&
+          value.vt == VT_LPWSTR && value.pwszVal) {
+        name = value.pwszVal;
+      }
+      PropVariantClear(&value);
+      properties->Release();
+    }
+    if (ContainsRodeUsbName(name)) {
+      ++matches;
+      if (matches == 1) {
+        *selected = device;
+        *selected_name = name;
+        device = nullptr;
+      }
+    }
+    if (device) device->Release();
+  }
+  devices->Release();
+  if (matches == 1) return true;
+  if (*selected) {
+    (*selected)->Release();
+    *selected = nullptr;
+  }
+  *error = matches == 0
+      ? "활성화된 RØDE NT-USB 출력 장치를 찾지 못했어요."
+      : "RØDE NT-USB 출력 장치가 둘 이상이라 하나를 고를 수 없어요.";
+  return false;
+}
+
+bool ProbeRodeOutput(IMMDevice* device, std::string* error) {
+  IAudioClient* client = nullptr;
+  HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                reinterpret_cast<void**>(&client));
+  if (FAILED(hr)) {
+    *error = HResultMessage("RØDE 출력 엔드포인트를 열지 못했어요", hr);
+    return false;
+  }
+
+  WAVEFORMATEX format{};
+  format.wFormatTag = WAVE_FORMAT_PCM;
+  format.nChannels = 1;
+  format.nSamplesPerSec = 22050;
+  format.wBitsPerSample = 16;
+  format.nBlockAlign = format.nChannels * format.wBitsPerSample / 8;
+  format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+  hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                          AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+                              AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                          10000000, 0, &format, nullptr);
+  IAudioRenderClient* render = nullptr;
+  if (SUCCEEDED(hr)) {
+    hr = client->GetService(__uuidof(IAudioRenderClient),
+                            reinterpret_cast<void**>(&render));
+  }
+  if (SUCCEEDED(hr)) hr = client->Start();
+  if (SUCCEEDED(hr)) {
+    BYTE* buffer = nullptr;
+    hr = render->GetBuffer(1, &buffer);
+    if (SUCCEEDED(hr)) hr = render->ReleaseBuffer(1, AUDCLNT_BUFFERFLAGS_SILENT);
+  }
+  if (client) {
+    const HRESULT stop_result = client->Stop();
+    if (SUCCEEDED(hr) && FAILED(stop_result)) hr = stop_result;
+  }
+  if (render) render->Release();
+  client->Release();
+  if (FAILED(hr)) {
+    *error = HResultMessage("RØDE 무음 오디오 경로를 확인하지 못했어요", hr);
+    return false;
+  }
+  return true;
 }
 }  // namespace
 
@@ -165,39 +407,56 @@ LyricVoicePlugin::~LyricVoicePlugin() {
   StopPlayback();
 }
 
-bool LyricVoicePlugin::HasUniqueRodeOutput() const {
-  UINT matches = 0;
-  const UINT count = waveOutGetNumDevs();
-  for (UINT i = 0; i < count; ++i) {
-    WAVEOUTCAPSW caps{};
-    if (waveOutGetDevCapsW(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR) continue;
-    const std::wstring name(caps.szPname);
-    if (name.find(L"RØDE") != std::wstring::npos &&
-        name.find(L"NT-USB") != std::wstring::npos) ++matches;
+bool LyricVoicePlugin::FindRodeOutput(std::wstring* device_name,
+                                      std::string* error) const {
+  const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  if (FAILED(com) && com != RPC_E_CHANGED_MODE) {
+    *error = HResultMessage("Windows 오디오 초기화에 실패했어요", com);
+    return false;
   }
-  return matches == 1;
+  IMMDevice* device = nullptr;
+  const bool found = EnumerateRodeOutput(&device, device_name, error);
+  bool usable = found;
+  if (found) {
+    usable = ProbeRodeOutput(device, error);
+    device->Release();
+  }
+  if (SUCCEEDED(com)) CoUninitialize();
+  LogLyricVoiceEvent(usable
+      ? "silent-output-probe=ok device=" + WideToUtf8(*device_name)
+      : "silent-output-probe=failed error=" + *error);
+  return usable;
 }
 
 bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
+                                    const std::atomic<bool>& cancelled,
+                                    bool* was_cancelled,
+                                    std::wstring* device_name,
                                     std::string* error) {
-  std::lock_guard<std::mutex> lock(playback_mutex_);
-  if (wave_out_) {
-    waveOutReset(wave_out_);
-    waveOutUnprepareHeader(wave_out_, &wave_header_, sizeof(wave_header_));
-    waveOutClose(wave_out_);
-    wave_out_ = nullptr;
+  *was_cancelled = false;
+  const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  if (FAILED(com) && com != RPC_E_CHANGED_MODE) {
+    *error = HResultMessage("Windows 오디오 초기화에 실패했어요", com);
+    return false;
   }
-  wave_data_.clear();
   std::ifstream file(path, std::ios::binary);
-  if (!file) { *error = "가사 음성 파일을 열 수 없어요."; return false; }
+  if (!file) {
+    *error = "가사 음성 파일을 열 수 없어요.";
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
+  }
   char riff[12]{};
   file.read(riff, sizeof(riff));
   if (file.gcount() != sizeof(riff) || std::string(riff, 4) != "RIFF" ||
       std::string(riff + 8, 4) != "WAVE") {
-    *error = "가사 음성 파일 형식이 올바르지 않아요."; return false;
+    *error = "가사 음성 파일 형식이 올바르지 않아요.";
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
   }
   WAVEFORMATEX format{};
+  std::vector<char> wave_data;
   bool have_format = false;
+  bool complete_data = false;
   while (file && !file.eof()) {
     char chunk[8]{};
     file.read(chunk, sizeof(chunk));
@@ -208,61 +467,137 @@ bool LyricVoicePlugin::PlayWaveFile(const std::wstring& path,
       file.read(fmt.data(), size);
       if (!file) break;
       std::memcpy(&format, fmt.data(), std::min<size_t>(sizeof(format), 16));
-      have_format = format.wFormatTag == WAVE_FORMAT_PCM;
+      have_format = format.wFormatTag == WAVE_FORMAT_PCM &&
+                    format.nChannels > 0 && format.nSamplesPerSec > 0 &&
+                    format.nBlockAlign > 0 && format.wBitsPerSample == 16;
       if (size & 1) file.seekg(1, std::ios::cur);
     } else if (std::string(chunk, 4) == "data" && size > 0) {
-      wave_data_.resize(size);
-      file.read(wave_data_.data(), size);
+      if (size > 64 * 1024 * 1024) break;
+      wave_data.resize(size);
+      file.read(wave_data.data(), size);
+      complete_data = file.gcount() == static_cast<std::streamsize>(size);
       break;
     } else {
       file.seekg(size + (size & 1), std::ios::cur);
     }
   }
-  if (!have_format || wave_data_.empty()) {
-    *error = "재생할 수 있는 PCM 음성이 아니에요."; return false;
+  if (!have_format || !complete_data || wave_data.empty() ||
+      wave_data.size() % format.nBlockAlign != 0) {
+    *error = "재생할 수 있는 16비트 PCM 음성이 아니에요.";
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
   }
-  UINT device = WAVE_MAPPER;
-  UINT matches = 0;
-  for (UINT i = 0; i < waveOutGetNumDevs(); ++i) {
-    WAVEOUTCAPSW caps{};
-    if (waveOutGetDevCapsW(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR) continue;
-    const std::wstring name(caps.szPname);
-    if (name.find(L"RØDE") != std::wstring::npos &&
-        name.find(L"NT-USB") != std::wstring::npos) { device = i; ++matches; }
+  IMMDevice* device = nullptr;
+  if (!EnumerateRodeOutput(&device, device_name, error)) {
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
   }
-  if (matches != 1) { *error = "RØDE 헤드폰 출력을 하나로 확인할 수 없어요."; return false; }
-  if (waveOutOpen(&wave_out_, device, &format, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) {
-    wave_out_ = nullptr;
-    *error = "RØDE 헤드폰 출력 장치를 열 수 없어요."; return false;
+  IAudioClient* client = nullptr;
+  HRESULT hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                reinterpret_cast<void**>(&client));
+  device->Release();
+  if (FAILED(hr)) {
+    *error = HResultMessage("RØDE 출력 엔드포인트를 열지 못했어요", hr);
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
   }
-  wave_header_ = {};
-  wave_header_.lpData = wave_data_.data();
-  wave_header_.dwBufferLength = static_cast<DWORD>(wave_data_.size());
-  if (waveOutPrepareHeader(wave_out_, &wave_header_, sizeof(wave_header_)) != MMSYSERR_NOERROR ||
-      waveOutWrite(wave_out_, &wave_header_, sizeof(wave_header_)) != MMSYSERR_NOERROR) {
-    waveOutReset(wave_out_);
-    waveOutClose(wave_out_);
-    wave_out_ = nullptr;
-    *error = "RØDE 헤드폰으로 가사 음성을 보낼 수 없어요."; return false;
+  hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                          AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+                              AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                          10000000, 0, &format, nullptr);
+  if (FAILED(hr)) {
+    *error = HResultMessage("RØDE 오디오 스트림을 시작할 수 없어요", hr);
+    client->Release();
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
   }
+  UINT32 buffer_frames = 0;
+  hr = client->GetBufferSize(&buffer_frames);
+  IAudioRenderClient* render = nullptr;
+  if (SUCCEEDED(hr)) {
+    hr = client->GetService(__uuidof(IAudioRenderClient),
+                            reinterpret_cast<void**>(&render));
+  }
+  if (FAILED(hr) || buffer_frames == 0) {
+    *error = HResultMessage("RØDE 오디오 버퍼를 준비하지 못했어요", hr);
+    if (render) render->Release();
+    client->Release();
+    if (SUCCEEDED(com)) CoUninitialize();
+    return false;
+  }
+
+  const UINT32 total_frames = static_cast<UINT32>(
+      wave_data.size() / format.nBlockAlign);
+  UINT32 written_frames = 0;
+  HRESULT playback_hr = client->Start();
+  while (SUCCEEDED(playback_hr) && !cancelled.load() &&
+         written_frames < total_frames) {
+    UINT32 padding = 0;
+    playback_hr = client->GetCurrentPadding(&padding);
+    if (FAILED(playback_hr)) break;
+    const UINT32 available = buffer_frames - std::min(buffer_frames, padding);
+    if (available == 0) {
+      Sleep(5);
+      continue;
+    }
+    const UINT32 frames = std::min(available, total_frames - written_frames);
+    BYTE* target = nullptr;
+    playback_hr = render->GetBuffer(frames, &target);
+    if (FAILED(playback_hr)) break;
+    const size_t offset = static_cast<size_t>(written_frames) * format.nBlockAlign;
+    std::memcpy(target, wave_data.data() + offset,
+                static_cast<size_t>(frames) * format.nBlockAlign);
+    playback_hr = render->ReleaseBuffer(frames, 0);
+    if (SUCCEEDED(playback_hr)) written_frames += frames;
+  }
+  bool drained = false;
+  while (SUCCEEDED(playback_hr) && !cancelled.load() &&
+         written_frames == total_frames) {
+    UINT32 padding = 0;
+    playback_hr = client->GetCurrentPadding(&padding);
+    if (FAILED(playback_hr)) break;
+    if (padding == 0) {
+      drained = true;
+      break;
+    }
+    Sleep(5);
+  }
+  const bool cancelled_before_completion = cancelled.load() && !drained;
+  const HRESULT stop_hr = client->Stop();
+  render->Release();
+  client->Release();
+  if (SUCCEEDED(com)) CoUninitialize();
+  if (FAILED(playback_hr)) {
+    *error = HResultMessage("RØDE 오디오 출력 중 오류가 났어요", playback_hr);
+    return false;
+  }
+  if (FAILED(stop_hr)) {
+    *error = HResultMessage("RØDE 오디오 스트림을 정지하지 못했어요", stop_hr);
+    return false;
+  }
+  *was_cancelled = cancelled_before_completion;
   return true;
 }
 
 void LyricVoicePlugin::StopPlayback() {
-  std::lock_guard<std::mutex> lock(playback_mutex_);
-  if (!wave_out_) return;
-  waveOutReset(wave_out_);
-  waveOutUnprepareHeader(wave_out_, &wave_header_, sizeof(wave_header_));
-  waveOutClose(wave_out_);
-  wave_out_ = nullptr;
-  wave_data_.clear();
+  playback_cancelled_.store(true);
+  if (playback_worker_.joinable()) playback_worker_.join();
+  playback_cancelled_.store(false);
 }
 
 void LyricVoicePlugin::HandleMethodCall(
     const flutter::MethodCall<flutter::EncodableValue>& call,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (call.method_name() == "hasRodeOutput") {
-    result->Success(flutter::EncodableValue(HasUniqueRodeOutput()));
+    std::wstring device_name;
+    std::string error;
+    const bool found = FindRodeOutput(&device_name, &error);
+    flutter::EncodableMap status;
+    status.emplace(flutter::EncodableValue("ok"), flutter::EncodableValue(found));
+    status.emplace(flutter::EncodableValue("device"),
+                   flutter::EncodableValue(found ? WideToUtf8(device_name) : ""));
+    status.emplace(flutter::EncodableValue("error"), flutter::EncodableValue(error));
+    result->Success(flutter::EncodableValue(std::move(status)));
     return;
   }
   if (call.method_name() == "stop") { StopPlayback(); result->Success(); return; }
@@ -272,9 +607,26 @@ void LyricVoicePlugin::HandleMethodCall(
     const auto it = args->find(flutter::EncodableValue("path"));
     const auto* path = it == args->end() ? nullptr : std::get_if<std::string>(&it->second);
     if (!path) { result->Error("invalid_args", "파일 경로가 없어요."); return; }
-    std::string error;
-    if (PlayWaveFile(Utf8ToWide(*path), &error)) result->Success();
-    else result->Error("play_failed", error);
+    StopPlayback();
+    playback_cancelled_.store(false);
+    playback_worker_ = std::thread(
+        [this, path = Utf8ToWide(*path), result = std::move(result)]() mutable {
+          std::string error;
+          bool was_cancelled = false;
+          std::wstring device_name;
+          if (PlayWaveFile(path, playback_cancelled_, &was_cancelled,
+                           &device_name, &error)) {
+            flutter::EncodableMap status;
+            status.emplace(flutter::EncodableValue("status"),
+                           flutter::EncodableValue(was_cancelled ? "cancelled" : "played"));
+            status.emplace(flutter::EncodableValue("device"),
+                           flutter::EncodableValue(WideToUtf8(device_name)));
+            result->Success(flutter::EncodableValue(std::move(status)));
+          } else {
+            LogLyricVoiceEvent("playback-failed error=" + error);
+            result->Error("play_failed", error);
+          }
+        });
     return;
   }
   if (call.method_name() == "prepareLyrics") {
@@ -296,19 +648,44 @@ void LyricVoicePlugin::HandleMethodCall(
     workers_.emplace_back([entries = std::move(entries), result = std::move(result)]() mutable {
       const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
       flutter::EncodableList done;
+      size_t ready_count = 0;
+      std::string first_error;
       for (const auto& entry : entries) {
         std::error_code ec;
-        bool ready = std::filesystem::exists(entry.path, ec) &&
-                     std::filesystem::file_size(entry.path, ec) > 44 &&
-                     IsUsableWaveFile(entry.path);
+        const bool cache_hit = std::filesystem::exists(entry.path, ec) && !ec;
+        bool ready = cache_hit && std::filesystem::file_size(entry.path, ec) > 44 &&
+                     !ec && IsUsableWaveFile(entry.path);
+        std::string error;
         if (!ready) {
           std::filesystem::create_directories(std::filesystem::path(entry.path).parent_path(), ec);
-          std::lock_guard<std::mutex> synthesis_lock(g_synthesis_mutex);
-          ready = SynthesizeKorean(entry.text, entry.path);
+          if (ec) {
+            error = "가사 음성 캐시 폴더를 만들지 못했어요.";
+          } else {
+            std::lock_guard<std::mutex> synthesis_lock(g_synthesis_mutex);
+            ready = SynthesizeKorean(entry.text, entry.path, &error);
+          }
+        if (ready && !IsUsableWaveFile(entry.path)) {
+            ready = false;
+            error = "합성된 파일이 올바른 PCM WAV가 아니에요.";
+          }
         }
-        done.emplace_back(ready);
+        if (ready) {
+          ++ready_count;
+        } else if (first_error.empty()) {
+          first_error = error.empty() ? "WAV cache unavailable" : error;
+        }
+        uint64_t bytes = 0;
+        if (ready) bytes = std::filesystem::file_size(entry.path, ec);
+        flutter::EncodableMap item;
+        item.emplace(flutter::EncodableValue("ready"), flutter::EncodableValue(ready));
+        item.emplace(flutter::EncodableValue("bytes"), flutter::EncodableValue(static_cast<int64_t>(bytes)));
+        item.emplace(flutter::EncodableValue("error"), flutter::EncodableValue(error));
+        done.emplace_back(std::move(item));
       }
       if (SUCCEEDED(com)) CoUninitialize();
+      LogLyricVoiceEvent("sapi-cache ready=" + std::to_string(ready_count) +
+          "/" + std::to_string(entries.size()) +
+          (first_error.empty() ? "" : " first_error=" + first_error));
       result->Success(flutter::EncodableValue(std::move(done)));
     });
     return;

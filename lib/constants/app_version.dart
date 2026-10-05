@@ -12,9 +12,15 @@ class AppVersionEntry {
 class AppVersion {
   AppVersion._();
 
-  static const String current = '5.20.0';
+  static const String current = '5.20.1';
 
   static const List<AppVersionEntry> history = [
+    AppVersionEntry(
+      '5.20.1',
+      '2026-10-05',
+      '가사 음성을 waveOut 장치 번호 대신 RØDE 렌더 엔드포인트로 직접 출력합니다. '
+          'WAV 준비·장치 열기·재생 실패 원인을 앱에 표시하고, 정지 때 오디오 버퍼를 안전하게 정리합니다.',
+    ),
     AppVersionEntry(
       '5.20.0',
       '2026-09-29',

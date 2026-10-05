@@ -4,10 +4,9 @@
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 #include <windows.h>
-#include <mmsystem.h>
 
+#include <atomic>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -21,15 +20,17 @@ class LyricVoicePlugin {
   void HandleMethodCall(
       const flutter::MethodCall<flutter::EncodableValue>& call,
       std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result);
-  bool HasUniqueRodeOutput() const;
-  bool PlayWaveFile(const std::wstring& path, std::string* error);
+  bool FindRodeOutput(std::wstring* device_name, std::string* error) const;
+  bool PlayWaveFile(const std::wstring& path,
+                    const std::atomic<bool>& cancelled,
+                    bool* was_cancelled,
+                    std::wstring* device_name,
+                    std::string* error);
   void StopPlayback();
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
-  mutable std::mutex playback_mutex_;
-  HWAVEOUT wave_out_ = nullptr;
-  WAVEHDR wave_header_{};
-  std::vector<char> wave_data_;
+  std::atomic<bool> playback_cancelled_{false};
+  std::thread playback_worker_;
   std::vector<std::thread> workers_;
 };
 

@@ -50,16 +50,26 @@ class LyricVoiceMonitorController {
       onMessage('가사 읽기 꺼짐');
       return;
     }
+    Map<Object?, Object?> status = const {};
     try {
-      if (!await service.hasRodeOutput) {
-        onMessage('RØDE 헤드폰 출력을 하나로 확인할 수 없어 가사 읽기를 켜지 않았어요.');
+      status = await service.rodeOutputStatus;
+      if (status['ok'] != true) {
+        final detail = status['error']?.toString();
+        onMessage(
+          detail == null || detail.isEmpty
+              ? 'RØDE 헤드폰 출력 장치를 열 수 없어 가사 읽기를 켜지 않았어요.'
+              : detail,
+        );
         return;
       }
-    } on PlatformException {
-      onMessage('이 기능은 Windows 앱에서 사용할 수 있어요.');
+    } on PlatformException catch (error) {
+      onMessage(error.message ?? 'Windows 오디오 출력 점검에 실패했어요.');
       return;
     } on MissingPluginException {
       onMessage('이 기능은 Windows 앱에서 사용할 수 있어요.');
+      return;
+    } on Object catch (error) {
+      onMessage('Windows 오디오 출력 점검에 실패했어요: $error');
       return;
     }
     enabled.value = true;
@@ -68,7 +78,11 @@ class LyricVoiceMonitorController {
     _activeSongId = snapshot.song?.id;
     _cursor = snapshot.playing ? playback.upcomingLineIndex() : 0;
     _allowImmediateFirstCue = snapshot.playing;
-    onMessage('가사 읽기 켜짐 · Ctrl+Alt+Z');
+    final deviceName = status['device']?.toString();
+    final route = deviceName == null || deviceName.isEmpty
+        ? 'RØDE 출력'
+        : deviceName;
+    onMessage('가사 읽기 켜짐 · $route · Ctrl+Alt+Z');
     _onPositionChanged();
   }
 
@@ -90,8 +104,8 @@ class LyricVoiceMonitorController {
     final songId = playback.snapshot.song?.id;
     if (songId != _activeSongId) {
       _activeSongId = songId;
-      final atSongStart = playback.position.value <=
-          const Duration(milliseconds: 100);
+      final atSongStart =
+          playback.position.value <= const Duration(milliseconds: 100);
       _cursor = playback.snapshot.playing && !atSongStart
           ? playback.upcomingLineIndex()
           : 0;
@@ -131,8 +145,12 @@ class LyricVoiceMonitorController {
   Future<void> _prepareSelectedSong() async {
     final song = playback.snapshot.song;
     final lyrics = playback.timedLyrics.value;
-    if (_disposed || song == null || lyrics == null || lyrics.isEmpty ||
-        _preparedSongId == song.id || _preparingSongId == song.id) {
+    if (_disposed ||
+        song == null ||
+        lyrics == null ||
+        lyrics.isEmpty ||
+        _preparedSongId == song.id ||
+        _preparingSongId == song.id) {
       return;
     }
     final songId = song.id;
@@ -141,30 +159,59 @@ class LyricVoiceMonitorController {
     try {
       final temp = await getTemporaryDirectory();
       final safeId = songId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final dir = Directory('${temp.path}${Platform.pathSeparator}singpromfter_lyric_voice${Platform.pathSeparator}$safeId');
+      final dir = Directory(
+        '${temp.path}${Platform.pathSeparator}singpromfter_lyric_voice${Platform.pathSeparator}$safeId',
+      );
       await dir.create(recursive: true);
       final entries = <Map<String, String>>[];
       for (var i = 0; i < lyrics.lines.length; i++) {
         final text = lyrics.lines[i].text.trim();
         if (text.isEmpty) continue;
-        final path = '${dir.path}${Platform.pathSeparator}$i-${_textKey(text)}.wav';
+        final path =
+            '${dir.path}${Platform.pathSeparator}$i-${_textKey(text)}.wav';
         entries.add({'index': '$i', 'text': text, 'path': path});
       }
       final result = await service.prepareLyrics(entries);
-      if (_disposed || generation != _preparationGeneration ||
+      if (_disposed ||
+          generation != _preparationGeneration ||
           playback.snapshot.song?.id != songId) {
         return;
       }
+      var readyCount = 0;
+      String? firstError;
       for (var i = 0; i < entries.length && i < result.length; i++) {
-        if (result[i]) {
-          _readyFiles[int.parse(entries[i]['index']!)] = entries[i]['path']!;
+        final item = result[i];
+        final path = entries[i]['path']!;
+        final file = File(path);
+        final exists = await file.exists();
+        final size = exists ? await file.length() : 0;
+        if (item['ready'] == true && exists && size > 44) {
+          _readyFiles[int.parse(entries[i]['index']!)] = path;
+          readyCount++;
+        } else {
+          firstError ??= item['error']?.toString();
+          if (firstError == null || firstError.isEmpty) {
+            firstError = !exists
+                ? '가사 음성 WAV 파일이 생성되지 않았어요.'
+                : '가사 음성 WAV 파일이 비어 있거나 손상됐어요.';
+          }
         }
       }
       _preparedSongId = songId;
+      if (readyCount < entries.length) {
+        final failedCount = entries.length - readyCount;
+        final detail = firstError == null || firstError.isEmpty
+            ? ''
+            : ' 첫 실패: $firstError';
+        onMessage(
+          '가사 음성 준비 $readyCount/${entries.length}줄 완료, '
+          '$failedCount줄은 재생하지 않아요.$detail',
+        );
+      }
       _onPositionChanged();
-    } on Object {
-      // 해당 시점에 파일이 준비되지 않으면 재생을 늦추지 않고 줄을 건너뛴다.
+    } on Object catch (error) {
       _preparedSongId = songId;
+      onMessage('가사 음성 사전 준비에 실패했어요: $error');
     } finally {
       if (generation == _preparationGeneration && _preparingSongId == songId) {
         _preparingSongId = null;
@@ -202,12 +249,21 @@ class LyricVoiceMonitorController {
         continue;
       }
       _cursor++;
-      unawaited(service.playFile(path).catchError((_) {
-        if (!_reportedNotReady) {
-          _reportedNotReady = true;
-          onMessage('RØDE 헤드폰에서 가사 음성을 재생하지 못했어요.');
-        }
-      }));
+      unawaited(
+        service.playFile(path).then((status) {
+          final playbackStatus = status['status']?.toString();
+          if (playbackStatus != 'played' && playbackStatus != 'cancelled' &&
+              !_reportedNotReady) {
+            _reportedNotReady = true;
+            onMessage('가사 음성 재생 결과가 올바르지 않아요: $status');
+          }
+        }).catchError((Object error) {
+          if (!_reportedNotReady) {
+            _reportedNotReady = true;
+            onMessage('RØDE 헤드폰에서 가사 음성을 재생하지 못했어요: $error');
+          }
+        }),
+      );
       return;
     }
   }
@@ -221,6 +277,10 @@ class LyricVoiceMonitorController {
   }
 
   void _stopSafely() {
-    unawaited(service.stop().catchError((_) {}));
+    unawaited(
+      service.stop().catchError((Object error) {
+        if (!_disposed) onMessage('가사 음성을 정지하지 못했어요: $error');
+      }),
+    );
   }
 }

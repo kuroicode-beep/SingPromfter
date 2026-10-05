@@ -7,16 +7,29 @@ class LyricVoiceMonitorService {
     'singpromfter/lyric_voice_monitor',
   );
 
-  Future<bool> get hasRodeOutput async =>
-      await _channel.invokeMethod<bool>('hasRodeOutput') ?? false;
+  Future<Map<Object?, Object?>> get rodeOutputStatus async {
+    final status = await _channel.invokeMapMethod<Object?, Object?>(
+      'hasRodeOutput',
+    );
+    return status ?? const <Object?, Object?>{};
+  }
 
-  Future<List<bool>> prepareLyrics(List<Map<String, String>> entries) async =>
-      (await _channel.invokeListMethod<bool>('prepareLyrics', entries) ??
-              const <bool>[])
-          .toList(growable: false);
+  Future<List<Map<Object?, Object?>>> prepareLyrics(
+    List<Map<String, String>> entries,
+  ) async {
+    final results = await _channel.invokeListMethod<Map<Object?, Object?>>(
+      'prepareLyrics',
+      entries,
+    );
+    return results?.toList(growable: false) ?? const <Map<Object?, Object?>>[];
+  }
 
-  Future<void> playFile(String path) =>
-      _channel.invokeMethod<void>('playFile', {'path': path});
+  Future<Map<Object?, Object?>> playFile(String path) async =>
+      await _channel.invokeMapMethod<Object?, Object?>(
+        'playFile',
+        {'path': path},
+      ) ??
+      const <Object?, Object?>{};
 
   Future<void> stop() => _channel.invokeMethod<void>('stop');
 }
